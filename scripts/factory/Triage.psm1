@@ -265,6 +265,9 @@ function Get-Route($in, $rules) {
     [pscustomobject]$out
 }
 
+# The triage label follows the route, not the brief's kind: the pile is triage:noise, everything else triage:ready.
+function Get-TriageLabel($route) { if ($route.route -eq "pile") { "triage:noise" } else { "triage:ready" } }
+
 # The waiting reason to label. In shadow mode the owner still decides every report the old way, except the pile.
 function Get-WaitingReason($route, [string]$mode) {
     if ($route.route -eq "hold") { return "security" }
@@ -301,15 +304,37 @@ function Test-OurWords($texts, [string]$report, [int]$runLength = 8) {
     $problems
 }
 
-# Facts about a fix, read from the diff. $numstat: git diff --numstat lines. $diff: git diff -U0 text. The test that
-# reproduces the report (the files under tests/ whose added lines name it) doesn't count toward size.
-function Get-DiffFacts($numstat, [string]$diff, [string]$reproTest, $rules, [string]$ownerOnly) {
-    $files = @{}; $cur = $null
+# Code a fix may not change without the owner: a fix touching it is held, never pushed. Updates, settings and keys, AI
+# providers, the validators and diffs every DOM write goes through, the shared-folder feedback and requests code, the
+# team guide's git handling (Git.Untrusted lives in Team.cs), the e2e hook, and the factory's own gates: agents,
+# skills, workflows, scripts, routing rules, the factory's tests and everything under .github.
+$OwnerOnly = '^src/FlareAI\.Core/(Update|Settings|Llm|Editing|Feedback)/|^src/FlareAI\.Core/Actions/(GuideRequests|Team)\.cs$|^src/FlareAI\.Flare/E2EHook\.cs$|' +
+             '^\.claude/(agents|skills|workflows)/|^scripts/(factory|agent)/|^rules/|^tests/factory/|^\.github/'
+
+# A unified diff, per file: the added and removed lines. Only lines inside a hunk count, so an added line whose text
+# starts with "++" or "--" is still an added line, and only the real file headers are skipped.
+function Split-Diff([string]$diff) {
+    $files = @{}; $cur = $null; $inHunk = $false
     foreach ($line in ($diff -split "`r?`n")) {
-        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @() }; continue }
-        if (-not $cur -or $line.StartsWith("+++") -or $line.StartsWith("---")) { continue }
+        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @() }; $inHunk = $false; continue }
+        if (-not $cur) { continue }
+        if ($line.StartsWith("@@")) { $inHunk = $true; continue }
+        if (-not $inHunk) { continue }   # index, mode, ---, +++ and other header lines
         if ($line.StartsWith("+")) { $files[$cur].added += $line.Substring(1) } elseif ($line.StartsWith("-")) { $files[$cur].removed += $line.Substring(1) }
     }
+    $files
+}
+
+# Every added line of a diff, for the our-words check.
+function Get-AddedText([string]$diff) {
+    $files = Split-Diff $diff
+    (@($files.Keys | Sort-Object | ForEach-Object { $files[$_].added }) | ForEach-Object { $_ }) -join "`n"
+}
+
+# Facts about a fix, read from the diff. $numstat: git diff --numstat lines. $diff: git diff -U0 text. The test that
+# reproduces the report (the files under tests/ whose added lines name it) doesn't count toward size or behavior.
+function Get-DiffFacts($numstat, [string]$diff, [string]$reproTest, $rules, [string]$ownerOnly = $OwnerOnly) {
+    $files = Split-Diff $diff
     $method = if ($reproTest) { ($reproTest -split '\.')[-1] } else { "" }
     $testFiles = @(foreach ($p in $files.Keys) {
         if ($method -and $p -like "tests/*" -and @($files[$p].added | Where-Object { $_ -cmatch "\b$([regex]::Escape($method))\b" }).Count) { $p }
@@ -320,27 +345,34 @@ function Get-DiffFacts($numstat, [string]$diff, [string]$reproTest, $rules, [str
         if ($testFiles -contains $path) { continue }
         $count++; $lines += [int]($p[0] -replace '-', '0') + [int]($p[1] -replace '-', '0')
     }
-    $behavior = @($paths | Where-Object { $path = $_; @($rules.behaviorPaths | Where-Object { $path -match $_ }).Count })
+    $behavior = @($paths | Where-Object { $path = $_; $testFiles -notcontains $path -and @($rules.behaviorPaths | Where-Object { $path -match $_ }).Count })
     foreach ($p in $files.Keys) {
         $ui = @($rules.uiStringPaths | Where-Object { $p -match $_ }).Count
-        if (-not $ui -or $behavior -contains $p) { continue }
+        if (-not $ui -or $behavior -contains $p -or $testFiles -contains $p) { continue }
         $changed = @($files[$p].added + $files[$p].removed | Where-Object { $_ -notmatch '^\s*//' -and $_ -match '"[^"]*\p{L}[^"]*"' })
         if ($changed.Count) { $behavior += "$p (UI text)" }
+    }
+    $owner = @($paths | Where-Object { $ownerOnly -and $_ -match $ownerOnly })
+    # Defining or redefining the Git class or Git.Untrusted anywhere is owner-only too, wherever it moves.
+    foreach ($p in $files.Keys) {
+        if ($owner -contains $p) { continue }
+        if (@($files[$p].added + $files[$p].removed | Where-Object { $_ -match '\bclass\s+Git\b|\bUntrusted\s*=' }).Count) { $owner += "$p (Git.Untrusted)" }
     }
     [pscustomobject]@{
         lines = $lines; files = $count; test_files = $testFiles; repro_in_diff = [bool]$testFiles.Count
         behavior = @($behavior | Sort-Object -Unique)
-        owner_only = @($paths | Where-Object { $ownerOnly -and $_ -match $ownerOnly })
+        owner_only = @($owner)
     }
 }
 
 # Reads the TRX files of a filtered test run and says whether the named test behaved as $expect ("fail" on the base
-# commit, with an assertion; "pass" on the fix). $null when it did, else why not.
+# commit, with an assertion; "pass" on the fix). $null when it did, else why not. The name matches exactly, or with a
+# theory's arguments after it, never as a substring of another test's name.
 function Test-ReproResult($trx, [string]$name, [string]$expect) {
     $where = if ($expect -eq "fail") { "the base commit" } else { "the fix" }
     $results = @(foreach ($t in @($trx | Where-Object { $_ })) {
         $x = [xml]$t
-        @($x.TestRun.Results.UnitTestResult) | Where-Object { $_ -and ("" + $_.testName).Contains($name) }
+        @($x.TestRun.Results.UnitTestResult) | Where-Object { $_ -and (("" + $_.testName) -ceq $name -or ("" + $_.testName).StartsWith($name + "(", [StringComparison]::Ordinal)) }
     })
     if (-not $results.Count) { return "the test $name didn't run on $where (it may not build there)" }
     if ($expect -eq "pass") {
@@ -393,4 +425,4 @@ function Format-RouteComment($route, $in, [string]$mode, [string]$next) {
 
 Export-ModuleMember -Function Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
     Test-TestName, Test-CuratedIssue, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
-    Test-ReproResult, Get-PublicText, Format-RouteComment -Variable Routes, WaitingReasons
+    Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel -Variable Routes, WaitingReasons, OwnerOnly

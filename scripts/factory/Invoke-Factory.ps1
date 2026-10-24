@@ -35,8 +35,6 @@ $tmp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath(
 $here = Split-Path (Split-Path $PSScriptRoot)   # repo root
 $allowed = '^(src|tests|styleguide/Company|docs/user-guide|changes)/'
 $denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
-# Code that updates the plugin, holds settings and keys, or talks to AI providers: a fix here goes to the owner.
-$ownerOnly = '^src/FlareAI\.Core/(Update|Settings|Llm)/|^src/FlareAI\.Flare/E2EHook\.cs$'
 # Routes act on the public repo only in live mode, and never in a dry run.
 $routeMode = if ($env:FACTORY_ROUTE_MODE -eq "live") { "live" } else { "shadow" }
 $live = $routeMode -eq "live" -and -not $DryRun
@@ -60,6 +58,9 @@ function Say($n, $text) {
     $text | Add-Content (Join-Path $logs "report-$n-comments.log"); Write-Host "[comment #$n] $($text.Length) chars, in factory-logs"
 }
 Import-Module (Join-Path $PSScriptRoot "Triage.psm1") -Force
+# Code a fix may not change without the owner (security invariants and the factory's own gates; Triage.psm1 lists it).
+# A fix here is held: nothing is pushed.
+$ownerOnly = $OwnerOnly
 # Adds the labels in $add (never decision:*: only the owner approves a fix) and removes those in $remove.
 function Label($n, $add, $remove) {
     $add = @($add | Where-Object { $_ }); foreach ($x in $add) { Assert-FactoryLabel $x }
@@ -135,7 +136,7 @@ function Invoke-ReproCheck([string]$name, $testFiles, [string]$base, [string]$br
         Without $secrets {
             $ErrorActionPreference = "Continue"
             if ($side -eq "base") { git switch -q --detach $base; git checkout -q $head -- @testFiles }
-            dotnet test FlareAI.sln -c Release --filter "FullyQualifiedName~$name" --logger trx --results-directory $out *> (Join-Path $logs "report-$n-repro-$side.log")
+            dotnet test FlareAI.sln -c Release --filter "FullyQualifiedName=$name" --logger trx --results-directory $out *> (Join-Path $logs "report-$n-repro-$side.log")
         }
         Assert-GitConfig "The reproducing test"
         Without $secrets { git reset -q --hard; git clean -xfdq -e bin -e obj; git switch -q $branch }
@@ -156,7 +157,7 @@ function Get-Overlap($paths, [string]$branch) {
 $NextSteps = @{
     "hold" = "Look at it privately. Nothing went to GitHub, and any branch stays on the factory VM."
     "evidence" = "Nothing for you. The issue gets the evidence and this report is closed."
-    "auto-fix" = "Nothing for you. The fix merges once CI passes and ships in tonight's release."
+    "auto-fix" = "Nothing for you. The fix merges once CI passes. It ships in tonight's release."
     "fix-for-review" = "Review the draft PR. Merging it is the one step left."
     "brief-only" = "Decide with a label, ``decision:fix``, ``decision:plan``, ``decision:park`` or ``decision:decline``."
     "plan" = "Nothing for you yet. The feature loop picks it up and asks for its own checkpoints."
@@ -170,7 +171,7 @@ $labelSet = @("factory:working", "factory:done", "factory:needs-decision", "fact
 foreach ($l in $labelSet) {
     if (-not $DryRun) { & gh.exe label create $l -R $reports --force | Out-Null }
 }
-if ($live) { foreach ($l in "factory:auto-fix", "loop:auto", "from:tester", "documentation") { & gh.exe label create $l -R $repo --force | Out-Null } }
+if ($live) { foreach ($l in "factory:auto-fix", "loop:auto", "from:tester", "documentation", "docs-gap") { & gh.exe label create $l -R $repo --force | Out-Null } }
 
 # ---- pick one report: triage what's new first, then fix what the owner approved ------------------------------------
 # A route computed in this run can lead to a fix in this run. Otherwise only decision:fix leads to code, and only the
@@ -251,7 +252,6 @@ try {
         if ($problems.Count) { throw "The triage brief isn't usable: $($problems -join ' ')" }
         $triageComment = Format-TriageComment $brief
         Say $n $triageComment
-        $triageLabel = if ($brief.kind -eq "noise") { "triage:noise" } else { "triage:ready" }
 
         # ---- route: the brief proposes, the script decides --------------------------------------------------------
         # Matches are checked against lists fetched here, so a brief can't point evidence at an issue we don't curate.
@@ -267,9 +267,14 @@ try {
             if ($ow.Count) { $route.reasons = @($route.reasons) + $ow }
         }
         "$(Get-Date -Format o) triage route: $($route | ConvertTo-Json -Depth 5 -Compress)" | Add-Content (Join-Path $logs "report-$n-route.log")
+        $triageLabel = Get-TriageLabel $route   # from the route: the pile is triage:noise, the rest triage:ready
 
         if ($route.build) {
-            # A fix route computed in this run: build and check it now (the fix gate, Test-FixAllowed).
+            # A fix route computed in this run: build and check it now (the fix gate, Test-FixAllowed). The route is
+            # recorded first, so a fix that fails still leaves its route on the report.
+            Say $n (Format-RouteComment $route $in $routeMode "Building the fix now. The final route follows once the factory has checked it.")
+            Label $n @($triageLabel, "route:$($route.route)") ($stale | Where-Object { $_ -ne "factory:working" })
+            $stale = @(Get-StaleLabels $r) + "triage:ready", "route:$($route.route)", "factory:working"
             $routed = $route; $routeIn = $in
             $mode = "fix"
         }
@@ -292,9 +297,14 @@ try {
                         # Checked again right before posting: open, and labeled theme or from:*.
                         $target = Gh issue view $t -R $repo --json "number,state,labels,comments" | ConvertFrom-Json
                         if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
-                        $count = 1 + @($target.comments | Where-Object { ("" + $_.body).StartsWith("**Evidence from testers**") }).Count
-                        $text = $pub["evidence comment"].Replace("**Evidence from testers**", "**Evidence from testers** ($count so far)")
-                        Gh issue comment $t -R $repo --body $text | Out-Null
+                        # A retry after a failure below must not post the evidence twice.
+                        $marker = "Evidence posted on https://github.com/$repo/issues/$t"
+                        if (-not @($comments | Where-Object { ("" + $_.body).StartsWith("**Factory:** $marker") }).Count) {
+                            $count = 1 + @($target.comments | Where-Object { ("" + $_.body).StartsWith("**Evidence from testers**") }).Count
+                            $text = $pub["evidence comment"].Replace("**Evidence from testers**", "**Evidence from testers** ($count so far)")
+                            Gh issue comment $t -R $repo --body $text | Out-Null
+                            Say $n "$marker."
+                        }
                         Say $n (Format-RouteComment $route $in $routeMode "Added as evidence on https://github.com/$repo/issues/$t. This report is closed.")
                     }
                     else {
@@ -305,11 +315,18 @@ try {
                     Gh issue close $n -R $reports | Out-Null
                 }
                 { $_ -eq "plan" -or $_ -eq "docs-gap" } {
-                    $pubLabels = if ($route.route -eq "plan") { @("from:tester", "loop:auto") } else { @("from:tester", "documentation") }
+                    $pubLabels = if ($route.route -eq "plan") { @("from:tester", "loop:auto") } else { @("from:tester", "documentation", "docs-gap") }
                     $la = @(); foreach ($x in $pubLabels) { $la += @("--label", $x) }
-                    $url = Gh issue create -R $repo --title $pub["issue title"] --body $pub["issue body"] @la
-                    $num = ("" + $url).Trim().Split('/')[-1]
-                    # The issue exists from here on, so nothing below may fail the run and make a retry create it twice.
+                    # One public issue per report: a retry reuses the issue an earlier run recorded on the report.
+                    $prefix = "**Factory:** Public issue for this report: "
+                    $earlier = @($comments | Where-Object { ("" + $_.body).StartsWith($prefix) }) | Select-Object -Last 1
+                    if ($earlier -and ($earlier.body.Substring($prefix.Length).Trim() -match "^https://github\.com/$([regex]::Escape($repo))/issues/\d+$")) { $url = $Matches[0] }
+                    else {
+                        $url = ("" + (Gh issue create -R $repo --title $pub["issue title"] --body $pub["issue body"] @la)).Trim()
+                        Say $n "Public issue for this report: $url"   # recorded before anything else can fail
+                    }
+                    $num = $url.Split('/')[-1]
+                    # The issue exists from here on, so nothing below may fail the run.
                     $under = ""
                     if ($route.theme) {
                         try {
@@ -388,9 +405,9 @@ try {
     $diffText = (git diff --no-renames -U0 "$base..HEAD") -join "`n"
     $reproTest = if ($routed) { $routeIn.repro_test } else { "" }
     $facts = Get-DiffFacts $numstat $diffText $reproTest $rules $ownerOnly
-    $addedText = (($diffText -split "`n") | Where-Object { $_.StartsWith("+") -and -not $_.StartsWith("+++") }) -join "`n"
+    $addedText = Get-AddedText $diffText   # hunk lines only, so an added line starting "++" is still checked
     $prTitle = "Fix tester report $n"
-    $prLead = "Fixes tester report $n (private reports repo)."
+    $prLead = "Fixes tester report $n (private reports repo).$(if ($routed -and $routed.regression) { " Regression of #$($routed.regression)." })"
     $ow = @(Test-OurWords @{ "the added lines and changes note" = $addedText; "the commit messages" = ((git log --format=%B "$base..HEAD") -join "`n"); "the PR" = "$prTitle`n$prLead" } $reportText ([int]$rules.ourWords.runLength))
 
     if ($routed) {
@@ -417,9 +434,9 @@ try {
     }
     elseif ($facts.owner_only.Count -or $ow.Count) {
         # The owner approved this fix, but it touches owner-reviewed code or fails our words: it stays off GitHub.
-        $why = @(); if ($facts.owner_only.Count) { $why += "it touches code the owner reviews (updates, settings, AI providers), $($facts.owner_only -join ', ')" }; $why += $ow
+        $why = @(); if ($facts.owner_only.Count) { $why += "it touches code the owner reviews, $($facts.owner_only -join ', ')" }; $why += $ow
         Say $n "Not pushing this fix because $($why -join ', and '). The branch stays on the factory VM for the owner; nothing was pushed."
-        Label $n @("factory:needs-decision", "route:hold", "waiting:security") "factory:working"
+        Label $n @("factory:needs-decision", "route:hold", "waiting:security") (@("factory:working") + @(Get-Labels $r | Where-Object { $_ -like "waiting:*" -or $_ -like "route:*" }))
         return
     }
 
@@ -500,7 +517,7 @@ try {
 
     Gh pr merge $pr -R $repo --merge --delete-branch --match-head-commit $head | Out-Null
     if ($routed) { Say $n (Format-RouteComment $routed $routeIn $routeMode "Merged in $url. It ships in tonight's release.") }
-    Say $n "Fixed in $url. It ships in the next release.`n`n$summary"
+    Say $n "Fixed in $url. It ships in tonight's release.`n`n$summary"
     if ($routed) { Label $n @("factory:done", "route:auto-fix") $stale } else { Label $n "factory:done" "factory:working" }
     Gh issue close $n -R $reports | Out-Null
 }

@@ -51,8 +51,14 @@ Group by what the owner is needed for, from the labels:
 | want, plan input, plan review | `waiting:want`, `waiting:plan-input`, `waiting:plan-review` (from the feature loop) | As the item asks |
 | rule change | the weekly routing proposal (section 6) | Accept, adjust or keep the rules |
 
-Not waiting: no labels yet (not triaged), `factory:working` or `factory:queued` (fixing), `triage:noise` (the pile,
-shown as one batch), `decision:park`.
+Not waiting: no labels yet (not triaged), `factory:working` or `factory:queued` (fixing), `route:pile` or
+`triage:noise` (the pile, shown as one batch), `decision:park`.
+
+Each report goes in one group only. Check its labels in this order and stop at the first that applies: a `waiting:*`
+label (security before any other), `factory:stuck`, `factory:working` or `factory:queued`, a `decision:*` label,
+`route:hold` (security), `route:pile` or `triage:noise` (pile), and only then `triage:ready` or
+`factory:needs-decision` (decide). The route labels come before the `triage:ready` fallback, so a hold shows only under
+security and a question for the pile never shows as waiting.
 
 ## 2. Add what the VM can't see
 

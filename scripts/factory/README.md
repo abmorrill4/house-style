@@ -93,7 +93,7 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | 5 | fix-for-review | a bug, reproduced, and any check fails | A **draft** PR with the reasons. `waiting:merge` |
 | 6 | brief-only | a bug, not reproduced (or a duplicate of nothing open) | No code. `waiting:decide` |
 | 7 | plan | `feature` or `friction` | A public `from:tester` + `loop:auto` issue in our words, under the best related theme |
-| 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` issue |
+| 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue |
 | 9 | pile | `noise`, or a question the docs answer | `triage:noise`, open |
 
 Matches in the brief count only once the script finds them in the issue lists it fetched itself. The auto-fix checks,
@@ -101,12 +101,14 @@ all run by the script with thresholds from `rules/routing.json` (read from main 
 
 1. The named `repro_test` is added by the fix, **fails on the base commit with an assertion** (the fix's test files on
    top of main) and **passes on the fix**. Both runs are `dotnet test --filter`, with no secrets, results read from
-   TRX. A test that doesn't build on main, passes there, or fails without an assertion fails the check.
+   TRX, matching the fully qualified name exactly (or with a theory's arguments after it). A test that doesn't build on
+   main, passes there, or fails without an assertion fails the check. The route is posted before the fix starts, so a
+   fix that fails still leaves its route on the report.
 2. `confidence: high`.
 3. At most 150 changed lines and 5 files, not counting the test files that add the named test.
 4. No behavior paths: `styleguide/`, `docs/user-guide/`, `Commands.cs`, `*.resx`, settings classes, or changed string
    literals in `src/FlareAI.Flare/UI/`.
-5. No owner-only path (a hold).
+5. No owner-only path (a hold, list below).
 6. Our words: the added lines (with the `changes/` note), commit messages and PR text share no run of 8 words with the
    report, and hold no email address, UNC path or user-profile path (a hold). The evidence comment and plan or docs
    issue are checked the same way before they're posted.
@@ -151,7 +153,11 @@ Guards against report text steering the agent:
   `rules/`, so no fix sets the bar it's judged by.
 - The e2e workflow runs on pushes to this repo's branches, never on `pull_request`. For a PR, GitHub runs the
   workflow file from the PR itself, so a fork could rewrite any guard in it.
-- A fix that touches owner-reviewed code goes back to the owner (`factory:needs-decision`): `src/FlareAI.Core/Update/`, `Settings/`, `Llm/` or `src/FlareAI.Flare/E2EHook.cs`.
+- A fix that touches owner-only code is held and goes back to the owner (`factory:needs-decision`, `waiting:security`):
+  `src/FlareAI.Core/Update/`, `Settings/`, `Llm/`, `Editing/`, `Feedback/`, `Actions/GuideRequests.cs`, `Actions/Team.cs`,
+  any line defining the `Git` class or `Git.Untrusted`, `src/FlareAI.Flare/E2EHook.cs`, and the factory's own gates
+  (`.claude/agents/`, `.claude/skills/`, `.claude/workflows/`, `scripts/factory/`, `scripts/agent/`, `rules/`,
+  `tests/factory/`, `.github/`). The list is `$OwnerOnly` in `Triage.psm1`.
   Nothing is pushed.
 - The agents' output, the rerun tests' output and dry-run comments go to `C:\HouseStyle\factory-logs` on the VM, never
   the job log. This repo is public, so its job logs are too. A failed run logs only "report n is stuck", and the

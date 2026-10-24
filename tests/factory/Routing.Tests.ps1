@@ -237,8 +237,71 @@ Describe 'Get-DiffFacts' {
         $d = New-Diff @{ "src/FlareAI.Flare/UI/AskForm.cs" = @('-  if (x == null) return;', '+  if (x == null || y) return;', '+  // a "comment" only') }
         @((Get-DiffFacts @("2`t1`tsrc/FlareAI.Flare/UI/AskForm.cs") $d "" $rules $owner).behavior).Count | Should Be 0
     }
+    It "leaves the fix's test files out of the behavior scan" {
+        $d = New-Diff @{ "tests/FlareAI.Core.Tests/PluginSettingsTests.cs" = @('+public void IgnoreSurvivesRelint() { Assert.Equal("Ignore", x); }') }
+        $f = Get-DiffFacts @("1`t0`ttests/FlareAI.Core.Tests/PluginSettingsTests.cs") $d $test $rules $owner
+        @($f.behavior).Count | Should Be 0
+        $f = Get-DiffFacts @("1`t0`ttests/FlareAI.Core.Tests/PluginSettingsTests.cs") $d "" $rules $owner
+        @($f.behavior).Count | Should Be 1
+    }
     It 'lists owner-only paths' {
         (Get-DiffFacts @("1`t0`tsrc/FlareAI.Core/Update/UpdateStager.cs") "" "" $rules $owner).owner_only | Should Be "src/FlareAI.Core/Update/UpdateStager.cs"
+    }
+}
+
+Describe 'Split-Diff and the our-words check over added lines' {
+    $report = "When I click Lint Topic on a long topic with tables the pane freezes and Flare stops responding for a minute."
+    $diff = @(
+        "diff --git a/src/A.cs b/src/A.cs", "index 1111111..2222222 100644", "--- a/src/A.cs", "+++ b/src/A.cs", "@@ -1 +1,2 @@",
+        "--- an old line whose text starts with two dashes", "+++ the pane freezes and Flare stops responding for a minute", "+ordinary added line",
+        "diff --git a/src/New.cs b/src/New.cs", "new file mode 100644", "--- /dev/null", "+++ b/src/New.cs", "@@ -0,0 +1 @@", "+class New {}"
+    ) -join "`n"
+    It 'counts hunk lines that start with ++ or -- and skips only real headers' {
+        $f = Split-Diff $diff
+        $f["src/A.cs"].added.Count | Should Be 2
+        $f["src/A.cs"].removed | Should Be "-- an old line whose text starts with two dashes"
+        $f["src/New.cs"].added | Should Be "class New {}"
+        @($f["src/New.cs"].removed).Count | Should Be 0
+    }
+    It 'an added line starting with ++ that carries report text fails our words' {
+        $added = Get-AddedText $diff
+        $added | Should Match 'the pane freezes'
+        (Test-OurWords @{ "the added lines" = $added } $report 8) | Should Match 'shares a run of 8 words'
+    }
+}
+
+Describe 'Owner-only code holds' {
+    $owned = "src/FlareAI.Core/Update/UpdateStager.cs", "src/FlareAI.Core/Settings/PluginSettings.cs", "src/FlareAI.Core/Llm/Client.cs",
+             "src/FlareAI.Core/Editing/XhtmlValidator.cs", "src/FlareAI.Core/Feedback/Report.cs", "src/FlareAI.Core/Actions/GuideRequests.cs",
+             "src/FlareAI.Core/Actions/Team.cs", "src/FlareAI.Flare/E2EHook.cs", ".claude/agents/x.md", ".claude/skills/triage/SKILL.md",
+             ".claude/workflows/w.js", "scripts/factory/Triage.psm1", "scripts/agent/run.ps1", "rules/routing.json",
+             "tests/factory/routing-cases.json", ".github/workflows/factory.yml"
+    foreach ($p in $owned) {
+        It "holds a fix touching $p" {
+            $f = Get-DiffFacts @("1`t0`t$p") "" "" $rules
+            @($f.owner_only).Count | Should Be 1
+            (Get-Route (New-Input @{ fix = (New-Fix @{ owner_only = $f.owner_only }) }) $rules).route | Should Be "hold"
+        }
+    }
+    It 'leaves ordinary code alone' {
+        @((Get-DiffFacts @("1`t0`tsrc/FlareAI.Core/Style/StyleEngine.cs", "1`t0`tsrc/FlareAI.Core/Actions/ActionRunner.cs") "" "" $rules).owner_only).Count | Should Be 0
+    }
+    It 'holds a fix that defines the Git class or Git.Untrusted anywhere' {
+        $d = "diff --git a/src/FlareAI.Core/Style/Helpers.cs b/src/FlareAI.Core/Style/Helpers.cs`n@@ -1 +1 @@`n+    public static class Git { public static readonly string Untrusted = `"`"; }"
+        $f = Get-DiffFacts @("1`t0`tsrc/FlareAI.Core/Style/Helpers.cs") $d "" $rules
+        $f.owner_only | Should Match 'Git\.Untrusted'
+        (Get-Route (New-Input @{ fix = (New-Fix @{ owner_only = $f.owner_only }) }) $rules).route | Should Be "hold"
+    }
+}
+
+Describe 'Get-TriageLabel follows the route' {
+    It 'the pile is triage:noise, even for a question' {
+        Get-TriageLabel (Get-Route (New-Input @{ kind = "question" }) $rules) | Should Be "triage:noise"
+        Get-TriageLabel (Get-Route (New-Input @{ kind = "noise" }) $rules) | Should Be "triage:noise"
+    }
+    It 'everything else is triage:ready, even noise held for security' {
+        Get-TriageLabel (Get-Route (New-Input @{ kind = "noise"; security = $true }) $rules) | Should Be "triage:ready"
+        Get-TriageLabel (Get-Route (New-Input @{ kind = "feature" }) $rules) | Should Be "triage:ready"
     }
 }
 
@@ -265,6 +328,11 @@ Describe 'Test-ReproResult' {
     It 'refuses a test that fails on base without an assertion' {
         Test-ReproResult @((Trx $name "Failed" "System.NullReferenceException: Object reference not set" "at FlareAI.Core.Style.Ignore.Apply()")) $name "fail" | Should Match 'without an assertion'
     }
+    It 'matches the exact name, or a theory with arguments, never a longer name' {
+        Test-ReproResult @((Trx "$($name)Twice" "Failed" "Assert.Equal() Failure")) $name "fail" | Should Match "didn't run"
+        Test-ReproResult @((Trx "$name(count: 2)" "Failed" "Assert.Equal() Failure")) $name "fail" | Should BeNullOrEmpty
+        Test-ReproResult @((Trx $name "Passed"), (Trx "$($name)Twice" "Failed")) $name "pass" | Should BeNullOrEmpty
+    }
     It 'accepts a pass on the fix and refuses a failure' {
         Test-ReproResult @((Trx $name "Passed")) $name "pass" | Should BeNullOrEmpty
         Test-ReproResult @((Trx $name "Failed" "Assert.Equal() Failure")) $name "pass" | Should Match "doesn't pass"
@@ -284,7 +352,7 @@ Describe 'The forged report never auto-fixes' {
     }
     It 'when the diff touches styleguide/' {
         $in = New-RouteInput $brief @() 3
-        $f = Get-DiffFacts @("1`t1`tstyleguide/Company/Rules.flsnp", "5`t0`ttests/FlareAI.Core.Tests/IgnoreTests.cs") "diff --git a/tests/FlareAI.Core.Tests/IgnoreTests.cs b/tests/FlareAI.Core.Tests/IgnoreTests.cs`n+void IgnoreSurvivesRelint()" $brief.repro_test $rules $owner
+        $f = Get-DiffFacts @("1`t1`tstyleguide/Company/Rules.flsnp", "5`t0`ttests/FlareAI.Core.Tests/IgnoreTests.cs") "diff --git a/tests/FlareAI.Core.Tests/IgnoreTests.cs b/tests/FlareAI.Core.Tests/IgnoreTests.cs`n@@ -0,0 +1 @@`n+void IgnoreSurvivesRelint()" $brief.repro_test $rules $owner
         $in.fix = New-Fix @{ behavior = $f.behavior; lines = $f.lines; files = $f.files }
         (Get-Route $in $rules).route | Should Be "fix-for-review"
     }
