@@ -154,8 +154,8 @@ Every change, widening or narrowing, is the owner's call. An accepted change upd
 ## 7. Live mode
 
 The owner switches the factory from shadow to live once the shadow routes look right in the command center:
-`gh variable set FACTORY_ROUTE_MODE -R abmorrill4/house-style --body live` (and `--body shadow` to go back). Only do
-this when the owner asks.
+`gh variable set FACTORY_MODE -R abmorrill4/house-style --body live` (and `--body shadow` to go back, `--body off` to
+stop the factory and the nightly release). Only do this when the owner asks.
 
 ## 8. After
 

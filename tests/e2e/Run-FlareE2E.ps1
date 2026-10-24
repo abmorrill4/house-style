@@ -14,6 +14,7 @@ param(
     [switch]$NoAi,                            # skip scenarios that call the AI (no key, or to save cost)
     [string]$Fixture = (Join-Path $PSScriptRoot "..\..\corpus\DigitalBanking"),
     [string]$OutDir,
+    [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
 )
 $ErrorActionPreference = "Stop"
@@ -29,7 +30,8 @@ if ($Install) {
     if ($LASTEXITCODE) { throw "install-plugin.ps1 failed" }
 }
 
-$files = Get-ChildItem (Join-Path $PSScriptRoot "scenarios") -Filter *.ps1 | Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }
+$files = @(Get-ChildItem (Join-Path $PSScriptRoot "scenarios") -Filter *.ps1) + @(foreach ($d in $ScenarioDir) { if ($d) { Get-ChildItem $d -Filter *.ps1 } }) |
+    Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }
 if ($NoAi) { $files = $files | Where-Object { $_.BaseName -notlike "ai-*" } }
 if (-not @($files).Count) { throw "No scenarios to run (check -Scenario names)." }   # an empty run must not look like a pass
 $out = $OutDir

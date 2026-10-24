@@ -2,8 +2,12 @@
 .SYNOPSIS The code factory: takes one open tester report. A new one is triaged into a brief and routed by a fixed
 decision matrix (Get-Route in Triage.psm1). A clear-cut bug is fixed and checked in the same run. A report the owner
 marked decision:fix is fixed too.
-.DESCRIPTION Runs on the factory VM's runner. FACTORY_ROUTE_MODE=live acts on the routes. Anything else, the default
-"shadow", posts the computed route on the private report and pushes, merges and posts nothing public for it.
+.DESCRIPTION Runs on the factory VM's runner. FACTORY_MODE is the kill switch: off (also unset or anything unreadable)
+stops before anything else, shadow posts the computed route on the private report and pushes, merges and posts nothing
+public for it, and live acts on the routes.
+Run controls: each agent has a wall-clock limit and at most 200 turns, every agent run is recorded on the "Factory
+ledger" issue in the private reports repo (numbers only), at most limits.agentRunsPerDay agent runs a UTC day counted
+from that ledger, and no new fix starts while limits.openFactoryPrs factory PRs are open (rules/routing.json).
 Safeguards against a report, or code an agent wrote, doing more than the fix:
 - Only reports filed by the owner's feedback service (author abmorrill4, label "problem" or "error") in the private reports repo.
 - Triage never commits, pushes or opens anything; its scratch tests are thrown away. Only the owner sets decision:*.
@@ -16,6 +20,11 @@ Safeguards against a report, or code an agent wrote, doing more than the fix:
 - The report reaches the agent as a file, framed as untrusted data, never inside the prompt.
 - No GitHub token while an agent runs or while agent-written code (tests, e2e) runs; it comes back only to push,
   open the PR and merge. The checkout keeps no credential (persist-credentials: false); the push uses the token once.
+  The agents run tests only through scripts/agent/test-channel.ps1, which strips every secret (their own sign-in
+  too) from the child process; they can't run dotnet or the e2e harness directly.
+- In the auto-fix lane: no deleted or changed lines in existing tests and no change to protected test data (the
+  test-tamper guard), and no fix in an area suspended after a reverted auto-fix. Holdout e2e scenarios from the
+  private reports repo are fetched only after the fix agent has finished.
 - The agents get no web tools and a short command list; that's a speed bump, so the real checks are outside them:
   a clean working tree afterwards, prompts read from main before the agent starts, changed paths checked without
   rename detection (so a move can't hide a deletion), no mode changes or symlinks, a size cap, and the e2e harness
@@ -28,6 +37,10 @@ Needs: GH_TOKEN (repo and reports access), and CLAUDE_CODE_OAUTH_TOKEN (the owne
 #>
 param([int]$Issue, [switch]$DryRun)
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "Controls.psm1") -Force
+# The kill switch comes first: off, unset or unreadable stops the factory before it reads or writes anything.
+$factoryMode = Get-FactoryMode $env:FACTORY_MODE
+if ($factoryMode -eq "off") { Write-Host "FACTORY_MODE is off or unset, so the factory does nothing. Set it to shadow to turn the factory on."; exit 0 }
 $repo = "abmorrill4/house-style"
 $reports = "abmorrill4/house-style-reports"
 $owner = "abmorrill4"
@@ -36,15 +49,17 @@ $here = Split-Path (Split-Path $PSScriptRoot)   # repo root
 $allowed = '^(src|tests|styleguide/Company|docs/user-guide|changes)/'
 $denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
 # Routes act on the public repo only in live mode, and never in a dry run.
-$routeMode = if ($env:FACTORY_ROUTE_MODE -eq "live") { "live" } else { "shadow" }
+$routeMode = $factoryMode   # shadow or live from here on
 $live = $routeMode -eq "live" -and -not $DryRun
-# The agents' output stays on the VM: this repository is public, so its job logs are too, and the agents read the report.
-$logs = Join-Path $env:SystemDrive "HouseStyle\factory-logs"; New-Item -ItemType Directory -Force $logs | Out-Null
 $token = $env:GH_TOKEN
 $secrets = "GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"
 # The agents sign in with the subscription token when there is one; an API key in the environment would win over it.
 $agentStrips = @("GH_TOKEN", "GITHUB_TOKEN") + $(if ($env:CLAUDE_CODE_OAUTH_TOKEN) { @("ANTHROPIC_API_KEY") } else { @() })
 if (-not ($env:CLAUDE_CODE_OAUTH_TOKEN -or $env:ANTHROPIC_API_KEY)) { throw "No CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for the agents." }
+# The agents' output stays on the VM: this repository is public, so its job logs are too, and the agents read the report.
+$logs = Join-Path $env:SystemDrive "HouseStyle\factory-logs"; New-Item -ItemType Directory -Force $logs | Out-Null
+$apiKeyAgent = -not $env:CLAUDE_CODE_OAUTH_TOKEN   # the ledger records dollars only for API key runs
+$maxTurns = 200
 
 # No git hooks for any git call this run makes: an agent or its tests could plant one in .git/hooks, and the script's
 # own git calls (fetch, switch, push) run with the GitHub token. Child processes inherit this too.
@@ -70,7 +85,8 @@ function Label($n, $add, $remove) {
     Gh @a | Out-Null
 }
 # The display labels a report carries from an earlier triage or route, dropped when it is routed again.
-function Get-StaleLabels($r) { @(Get-Labels $r | Where-Object { $_ -like "triage:*" -or $_ -like "route:*" -or $_ -like "waiting:*" -or $_ -eq "factory:queued" -or $_ -eq "factory:working" }) }
+# blocked:* goes too: a report picked again is no longer blocked.
+function Get-StaleLabels($r) { @(Get-Labels $r | Where-Object { $_ -like "triage:*" -or $_ -like "route:*" -or $_ -like "waiting:*" -or $_ -like "blocked:*" -or $_ -eq "factory:queued" -or $_ -eq "factory:wip-limit" -or $_ -eq "factory:working" }) }
 
 # Runs a block with the named environment variables removed, then puts them back.
 function Without([string[]]$names, [scriptblock]$block) {
@@ -86,18 +102,51 @@ function Without([string[]]$names, [scriptblock]$block) {
 $claude = @((Get-Command claude.exe -ErrorAction SilentlyContinue).Source, (Join-Path $env:USERPROFILE ".local\bin\claude.exe")) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $claude) { throw "Claude Code isn't installed for this account (no claude.exe on PATH or in ~\.local\bin)." }
 
-function Agent([string]$prompt, $map, $tools, [string]$log) {
+# Each run is checked against the day's run cap first and recorded on the ledger after, whatever happened. A run that
+# hits the wall-clock limit or the turn cap is a cap stop: the report goes to the owner as stuck, with the reason.
+# --output-format json puts the run's numbers on stdout, which stays on the VM with the agent's notes (stderr).
+$script:capStop = $false
+function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
     foreach ($k in $map.Keys) { $prompt = $prompt.Replace("{{$k}}", $map[$k]) }
+    $over = Test-RunBudget $script:runsUsed $runLimit
+    if ($over) { $script:capStop = $true; throw "Stopped by a cap before the $step agent started, because $over." }
     $log = Join-Path $logs $log
-    Without $agentStrips {
-        $ErrorActionPreference = "Continue"
-        $global:LASTEXITCODE = -1   # a claude that never starts must not look like success
-        $prompt | & $claude -p --setting-sources user --permission-mode acceptEdits --allowedTools $tools --disallowedTools "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)" --max-turns 200 *> $log
-        $code = $LASTEXITCODE
-        Write-Host "Agent output: $log on the factory VM"
-        if ($code) { throw "claude exited $code" }
-    }
+    $outFile = [IO.Path]::ChangeExtension($log, ".json")
+    $promptFile = Join-Path $tmp "prompt-$step.txt"
+    [IO.File]::WriteAllText($promptFile, $prompt, (New-Object Text.UTF8Encoding $false))
+    $argv = @("-p", "--output-format", "json", "--setting-sources", "user", "--permission-mode", "acceptEdits", "--allowedTools", $tools,
+              "--disallowedTools", $DisallowedTools, "--max-turns", "$maxTurns")
+    $proc = Without $agentStrips { Invoke-AgentProcess $claude $argv $promptFile $outFile $log ($agentMinutes * 60) }
+    Remove-Item $promptFile -ErrorAction SilentlyContinue
+    $script:runsUsed++
+    $out = ConvertFrom-AgentOutput (Get-Content $outFile -Raw -ErrorAction SilentlyContinue)
+    $stop = Get-AgentStop $proc $out $agentMinutes $maxTurns
+    Write-Ledger (New-LedgerEntry $step $n $proc $out $apiKeyAgent $routeMode ([bool]$DryRun) $stop)
+    Write-Host "Agent output: $log and $outFile on the factory VM"
+    if ($stop) { $script:capStop = $true; throw "Stopped by a cap, because $stop." }
+    if ($proc.exit) { throw "claude exited $($proc.exit)" }
 }
+
+# ---- the run ledger: a pinned "Factory ledger" issue in the private reports repo -----------------------------------
+# Only the factory's token writes it (no agent ever holds one), and the daily run cap is counted from it, never from a
+# file on the VM that agent code could write. A ledger that can't be read or written stops the run.
+function Get-LedgerIssue {
+    $found = @(Gh issue list -R $reports --state open --author "@me" --search "Factory ledger in:title" --limit 20 --json "number,title" | ConvertFrom-Json) |
+             Where-Object { $_.title -eq "Factory ledger" } | Sort-Object number | Select-Object -First 1
+    if ($found) { return [int]$found.number }
+    $url = "" + (Gh issue create -R $reports --title "Factory ledger" --body "One comment per factory agent run, with its tokens, turns and time (and dollars when an API key paid for it). No report text. The daily run cap is counted from here.")
+    $num = [int]($url.Trim().Split('/')[-1])
+    try { Gh issue pin $num -R $reports | Out-Null } catch { Write-Host "Couldn't pin the Factory ledger issue." }
+    $num
+}
+function Get-LedgerToday {
+    $me = ("" + (Gh api user --jq ".login")).Trim()
+    $since = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd") + "T00:00:00Z"
+    $rows = @(Gh api "repos/$reports/issues/$script:ledgerIssue/comments?since=$since&per_page=100" --paginate --jq '.[] | {login: .user.login, body: .body} | tojson')
+    @($rows | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.login -eq $me } | ForEach-Object { ConvertFrom-LedgerComment $_.body } | Where-Object { $_ })
+}
+# Dry runs are recorded too: they spend tokens, so the cap counts them.
+function Write-Ledger($entry) { Gh issue comment $script:ledgerIssue -R $reports --body (Format-LedgerComment $entry) | Out-Null }
 
 function Assert-CleanTree($who) {
     Assert-GitConfig $who   # first: git status could run a program an agent configured (core.fsmonitor)
@@ -148,6 +197,19 @@ function Invoke-ReproCheck([string]$name, $testFiles, [string]$base, [string]$br
     if ($why) { $why } else { "pass" }
 }
 
+# The holdout folder in the private reports repo: its entries, or $null when there is none (a 404). Called only after
+# the fix agent has finished (see the holdout step below).
+function Get-HoldoutList {
+    $ErrorActionPreference = "Continue"   # gh's 404 message goes to stderr
+    $o = @(& gh.exe api "repos/$reports/contents/holdout" 2>&1)
+    if ($LASTEXITCODE) {
+        if (($o | ForEach-Object { "$_" }) -join " " -match 'HTTP 404|Not Found') { Write-Host "The reports repo has no holdout folder."; return $null }
+        throw "gh api contents/holdout failed"
+    }
+    $entries = (@($o | Where-Object { $_ -is [string] }) -join "`n") | ConvertFrom-Json
+    , @($entries)
+}
+
 # Open factory PRs, other than this report's, that change any of $paths.
 function Get-Overlap($paths, [string]$branch) {
     $open = @(Gh pr list -R $repo --state open --limit 100 --json "number,headRefName,files" | ConvertFrom-Json)
@@ -165,9 +227,9 @@ $NextSteps = @{
     "pile" = "Glance at it with the rest of the pile."
 }
 
-$labelSet = @("factory:working", "factory:done", "factory:needs-decision", "factory:stuck", "factory:queued", "triage:ready", "triage:noise",
+$labelSet = @("factory:working", "factory:done", "factory:needs-decision", "factory:stuck", "factory:queued", "factory:wip-limit", "triage:ready", "triage:noise",
               "triage:failed", "decision:fix", "decision:plan", "decision:park", "decision:decline") +
-            @($Routes | ForEach-Object { "route:$_" }) + @($WaitingReasons | ForEach-Object { "waiting:$_" })
+            @($Routes | ForEach-Object { "route:$_" }) + @($WaitingReasons | ForEach-Object { "waiting:$_" }) + @($BlockedCauses | ForEach-Object { "blocked:$_" })
 foreach ($l in $labelSet) {
     if (-not $DryRun) { & gh.exe label create $l -R $reports --force | Out-Null }
 }
@@ -176,26 +238,42 @@ if ($live) { foreach ($l in "factory:auto-fix", "loop:auto", "from:tester", "doc
 # ---- pick one report: triage what's new first, then fix what the owner approved ------------------------------------
 # A route computed in this run can lead to a fix in this run. Otherwise only decision:fix leads to code, and only the
 # owner can set it: the feedback service sets fixed labels only, and Label refuses decision:* here.
-$pickRules = Get-Content (Join-Path $here "rules\routing.json") -Raw | ConvertFrom-Json   # the cap only; the run reads main's copy
+$pickRules = Get-Content (Join-Path $here "rules\routing.json") -Raw | ConvertFrom-Json   # the caps and limits; routing reads main's copy
+function Limit($name, [int]$default) { $v = $pickRules.limits.$name; if ($v -and [int]$v -gt 0) { [int]$v } else { $default } }
+$runLimit = Limit "agentRunsPerDay" 20; $agentMinutes = Limit "agentMinutes" 45; $wipLimit = Limit "openFactoryPrs" 5
+
+# The day's agent runs, from the ledger. At the cap, no report is picked.
+$script:ledgerIssue = Get-LedgerIssue
+$script:runsUsed = Get-RunsToday (Get-LedgerToday)
+$over = Test-RunBudget $script:runsUsed $runLimit
+if ($over) { Write-Host "Nothing started, because $over (Factory ledger, in the private reports repo)."; exit 0 }
+
+# The open factory PRs against their limit. At the limit no new fix starts; a count that fails reads as full.
+$openPrs = try { Get-OpenFactoryPrCount (Gh pr list -R $repo --state open --limit 100 --json "number,headRefName" | ConvertFrom-Json) } catch { $wipLimit }
+$wipFull = Test-WipFull $openPrs $wipLimit
 $all = Gh issue list -R $reports --state open --limit 200 --json "number,title,body,author,labels" | ConvertFrom-Json
-$pick = Select-Report $all $owner $Issue (Get-CapLeft $pickRules)
+if ($wipFull) {
+    Write-Host "$openPrs factory PRs are open, the limit is $wipLimit, so no new fix starts."
+    foreach ($w in @(Get-WipWaiting $all $owner)) { Label $w.number "factory:wip-limit" $null }   # approved fixes wait, labeled for the command center
+}
+$pick = Select-Report $all $owner $Issue (Get-CapLeft $pickRules) $wipFull
 if (-not $pick) { Write-Host "Nothing to triage and no fix approved."; exit 0 }
 $r = $pick.Report; $mode = $pick.Mode; $n = $r.number
 $stale = @(Get-StaleLabels $r) + "factory:working"   # what a new route replaces
 $comments = @((Gh issue view $n -R $reports --json comments | ConvertFrom-Json).comments)
 if ($mode -eq "triage") {
     $failures = Get-TriageFailures $comments
-    if ($failures -ge 3) { Say $n "Triage failed three times. Over to the owner."; Label $n @("factory:stuck", "waiting:stuck") "triage:failed"; exit 0 }
+    if ($failures -ge 3) { Say $n "Triage failed three times. Over to the owner."; Label $n @("factory:stuck", "waiting:stuck", "blocked:owner") "triage:failed"; exit 0 }
 }
 if ($mode -eq "fix") {
     # One event per line, so more than 100 events still parse.
     $events = @(Gh api "repos/$reports/issues/$n/events?per_page=100" --paginate --jq '.[]' | ForEach-Object { $_ | ConvertFrom-Json })
-    $why = Test-FixAllowed $null (Get-Labels $r) $events   # no route in this run: the owner's decision:fix alone
+    $why = Test-FixAllowed $null (Get-Labels $r) $events $owner   # no route in this run: the owner's decision:fix alone, added by the owner
     if ($why) { Say $n "Not fixing this yet: $why. Over to the owner."; Label $n @("factory:needs-decision", "waiting:decide") $null; exit 0 }
     "decision:fix added by $(Get-LabelActor $events 'decision:fix')" | Add-Content (Join-Path $logs "report-$n-gate.log")
 }
 Write-Host "Report #$n ($mode, routes in $routeMode mode)"
-Label $n "factory:working" $null
+Label $n "factory:working" @(Get-Labels $r | Where-Object { $_ -like "blocked:*" -or $_ -eq "factory:wip-limit" })   # picked again, so no longer blocked or waiting
 
 $routed = $null   # the route this run computed, when it leads to a fix
 try {
@@ -222,6 +300,14 @@ try {
     $reviewPrompt = (git show "${base}:.github/factory/review-prompt.md") -join "`n"
     $triagePrompt = (git show "${base}:.github/factory/triage-prompt.md") -join "`n"
     $rules = (git show "${base}:rules/routing.json") -join "`n" | ConvertFrom-Json
+    # Lane suspension: areas rules/routing.json lists, plus the areas of auto-fixes main's history reverted (unless the
+    # owner reinstated the area since). A fix in a suspended area goes for review.
+    $revertLog = (git log $base -E --grep "This reverts commit [0-9a-f]{40}" --format="%x1e%cI%x1f%B") -join "`n"
+    $reverted = Get-RevertedShas $revertLog
+    $revertedFixes = @()
+    if ($reverted.Count) { $revertedFixes = @(Get-RevertedFixes (Gh pr list -R $repo --state merged --label "factory:auto-fix" --limit 200 --json "number,mergeCommit,mergedAt,files" | ConvertFrom-Json) $reverted) }
+    $rules | Add-Member -Force -NotePropertyName suspended -NotePropertyValue @(Get-SuspendedAreas $rules $revertedFixes)
+    if (@($rules.suspended).Count) { Write-Host "Auto-fix is suspended for $(@($rules.suspended) -join ', ')." }
 
     if ($mode -eq "triage") {
         # ---- triage: read, try to reproduce, compare with the roadmap, write a brief. Never a branch, PR or issue. --
@@ -234,8 +320,8 @@ try {
         foreach ($o in $all | Where-Object number -ne $n) { $ctx += "- report #$($o.number): $((@($o.labels.name | Where-Object { $_ -like 'triage:*' -or $_ -like 'decision:*' })) -join ', ')" }
         Set-Content $contextPath ($ctx -join "`n") -Encoding UTF8
         $briefPath = Join-Path $tmp "triage-$n.json"; Remove-Item $briefPath -ErrorAction SilentlyContinue
-        $triageTools = "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(dotnet build:*),Bash(dotnet test:*)"
-        Agent $triagePrompt @{ REPORT_PATH = $reportPath; CONTEXT_PATH = $contextPath; RESULT_PATH = $briefPath } $triageTools "report-$n-triage.log"
+        # Tests only through test-channel.ps1, which runs them with no secrets ($TriageTools in Controls.psm1).
+        Agent $triagePrompt @{ REPORT_PATH = $reportPath; CONTEXT_PATH = $contextPath; RESULT_PATH = $briefPath } $TriageTools "report-$n-triage.log" "triage"
         # Scratch tests are thrown away: triage never leaves code behind, and may not commit. The git config is checked
         # before any git call, and the reset runs without secrets, since the agent could have set keys that run programs.
         Assert-GitConfig "The triage agent"
@@ -269,6 +355,12 @@ try {
         "$(Get-Date -Format o) triage route: $($route | ConvertTo-Json -Depth 5 -Compress)" | Add-Content (Join-Path $logs "report-$n-route.log")
         $triageLabel = Get-TriageLabel $route   # from the route: the pile is triage:noise, the rest triage:ready
 
+        if ($route.build -and $wipFull) {
+            # At the open-PR limit no new fix starts. The report is routed again once a factory PR closes.
+            Say $n (Format-RouteComment $route $in $routeMode "The fix waits until fewer than $wipLimit factory PRs are open. It is routed again then.")
+            Label $n @($triageLabel, "route:$($route.route)", "factory:wip-limit") $stale
+            return
+        }
         if ($route.build) {
             # A fix route computed in this run: build and check it now (the fix gate, Test-FixAllowed). The route is
             # recorded first, so a fix that fails still leaves its route on the report.
@@ -356,7 +448,7 @@ try {
 
     # ---- fix: only for a route this run computed, or the owner's decision:fix -----------------------------------
     if ($routed) {
-        $gate = Test-FixAllowed $routed (Get-Labels $r) @()
+        $gate = Test-FixAllowed $routed (Get-Labels $r) @() $owner
         if ($gate) { throw "The fix gate refused: $gate" }
         $orderText = $triageComment + "`n`n**Route:** $($routed.route), computed by the factory in this run. Add the test named above, with that exact name, and make it pass."
     }
@@ -367,11 +459,10 @@ try {
         $decision = @($comments | Where-Object { $_.body.StartsWith("**Decision:**") }) | Select-Object -Last 1
         $orderText = $(if ($briefComment) { $briefComment.body } else { "(no triage brief)" }) + "`n`n" + $(if ($decision) { $decision.body } else { "(no decision comment)" })
     }
-    $tools = "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*)," +
-             "Bash(dotnet build:*),Bash(dotnet test:*),Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/e2e/Run-FlareE2E.ps1:*)"
+    $tools = $FixTools   # builds, tests and e2e only through test-channel.ps1, with no secrets (Controls.psm1)
     $orderPath = Join-Path $tmp "order-$n.md"
     Set-Content $orderPath ("<workorder>`n" + $orderText + "`n</workorder>") -Encoding UTF8
-    Agent $fixPrompt @{ REPORT_PATH = $reportPath; ORDER_PATH = $orderPath; RESULT_PATH = $resultPath } $tools "report-$n-fix.log"
+    Agent $fixPrompt @{ REPORT_PATH = $reportPath; ORDER_PATH = $orderPath; RESULT_PATH = $resultPath } $tools "report-$n-fix.log" "fix"
     # The agent's tests could print the report or anything else readable: from here on no report or order on disk,
     # and the output of agent-written code goes to factory-logs.
     Remove-Item $orderPath, $reportPath -ErrorAction SilentlyContinue
@@ -415,7 +506,8 @@ try {
                  elseif (-not $facts.repro_in_diff) { "the fix doesn't add the test $reproTest" }
                  else { Invoke-ReproCheck $reproTest $facts.test_files $base $branch }
         $routeIn.fix = [pscustomobject]@{ repro = $repro; lines = $facts.lines; files = $facts.files; behavior = @($facts.behavior)
-                                          owner_only = @($facts.owner_only); overlap = @(Get-Overlap @($numstat | ForEach-Object { ($_ -split "`t")[-1] }) $branch) }
+                                          owner_only = @($facts.owner_only); overlap = @(Get-Overlap @($numstat | ForEach-Object { ($_ -split "`t")[-1] }) $branch)
+                                          tamper = @($facts.tamper); area = $facts.area }
         $routeIn.our_words = -not $ow.Count
         $routeIn.cap_left = Get-CapLeft $rules
         $routed = Get-Route $routeIn $rules
@@ -440,23 +532,36 @@ try {
         return
     }
 
+    # ---- holdout scenarios: fetched only now that the fix agent has finished, never into the checkout -----------------
+    # They live in the private reports repo (holdout/*.ps1). The agent never held a token and never saw them; they run
+    # with the public suite below and are deleted before the review agent starts. No holdout folder is fine.
+    $holdoutDir = Join-Path $tmp "holdout-$n"
+    Remove-Item $holdoutDir -Recurse -Force -ErrorAction SilentlyContinue
+    $holdout = @(Save-Holdout { Get-HoldoutList } { param($name) Gh api -H "Accept: application/vnd.github.raw+json" "repos/$reports/contents/holdout/$name" } $holdoutDir)
+    if ($holdout.Count) { Write-Host "$($holdout.Count) holdout scenarios run with the public suite." } else { Write-Host "No holdout scenarios in the reports repo, so the public suite runs alone." }
+    $e2eExtra = if ($holdout.Count) { @("-ScenarioDir", $holdoutDir) } else { @() }
+
     # ---- test it again here, not on the agent's word; agent-written code runs with no secrets ----------------------
-    Without $secrets {
-        $ErrorActionPreference = "Continue"   # with Stop, redirected stderr from a native command throws; exit codes decide
-        dotnet test FlareAI.sln -c Release *> (Join-Path $logs "report-$n-unit.log")
-        if ($LASTEXITCODE) { throw "Unit tests fail on the fix." }
-        $e2eOut = Join-Path $tmp "e2e-$n"
-        Remove-Item $e2eOut -Recurse -Force -ErrorAction SilentlyContinue   # never read an earlier run's results
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\e2e\Run-FlareE2E.ps1 -Install -NoAi -OutDir $e2eOut *> (Join-Path $logs "report-$n-e2e.log")
-        if ($LASTEXITCODE) {
-            # In parentheses: Windows PowerShell's ConvertFrom-Json sends a whole array down the pipeline as one object.
-            $failed = @((Get-Content (Join-Path $e2eOut "results.json") -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json) | Where-Object { -not $_.passed })
-            if ($failed.Count -and -not ($failed | Where-Object kind -ne "vm")) { throw "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the factory VM rather than the fix; rerun the report once the VM is healthy." }
-            if (-not (Test-Path (Join-Path $e2eOut "results.json"))) { throw "The end-to-end run stopped before any scenario ran (setup, install or the FlaUI restore). See report-$n-e2e.log on the factory VM." }
-            throw "End-to-end checks fail on the fix."
+    try {
+        Without $secrets {
+            $ErrorActionPreference = "Continue"   # with Stop, redirected stderr from a native command throws; exit codes decide
+            dotnet test FlareAI.sln -c Release *> (Join-Path $logs "report-$n-unit.log")
+            if ($LASTEXITCODE) { throw "Unit tests fail on the fix." }
+            $e2eOut = Join-Path $tmp "e2e-$n"
+            Remove-Item $e2eOut -Recurse -Force -ErrorAction SilentlyContinue   # never read an earlier run's results
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\e2e\Run-FlareE2E.ps1 -Install -NoAi -OutDir $e2eOut @e2eExtra *> (Join-Path $logs "report-$n-e2e.log")
+            if ($LASTEXITCODE) {
+                # In parentheses: Windows PowerShell's ConvertFrom-Json sends a whole array down the pipeline as one object.
+                $failed = @((Get-Content (Join-Path $e2eOut "results.json") -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json) | Where-Object { -not $_.passed })
+                if ($failed.Count -and -not ($failed | Where-Object kind -ne "vm")) { throw "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the factory VM rather than the fix; rerun the report once the VM is healthy." }
+                if (-not (Test-Path (Join-Path $e2eOut "results.json"))) { throw "The end-to-end run stopped before any scenario ran (setup, install or the FlaUI restore). See report-$n-e2e.log on the factory VM." }
+                if (-not ($failed | Where-Object { ("" + $_.scenario) -notlike "holdout-*" })) { throw "A holdout scenario fails on the fix." }
+                throw "End-to-end checks fail on the fix."
+            }
+            $script:retried = @((Get-Content (Join-Path $e2eOut "results.json") -Raw | ConvertFrom-Json) | Where-Object { $_.passed -and $_.firstTry -and ("" + $_.scenario) -notlike "holdout-*" } | ForEach-Object scenario)
         }
-        $retried = @((Get-Content (Join-Path $e2eOut "results.json") -Raw | ConvertFrom-Json) | Where-Object { $_.passed -and $_.firstTry } | ForEach-Object scenario)
     }
+    finally { Remove-Item $holdoutDir -Recurse -Force -ErrorAction SilentlyContinue }   # gone before the review agent runs
     git clean -xfdq -e bin -e obj   # build output is ignored; anything else the tests left is dropped
     Assert-CleanTree "The tests"
 
@@ -464,7 +569,7 @@ try {
     $diffPath = Join-Path $tmp "fix-$n.diff"; git diff --no-renames "$base..HEAD" | Set-Content $diffPath -Encoding UTF8
     $summaryPath = Join-Path $tmp "summary-$n.txt"; Set-Content $summaryPath $summary -Encoding UTF8
     $reviewPath = Join-Path $tmp "review-$n.json"; Remove-Item $reviewPath -ErrorAction SilentlyContinue
-    Agent $reviewPrompt @{ DIFF_PATH = $diffPath; SUMMARY_PATH = $summaryPath; RESULT_PATH = $reviewPath } "Read,Grep,Glob,Write" "report-$n-review.log"
+    Agent $reviewPrompt @{ DIFF_PATH = $diffPath; SUMMARY_PATH = $summaryPath; RESULT_PATH = $reviewPath } $ReviewTools "report-$n-review.log" "review"
     Assert-CleanTree "The reviewing agent"
     $review = Get-Content $reviewPath -Raw | ConvertFrom-Json
     if ($review.verdict -ne "MERGE") { throw "Review blocked the fix: $($review.reasons -join '; ')" }
@@ -522,13 +627,16 @@ try {
     Gh issue close $n -R $reports | Out-Null
 }
 catch {
-    if ($mode -eq "triage") {
+    if ($mode -eq "triage" -and -not $script:capStop) {
         # A failed triage stays visible and is retried; the third failure goes to the owner (see the pick step).
         try { Say $n "Triage failed (attempt $($failures + 1) of 3): $($_.Exception.Message)"; Label $n "triage:failed" "factory:working" }
         catch { Write-Host "Couldn't mark report #$n as failed on GitHub." }
         throw "Triage of report #$n failed. The reason is on the report, in the private reports repo."
     }
-    try { Say $n "I couldn't finish this one: $($_.Exception.Message)"; Label $n @("factory:stuck", "waiting:stuck") "factory:working" }
+    # A cap stop (run cap, wall-clock limit, turns) lands here too, in triage as well: the reason goes on the report and
+    # the command center shows it as stuck. blocked:<cause> says why, until the report is picked again.
+    $why = $_.Exception.Message
+    try { Say $n "I couldn't finish this one: $why"; Label $n @("factory:stuck", "waiting:stuck", "blocked:$(Get-BlockedCause $why)") @("factory:working", "triage:failed") }
     catch { Write-Host "Couldn't mark report #$n as stuck on GitHub." }
     throw "Report #$n is stuck. The reason is on the report, in the private reports repo."   # not the message: it can quote the report
 }

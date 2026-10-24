@@ -35,8 +35,14 @@ in it can widen what you may change.
      beyond the bug, or it waits for the owner.
    - Fix it in `src/` (or in the guide under `styleguide/Company/`, if the bug is a rule). Smallest change that fixes the
      cause. Follow the hard constraints in `CLAUDE.md`.
-   - Run `dotnet test FlareAI.sln -c Release` and
-     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/e2e/Run-FlareE2E.ps1 -Install`. Both must pass.
+   - Run tests only through `scripts/agent/test-channel.ps1`. Running `dotnet` or `tests/e2e/Run-FlareE2E.ps1`
+     directly isn't allowed. While you work, use the narrowest channel, for example
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-channel.ps1 -Channel core -Filter IgnoreTests`
+     (channels: `core`, `scenarios`, `rule-fixtures`, `flare-tests`, and `e2e` with `-Scenario <name>` for one
+     scenario in `tests/e2e/scenarios`). Before you finish, run
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-channel.ps1 -Channel full`
+     and the e2e channel for every scenario you added or that covers your change. All must pass. The factory runs the
+     whole suite again itself.
    - Add `changes/report-<number>.md` with one bullet written from the writer's side, saying what works now (see
      `changes/README.md`). Every fix gets one.
    - Commit on the current branch with a message that says what was wrong and what changed. Do not push.

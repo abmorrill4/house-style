@@ -76,7 +76,7 @@ function Get-Labels($r) { @($r.labels | ForEach-Object { $_.name }) }
 # A report queued because the day's auto-fix cap was full is triaged and routed again once $capLeft allows. route:* and
 # waiting:* labels are for display: they neither block triage nor approve anything.
 # Returns @{ Report; Mode } or $null.
-function Select-Report($all, [string]$owner, [int]$issue = 0, [int]$capLeft = 0) {
+function Select-Report($all, [string]$owner, [int]$issue = 0, [int]$capLeft = 0, [bool]$wipFull = $false) {
     $ours = @($all | Where-Object {
         $l = Get-Labels $_
         $_.author.login -eq $owner -and ($l -contains "problem" -or $l -contains "error")
@@ -87,28 +87,45 @@ function Select-Report($all, [string]$owner, [int]$issue = 0, [int]$capLeft = 0)
         $new = -not ($l | Where-Object { $_ -like "decision:*" -or $_ -like "factory:*" -or ($_ -like "triage:*" -and $_ -ne "triage:failed") })
         if ($new) { return @{ Report = $r; Mode = "triage" } }
     }
-    if ($capLeft -gt 0) {
-        foreach ($r in $ours) {
-            $l = Get-Labels $r
-            if ($l -contains "factory:queued" -and -not ($l | Where-Object { $_ -like "decision:*" -or ($_ -like "factory:*" -and $_ -ne "factory:queued") })) { return @{ Report = $r; Mode = "triage" } }
-        }
+    # A report waiting on the daily auto-fix cap (factory:queued) or on the open-PR limit (factory:wip-limit) is
+    # triaged and routed again once that limit has room.
+    foreach ($r in $ours) {
+        $l = Get-Labels $r
+        $waitsOn = @($l | Where-Object { $_ -eq "factory:queued" -or $_ -eq "factory:wip-limit" })
+        if (-not $waitsOn.Count -or ($l | Where-Object { $_ -like "decision:*" -or ($_ -like "factory:*" -and $waitsOn -notcontains $_) })) { continue }
+        if (($l -contains "factory:queued" -and $capLeft -le 0) -or ($l -contains "factory:wip-limit" -and $wipFull)) { continue }
+        return @{ Report = $r; Mode = "triage" }
     }
+    if ($wipFull) { return $null }   # no new fix starts while the open factory PRs are at their limit
     foreach ($r in $ours) {
         $l = Get-Labels $r
         $decisions = @($l | Where-Object { $_ -like "decision:*" })
         # decision:fix alone: a report with a second decision label waits for the owner and never blocks the queue.
-        if ($decisions.Count -eq 1 -and $decisions[0] -eq "decision:fix" -and -not ($l | Where-Object { $_ -like "factory:*" })) { return @{ Report = $r; Mode = "fix" } }
+        if ($decisions.Count -eq 1 -and $decisions[0] -eq "decision:fix" -and -not ($l | Where-Object { $_ -like "factory:*" -and $_ -ne "factory:wip-limit" })) { return @{ Report = $r; Mode = "fix" } }
     }
     $null
 }
 
+# Reports the owner approved with decision:fix that would start a fix now if the open factory PRs had room. They get
+# factory:wip-limit while they wait, so the command center can show why.
+function Get-WipWaiting($all, [string]$owner) {
+    @($all | Where-Object {
+        $l = Get-Labels $_
+        $d = @($l | Where-Object { $_ -like "decision:*" })
+        $_.author.login -eq $owner -and ($l -contains "problem" -or $l -contains "error") -and $d.Count -eq 1 -and $d[0] -eq "decision:fix" -and
+            -not ($l | Where-Object { $_ -like "factory:*" })
+    })
+}
+
 # Why a report may not be fixed yet, or $null when it may: exactly one decision label, decision:fix, and the last
 # decision label added was decision:fix (so a later park or decline that someone forgot to clean up wins).
-function Test-FixGate($labels, $events) {
+# The owner's account must be the one that added it: the repo's write access is not the only gate.
+function Test-FixGate($labels, $events, [string]$owner = "abmorrill4") {
     $decisions = @($labels | Where-Object { $_ -like "decision:*" })
     if ($decisions.Count -ne 1 -or $decisions[0] -ne "decision:fix") { return "it has decision labels $($decisions -join ', '), not decision:fix alone" }
     $last = @($events | Where-Object { $_.event -eq "labeled" -and $_.label.name -like "decision:*" }) | Select-Object -Last 1
     if (-not $last -or $last.label.name -ne "decision:fix") { return "the last decision label added was $(if ($last) { $last.label.name } else { 'none' }), not decision:fix" }
+    if (("" + $last.actor.login) -ne $owner) { return "decision:fix was added by an account other than the owner's" }
     $null
 }
 
@@ -121,8 +138,13 @@ function Get-TriageFailures($comments) {
 
 # The factory writes only its own labels. decision:* is the owner's alone, so the factory can never approve a fix.
 # route:* and waiting:* are for display; nothing reads them as permission.
+# Why a run is blocked, one blocked:<cause> label per report (command center spec section 2). The factory sets these
+# four. flare-api and upstream are the work loop's.
+$BlockedCauses = "vm", "flaky-test", "owner", "other"
+
 function Assert-FactoryLabel([string]$label) {
-    if ($label -and $label -notlike "triage:*" -and $label -notlike "factory:*" -and $label -notlike "route:*" -and $label -notlike "waiting:*") { throw "The factory may not set the label '$label'." }
+    $blocked = $label -match '^blocked:(.+)$' -and $BlockedCauses -contains $Matches[1]
+    if ($label -and -not $blocked -and $label -notlike "triage:*" -and $label -notlike "factory:*" -and $label -notlike "route:*" -and $label -notlike "waiting:*") { throw "The factory may not set the label '$label'." }
 }
 
 # ==== Routing (work/report-pipeline/spec.md section 2) ==============================================================
@@ -229,6 +251,8 @@ function Get-Route($in, $rules) {
             if ([int]$fix.files -gt [int]$a.maxChangedFiles) { $fails += "the fix changes $($fix.files) files, over $($a.maxChangedFiles)" }
             if (@($fix.behavior | Where-Object { $_ }).Count) { $fails += "the fix may change behavior writers see ($(@($fix.behavior) -join ', '))" }
             if (@($fix.overlap | Where-Object { $_ }).Count) { $fails += "another open factory PR changes the same files (#$(@($fix.overlap) -join ', #'))" }
+            if (@($fix.tamper | Where-Object { $_ }).Count) { $fails += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
+            if ($fix.area -and @($rules.suspended | Where-Object { $_ -eq $fix.area }).Count) { $fails += "auto-fix is suspended for the $($fix.area) area after a reverted fix" }
         }
         if ($fails.Count) {
             $out.route = "fix-for-review"; $out.row = 5; $out.reasons = $pre + $fails
@@ -277,9 +301,9 @@ function Get-WaitingReason($route, [string]$mode) {
 
 # The fix step runs only for a route this run computed (passed in, never read from a label) or the owner's
 # decision:fix. A route:* label grants nothing. Returns $null when allowed, else why not.
-function Test-FixAllowed($route, $labels, $events) {
+function Test-FixAllowed($route, $labels, $events, [string]$owner = "abmorrill4") {
     if ($route -and $route.build -and @("auto-fix", "fix-for-review") -contains $route.route) { return $null }
-    Test-FixGate $labels $events
+    Test-FixGate $labels $events $owner
 }
 
 # Our words: the text we would publish shares no run of $runLength words with the report, and holds no email address,
@@ -300,8 +324,25 @@ function Test-OurWords($texts, [string]$report, [int]$runLength = 8) {
         if ($t -match '[\w.+-]+@[\w-]+(\.[\w-]+)+') { $problems += "$name contains an email address" }
         if ($t -match '\\\\[\w.$-]+\\[\w.$-]+') { $problems += "$name contains a network (UNC) path" }
         if ($t -match '(?i)([a-z]:\\(users|documents and settings)\\[^\\\s"]+)|(/(users|home)/[^/\s"]+/)|%userprofile%|\$env:userprofile') { $problems += "$name contains a user-profile path" }
+        if (Test-SecretShape $t) { $problems += "$name contains something shaped like a key or token" }
     }
     $problems
+}
+
+# Key and token shapes, the same ones the feedback worker redacts (tools/feedback-worker/src/redact.ts), plus a secret
+# name assigned a long mixed value. Published text holding one is held. Says only whether one was found.
+$SecretShapes = @(
+    '\bsk-[A-Za-z0-9_-]{8,}', '\bgh[pousr]_[A-Za-z0-9]{20,}', '\bgithub_pat_[A-Za-z0-9_]{20,}', '\bxox[abprs]-[A-Za-z0-9-]{10,}',
+    '\bAKIA[0-9A-Z]{16}\b', '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}', '(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}'
+)
+$SecretAssignment = '(?i)(api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd|client[_-]?secret)["'']?\s*[:=]\s*["'']?([A-Za-z0-9+/=_.-]{20,})'
+function Test-SecretShape([string]$text) {
+    foreach ($p in $SecretShapes) { if ($text -cmatch $p) { return $true } }
+    foreach ($m in [regex]::Matches($text, $SecretAssignment)) {
+        $v = $m.Groups[2].Value
+        if ($v -match '\d' -and $v -match '[A-Za-z]') { return $true }   # a long value mixing letters and digits, not a word or a call
+    }
+    $false
 }
 
 # Code a fix may not change without the owner: a fix touching it is held, never pushed. Updates, settings and keys, AI
@@ -313,13 +354,17 @@ $OwnerOnly = '^src/FlareAI\.Core/(Update|Settings|Llm|Editing|Feedback)/|^src/Fl
 
 # A unified diff, per file: the added and removed lines. Only lines inside a hunk count, so an added line whose text
 # starts with "++" or "--" is still an added line, and only the real file headers are skipped.
+# status is A for a new file, D for a deleted one, M otherwise, from the file's header lines.
 function Split-Diff([string]$diff) {
     $files = @{}; $cur = $null; $inHunk = $false
     foreach ($line in ($diff -split "`r?`n")) {
-        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @() }; $inHunk = $false; continue }
+        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @(); status = "M" }; $inHunk = $false; continue }
         if (-not $cur) { continue }
         if ($line.StartsWith("@@")) { $inHunk = $true; continue }
-        if (-not $inHunk) { continue }   # index, mode, ---, +++ and other header lines
+        if (-not $inHunk) {   # index, mode, ---, +++ and other header lines
+            if ($line.StartsWith("new file mode")) { $files[$cur].status = "A" } elseif ($line.StartsWith("deleted file mode")) { $files[$cur].status = "D" }
+            continue
+        }
         if ($line.StartsWith("+")) { $files[$cur].added += $line.Substring(1) } elseif ($line.StartsWith("-")) { $files[$cur].removed += $line.Substring(1) }
     }
     $files
@@ -329,6 +374,41 @@ function Split-Diff([string]$diff) {
 function Get-AddedText([string]$diff) {
     $files = Split-Diff $diff
     (@($files.Keys | Sort-Object | ForEach-Object { $files[$_].added }) | ForEach-Object { $_ }) -join "`n"
+}
+
+# Test data a fix may not change on its own (command center spec section 4.2): baselines, fixtures and golden files,
+# the scenarios' recorded output, the corpus and its ground truth, the test kit and isolation wiring, project wiring,
+# and the e2e harness (which the factory also refuses outright). Any change here, new files included, is for review.
+$TestProtected = '^tests/(.+/)?(baselines|fixtures|golden)/|^tests/FlareAI\.Scenarios/Output/|^corpus/|^tests/FlareAI\.TestKit/|^tests/Isolation/|' +
+                 '\.csproj$|(^|/)Directory\.(Build|Packages)\.|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
+
+# The test-tamper guard. A reproduction test is written by adding lines, so added lines in an existing test file and
+# new test files are fine. Anything else that weakens what the tests check is listed: a deleted or changed line in an
+# existing file under tests/ (a deleted file too), and any change in a protected folder. $files: Split-Diff output.
+function Get-TestTamper($files, [string]$protected = $TestProtected) {
+    $found = @()
+    foreach ($p in @($files.Keys | Sort-Object)) {
+        $f = $files[$p]
+        if ($p -match $protected) { $found += "$p (protected test files)"; continue }
+        if ($p -notlike "tests/*") { continue }
+        if ($f.status -eq "D") { $found += "$p (deleted)" }
+        elseif ($f.status -ne "A" -and @($f.removed).Count) { $found += "$p (changed or deleted lines)" }
+    }
+    $found
+}
+
+# The area a fix belongs to: the folder under src/FlareAI.Core/ or src/FlareAI.Flare/ it changed the most lines in
+# (for example Style or UI). A file directly in a project folder counts as Core or Flare. $null when it changed neither.
+function Get-FixArea($numstat) {
+    $by = @{}
+    foreach ($s in @($numstat | Where-Object { $_ })) {
+        $p = $s -split "`t"; $path = $p[-1]
+        if ($path -notmatch '^src/FlareAI\.(Core|Flare)/(.+)$') { continue }
+        $rest = $Matches[2]; $area = if ($rest.Contains("/")) { $rest.Split("/")[0] } else { $Matches[1] }
+        $by[$area] = [int]$by[$area] + [int]($p[0] -replace '-', '0') + [int]($p[1] -replace '-', '0')
+    }
+    if (-not $by.Count) { return $null }
+    @($by.GetEnumerator() | Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key } })[0].Key
 }
 
 # Facts about a fix, read from the diff. $numstat: git diff --numstat lines. $diff: git diff -U0 text. The test that
@@ -362,6 +442,8 @@ function Get-DiffFacts($numstat, [string]$diff, [string]$reproTest, $rules, [str
         lines = $lines; files = $count; test_files = $testFiles; repro_in_diff = [bool]$testFiles.Count
         behavior = @($behavior | Sort-Object -Unique)
         owner_only = @($owner)
+        tamper = @(Get-TestTamper $files)
+        area = Get-FixArea $numstat
     }
 }
 
@@ -423,6 +505,91 @@ function Format-RouteComment($route, $in, [string]$mode, [string]$next) {
       "", "**Next.** $next", "", "<details><summary>Routing record</summary>", "", '```json', $json, '```', "", "</details>") -join "`n"
 }
 
+# ==== Lane suspension (command center spec section 4.6) =============================================================
+# A reverted auto-fix suspends auto-fix for its area. Reverts are read from main's history: GitHub's Revert button, and
+# git revert -m 1, both write "This reverts commit <merge commit>". Reinstating is the owner's call: an area listed in
+# rules/routing.json "reinstated" with a date counts only reverts made after that date.
+
+# Commits that main's history reverted. $log: git log --format="%x1e%cI%x1f%B" text. Returns sha -> revert date.
+function Get-RevertedShas([string]$log) {
+    $out = @{}
+    foreach ($entry in ($log -split [char]0x1e)) {
+        $parts = $entry -split [char]0x1f, 2
+        if ($parts.Count -lt 2) { continue }
+        foreach ($m in [regex]::Matches($parts[1], 'This reverts commit ([0-9a-f]{40})')) { $out[$m.Groups[1].Value] = ("" + $parts[0]).Trim() }
+    }
+    $out
+}
+
+# Merged auto-fix PRs whose merge commit was reverted, with their area. $prs: gh pr list --json
+# number,mergeCommit,mergedAt,files (files: path, additions, deletions).
+function Get-RevertedFixes($prs, $reverted) {
+    foreach ($pr in @($prs | Where-Object { $_ -and $_.mergeCommit })) {
+        $sha = "" + $pr.mergeCommit.oid
+        if (-not $reverted.ContainsKey($sha)) { continue }
+        $numstat = @($pr.files | ForEach-Object { "$($_.additions)`t$($_.deletions)`t$($_.path)" })
+        [pscustomobject]@{ number = [int]$pr.number; area = (Get-FixArea $numstat); mergedAt = "" + $pr.mergedAt; revertedAt = $reverted[$sha] }
+    }
+}
+
+# The areas where auto-fix is suspended: those rules/routing.json lists, and those of reverted auto-fixes, unless the
+# owner reinstated the area after the revert.
+function Get-SuspendedAreas($rules, $revertedFixes) {
+    $areas = @($rules.suspended | Where-Object { $_ })
+    foreach ($f in @($revertedFixes | Where-Object { $_ -and $_.area })) {
+        $since = $null; if ($rules.reinstated) { $since = $rules.reinstated.($f.area) }
+        if ($since -and ([datetime]$f.revertedAt) -le ([datetime]$since)) { continue }
+        if ($areas -notcontains $f.area) { $areas += $f.area }
+    }
+    @($areas)
+}
+
+# ==== Rejection reason codes (command center spec section 4.5) =======================================================
+# A fixed list, so the scorecard can count why work didn't go through without quoting anything. Each code matches the
+# reasons Get-Route gives and the messages the factory posts when a run stops.
+$ReasonCodes = [ordered]@{
+    "security"         = 'describes a vulnerability'
+    "owner-only"       = 'owner-only code|code the owner reviews'
+    "secret-shape"     = 'shaped like a key or token'
+    "our-words"        = 'our-words check|shares a run of|email address|UNC\) path|user-profile path'
+    "not-owner"        = 'account other than the owner'
+    "not-reproduced"   = "wasn't reproduced"
+    "low-confidence"   = '^confidence is'
+    "no-repro-test"    = 'names no test|fix doesn''t add the test'
+    "repro-failed"     = 'passes on the base commit|didn''t run on|without an assertion|doesn''t pass on the fix'
+    "too-big"          = 'changes \d+ lines, over|changes \d+ files, over|too big for the factory'
+    "behavior-change"  = 'may change behavior writers see'
+    "overlap"          = 'another open factory PR changes the same files'
+    "test-tamper"      = 'changes existing tests or protected test files'
+    "suspended-area"   = 'auto-fix is suspended for the'
+    "daily-cap"        = 'auto-fixes are used up'
+    "run-cap"          = 'agent runs are used up|ran past its|used all its turns'
+    "unit-tests"       = 'Unit tests fail on the fix'
+    "e2e"              = 'End-to-end checks fail|end-to-end run stopped'
+    "holdout"          = 'holdout scenario'
+    "vm"               = 'factory VM rather than the fix'
+    "ci"               = 'Required checks'
+    "review-blocked"   = 'Review blocked the fix'
+    "disallowed-files" = 'files the factory may not touch|file modes or adds symlinks|binary files'
+    "cannot-fix"       = "couldn't fix this"
+    # Not rejections: they describe the route. The scorecard leaves them out.
+    "regression"       = 'looks like a regression of closed issue'
+    "passed"           = 'every auto-fix check passed|reproduced with high confidence'
+}
+
+# The codes for a list of reasons, in the reasons' order, each once. A reason no code matches counts as "other".
+function Get-ReasonCodes($reasons) {
+    $codes = @()
+    foreach ($r in @($reasons | Where-Object { $_ })) {
+        $hit = $null
+        foreach ($k in $ReasonCodes.Keys) { if (("" + $r) -match $ReasonCodes[$k]) { $hit = $k; break } }
+        if (-not $hit) { $hit = "other" }
+        if ($codes -notcontains $hit) { $codes += $hit }
+    }
+    $codes
+}
+
 Export-ModuleMember -Function Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
     Test-TestName, Test-CuratedIssue, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
-    Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel -Variable Routes, WaitingReasons, OwnerOnly
+    Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
+    Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes

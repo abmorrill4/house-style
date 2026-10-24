@@ -1,6 +1,8 @@
 # The nightly release: if anything that ships changed since the last release, tag the next patch version on main and
 # start build.yml on that tag, which builds, signs and publishes it. No approval click (owner decision 2026-10-24).
-# Only the GitHub Actions app may create v* tags (tag ruleset). GitHub doesn't start workflows from a tag this job's
+# It tags nothing while the FACTORY_MODE variable is off or unset (the factory's kill switch).
+# The tag ruleset blocks moving or deleting v* tags, and only a release started by this workflow publishes (the
+# release job in build.yml checks that through the API). GitHub doesn't start workflows from a tag this job's
 # token pushes, so the build is started with a workflow_dispatch, which it does allow, carrying this run's id; the
 # release job checks through the API that the id is a nightly.yml run on main. This job waits for that build and
 # reports any failure, its own or the build's, on the pinned "Nightly release" issue.
@@ -38,8 +40,12 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          FACTORY_MODE: ${{ vars.FACTORY_MODE }}
         run: |
           set -euo pipefail
+          # The factory's kill switch: off, unset or anything but shadow or live (any case) tags nothing.
+          mode=$(printf '%s' "${FACTORY_MODE:-}" | tr '[:upper:]' '[:lower:]')
+          if [ "$mode" != "shadow" ] && [ "$mode" != "live" ]; then echo "FACTORY_MODE is off or unset, so nothing is tagged."; exit 0; fi
           last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           changed_since() { [ -n "$(git diff --name-only "$1" HEAD -- src styleguide ':(exclude)*.md')" ]; }
           release=""

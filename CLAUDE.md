@@ -61,9 +61,10 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
   run programs.
 - **Updates must be signed, and only the nightly release makes them.** Don't weaken `UpdateStager`'s signature check
   or the `contents: read` default in `build.yml` (see `src/FlareAI.Core/Update/CLAUDE.md`). Releases ship nightly with
-  no approval click (owner decision 2026-10-24). What protects them instead: only the GitHub Actions app may create
-  `v*` tags (tag ruleset), the `release` environment deploys only `v*` tags, and the release job refuses any run not
-  started by `nightly.yml` and any tag not on `main`. No agent ever holds a token. Don't add another way to tag.
+  no approval click (owner decision 2026-10-24). What protects them instead: the `release` environment deploys only
+  `v*` tags and holds the signing key, the release job refuses any run not started by a running `nightly.yml` on
+  `main` (checked through the API) and any tag not on `main`, and the tag ruleset blocks moving or deleting `v*` tags.
+  No agent ever holds a token. Don't add another way to tag.
 - **The repo is public, so vulnerabilities go to private advisories, never public issues.** Use
   `gh api repos/abmorrill4/house-style/security-advisories`. Publish the advisory with the release that fixes it.
   Hardening items with no exploit path can be public issues labeled `security`.
@@ -103,6 +104,8 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   verification plan, spec review, build, verify, build review, ship. The reviews run the `work-loop-review` workflow.
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the
   last tag, it tags the next patch version on `main` and starts `build.yml` on it, which signs and publishes.
+  - **The factory's kill switch** is the `FACTORY_MODE` repository variable (`off`, `shadow` or `live`). Unset or
+    `off` stops the factory and the nightly release (`scripts/factory/README.md`). Only the owner changes it.
   - **Notes:** every PR writers would notice adds `changes/<name>.md` (see `changes/README.md`); CI fails one that
     doesn't, unless it has the `no-notes` label. A hand-written `docs/release-notes/x.y.z.md` goes first when present.
   - **To release now:** run the `nightly` workflow by hand (`gh workflow run nightly`). Never push a tag yourself.
