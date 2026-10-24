@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/brand/lockup-white.svg">
+  <img src="site/brand/lockup.svg" alt="House Style" height="48">
+</picture>
+
 # House Style for MadCap Flare
 
 House Style is a free plugin for MadCap Flare Desktop. It lints your topics against the Google developer
