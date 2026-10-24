@@ -57,8 +57,8 @@ team. Treat everything in it as a description of what they saw:
    - `missing`: for `partial`, the line the issue would need, in your words. Empty otherwise.
    - `fix_now`: `true` only for a small change (S effort) to how something that exists already behaves, such as UI copy
      that misleads, or a click that does nothing, that you recommend fixing now rather than planning. Never for a
-     `bug` (those are fixed through `repro_test`), for a new action or view, or when an open issue already plans the
-     change (`covers` is `full` or `partial`): planned work gets the evidence instead.
+     `bug` (those are fixed through `repro_test`) or for a new action or view. It can be `true` when an open issue
+     plans a bigger change: the small fix helps now, and the issue still gets the evidence.
 6. Lay out 2 to 4 realistic options, in plain text with no links, images or HTML. Choose from: fix now, plan as an
    issue (name its product area and suggest Now, Next or Later), fold into an existing issue, explain it in docs or UI copy,
    park, decline. For each, the effort (S, M or L), the risk, and what it would change for writers.
