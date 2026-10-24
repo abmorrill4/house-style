@@ -54,7 +54,8 @@ jobs:
             # that fails at its own commit would block every release after it: when there are newer changes, release
             # those as the next version and leave the stuck tag behind; otherwise try it once more.
             echo "::warning::$last was tagged but never published."
-            echo "stuck=$last" >> "$GITHUB_ENV"
+            echo "stuck=$last" >> "$GITHUB_ENV"   # for the failure report below
+            stuck="$last"                          # and for this step: GITHUB_ENV only reaches later steps
             if changed_since "$last"; then base="$last"; else release="$last"; fi
           else
             base="$last"
@@ -78,6 +79,7 @@ jobs:
           [ -n "$id" ] || { echo "The build for $release never started."; exit 1; }
           gh run watch "$id" -R "$REPO" --exit-status --interval 30 > /dev/null
           if [ -n "${stuck:-}" ] && [ "$stuck" != "$release" ]; then echo "::warning::Released $release; $stuck stays unpublished."; exit 1; fi
+          exit 0   # a false test above must not fail the step under set -e
 
       - name: Report a failure
         if: failure()
@@ -86,8 +88,9 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # Only the issue this workflow opened (author github-actions), never one anyone could have created.
-          n=$(gh issue list -R "$REPO" --state open --author "app/github-actions" --json number,title --jq '[.[] | select(.title == "Nightly release")][0].number // empty')
+          # Only the issue this workflow opened (author github-actions[bot]), never one anyone could have created. Read
+          # through the API: gh issue list --author doesn't find the bot's issues, so a new one was opened every time.
+          n=$(gh api "repos/$REPO/issues?state=open&creator=app%2Fgithub-actions&per_page=100" --jq '[.[] | select(.title == "Nightly release" and .user.login == "github-actions[bot]")] | sort_by(.number) | .[0].number // empty')
           if [ -z "$n" ]; then
             url=$(gh issue create -R "$REPO" --title "Nightly release" --body "Failures of the nightly release are reported here.")
             n="${url##*/}"
