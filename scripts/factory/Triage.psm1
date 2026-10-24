@@ -326,8 +326,8 @@ function Get-RouteAsks($in) {
                        covers = $(if ($same.Count) { "full" } else { "none" }); issue = $(if ($same.Count) { $same[0] } else { $null }) }
 }
 
-# An ask that becomes evidence: not a bug, and an open issue we curate covers it. Covered work is planned work, so a
-# fix_now on it counts for nothing: the issue gets the evidence.
+# An ask that becomes evidence: not a bug, and an open issue we curate covers it. A fix-now ask on covered work is
+# evidence too, and the report also gets the small fix as a draft PR (row 5, owner decision 2026-10-24).
 function Test-EvidenceAsk($a) {
     $a.kind -ne "bug" -and $a.issue -and $a.issue.state -eq "open" -and $a.issue.curated -and @("full", "partial") -contains $a.covers
 }
@@ -470,7 +470,8 @@ function Get-RouteRow($in, $rules) {
     # PR for the owner, never auto-merged.
     if ($nowAll.Count) {
         $out.route = "fix-for-review"; $out.row = 5; $out.reasons = @("it is a small change to existing behavior, built as a draft for review")
-        $nows = @($nowAll | Sort-Object { [int]$_.index })
+        # Uncovered first: an untracked small fix has nowhere else to go, while a covered one already has its issue.
+        $nows = @($nowAll | Sort-Object @{ Expression = { if (Test-EvidenceAsk $_) { 1 } else { 0 } } }, @{ Expression = { [int]$_.index } })
         $out.fix_ask = [int]$nows[0].index
         # One small fix per draft PR. Any other fix-now ask is planned instead of lost.
         $more = @($nows | Select-Object -Skip 1 | Where-Object { -not (Test-EvidenceAsk $_) } | ForEach-Object { [int]$_.index })

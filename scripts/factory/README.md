@@ -103,7 +103,8 @@ and one bug adds the evidence and goes to the bug rows. A bug never becomes evid
 alone never does either (owner decision 2026-10-24).
 Uncovered feature and friction asks get one new planned issue whatever the route, listing only them. A question riding
 along with covered asks goes with them, unless the docs don't answer it (`docs_gap`): then it gets a docs-gap issue,
-or a place in the new planned issue. A second fix-now ask, or one beside a bug, is planned. An ask the judges split on sends the report to the owner (brief-only).
+or a place in the new planned issue. A second fix-now ask, or one beside a bug, is planned. A fix-now ask that an open issue covers gets both: the draft
+fix and the evidence on that issue (owner decision 2026-10-24). An ask the judges split on sends the report to the owner (brief-only).
 
 The `area:*` label of a plan or docs-gap issue is the brief's `area` when `rules/areas.json` lists it, otherwise the
 area of the first open public issue the brief lines up with, otherwise none (the roadmap shows it under No area yet).

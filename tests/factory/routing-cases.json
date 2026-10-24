@@ -2248,6 +2248,196 @@
     },
     "evidence": ""
    }
+  },
+  {
+   "name": "two covered fix-nows give one draft fix and evidence for both, nothing planned",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 20,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "fix_ask": 0,
+    "evidence": "12,20",
+    "plan": ""
+   }
+  },
+  {
+   "name": "an uncovered fix-now wins the draft fix over a covered one",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "fix_ask": 1,
+    "evidence": "12",
+    "plan": ""
+   }
+  },
+  {
+   "name": "a covered fix-now and an uncovered feature give a fix, evidence and a plan",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "fix_ask": 0,
+    "evidence": "12",
+    "plan": "1"
+   }
+  },
+  {
+   "name": "a covered fix-now beside a bug stays evidence and the bug keeps its lane",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "medium",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "bug",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "brief-only",
+    "evidence": "12",
+    "plan": ""
+   }
   }
  ]
 }
