@@ -652,7 +652,15 @@ function Get-ReasonCodes($reasons) {
     $codes
 }
 
-Export-ModuleMember -Function Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
+# Windows PowerShell 5.1 mangles double quotes in arguments to native programs, so any text sent to gh as --body can
+# break the command (a JSON routing record did). Every body goes through a temp file and --body-file instead.
+function New-BodyFile([string]$Text) {
+    $path = [IO.Path]::GetTempFileName()
+    [IO.File]::WriteAllText($path, $Text, (New-Object Text.UTF8Encoding($false)))
+    $path
+}
+
+Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
     Test-TestName, Test-CuratedIssue, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
     Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes

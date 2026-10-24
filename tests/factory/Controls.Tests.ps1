@@ -446,3 +446,18 @@ Describe 'Weekly scorecard' {
         Get-Content (Join-Path $root 'scripts\factory\Post-Scorecard.ps1') -Raw | Should Match '\[switch\]\$DryRun'
     }
 }
+
+Describe 'gh bodies go through a file' {
+    $mod = Join-Path $PSScriptRoot '..\..\scripts\factory\Triage.psm1'
+    Import-Module $mod -Force
+    It 'keeps quotes, JSON and new lines exactly' {
+        $text = "**Route:** hold`n" + '```json' + "`n" + '{"route":"hold","reasons":["a \"quoted\" reason"]}' + "`n" + '```'
+        $p = New-BodyFile $text
+        try { [IO.File]::ReadAllText($p) | Should Be $text } finally { Remove-Item $p }
+    }
+    It 'no factory script passes text to gh with --body' {
+        $dir = Join-Path $PSScriptRoot '..\..\scripts\factory'
+        $hits = @(Get-ChildItem $dir -Filter *.ps1 | Select-String -Pattern ' --body (?!-file)' -SimpleMatch:$false)
+        $hits.Count | Should Be 0
+    }
+}
