@@ -1,6 +1,6 @@
 ---
 name: hs-spec
-description: Use to draft a House Style spec with its verification plan, from an intent and research, at a path in the planning folder. hs-spec for Fix and Feature specs; hs-spec-opus for Theme specs.
+description: Use to draft a House Style spec with its verification plan, from an intent and research, at a path in the planning folder. hs-spec for Fix and Feature specs; hs-spec-opus for Large specs.
 model: sonnet
 effort: medium
 tools: Read, Grep, Glob, Write

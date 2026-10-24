@@ -66,7 +66,8 @@ For each waiting report, check before you recommend:
 - the owner decisions and standing UX rules in `planning/roadmap.md`;
 - related plans, research and earlier decisions in `planning\` (Basic Memory `search_notes`);
 - earlier sessions (Engram `mem_search`);
-- the live roadmap: the theme it fits and that theme's When (`planning/roadmap/build.py` has the queries);
+- the live roadmap: the product area it fits (`rules/areas.json`) and the When of the issues it lines up with
+  (`planning/roadmap/build.py` has the queries);
 - earlier calls on reports like it in `planning/work/routing-log.jsonl`.
 
 Change the recommendation if this context changes it, and say so.
@@ -78,7 +79,7 @@ Plain words, no issue numbers without their titles. Security first, then merge, 
 - **Kind**, and whether it reproduced.
 - **The route** and why, from the route comment. In shadow mode, say what live mode would have done.
 - **Impact on writers.**
-- **Lines up with:** the theme or issue, and whether it's already planned.
+- **Lines up with:** the issue and its product area, and whether it's already planned.
 - **Options** with effort, and the **recommendation** with why.
 - Then one question: the call. Buttons, recommendation first. In shadow mode, also ask whether the route was right
   when the owner's call differs from it.
@@ -105,8 +106,8 @@ and for a fix, which option.
 - **Fix** (a `bug` with a clear cause only, the work loop's Fix size): label `decision:fix`. The factory picks it up on
   its next run and works from the brief and this comment.
 - **Plan**: create a public issue in our own words, never the report's text, its quotes or the tester's name. Label
-  `from:tester` (and `loop:auto` when the feature loop should take it), attach it to a theme or set When on the board,
-  then label the report `decision:plan` and link the issue in the decision comment.
+  `from:tester` (and `loop:auto` when the feature loop should take it) and one `area:*` label from `rules/areas.json`,
+  set When on the board (Later unless the owner says otherwise), then label the report `decision:plan` and link the issue in the decision comment.
 - **Park**: label `decision:park`. It stays open and shows on the roadmap page.
 - **Decline**: label `decision:decline`, comment the reason, close the report.
 

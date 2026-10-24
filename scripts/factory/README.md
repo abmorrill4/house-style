@@ -68,7 +68,7 @@ tests\e2e\Get-E2EHistory.ps1 -Runs 50         # how each scenario has done latel
 It takes one open report per run: triage, then a route, then a fix when the route calls for one.
 
 1. **Triage** (any new report, `problem` or automatic `error`). An agent reads the report, tries to reproduce a bug
-   with a scratch test, compares it with the open issues and themes, and writes a brief: what happened, the kind
+   with a scratch test, compares it with the open issues, and writes a brief: what happened, the kind
    (bug, friction, feature, question, duplicate, noise), whether it reproduces and the test that should fail on main
    (`repro_test`), whether it describes a vulnerability (`security`), what it lines up with, 2 to 4 options with
    effort and risk, a recommendation and its impact on writers. The brief goes on the private report as a comment,
@@ -87,13 +87,18 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | # | Route | When | Live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
-| 2 | evidence | `same` or `part-of` an **open** public issue labeled `theme` or `from:*`, or `kind: duplicate` and `same` as another open report | A comment on that issue in our words with its evidence count, the report closed. Checked again right before posting |
+| 2 | evidence | `same` or `part-of` an **open** public issue labeled `from:*`, or `kind: duplicate` and `same` as another open report | A comment on that issue in our words with its evidence count, the report closed. Checked again right before posting |
 | 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
 | 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
 | 5 | fix-for-review | a bug, reproduced, and any check fails | A **draft** PR with the reasons. `waiting:merge` |
 | 6 | brief-only | a bug, not reproduced (or a duplicate of nothing open) | No code. `waiting:decide` |
-| 7 | plan | `feature` or `friction` | A public `from:tester` + `loop:auto` issue in our words, under the best related theme |
-| 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue |
+| 7 | plan | `feature` or `friction` | A public `from:tester` + `loop:auto` issue in our words, with its `area:*` label, in Later on the board |
+| 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue, with its `area:*` label, in Later on the board |
+
+The `area:*` label of a plan or docs-gap issue is the brief's `area` when `rules/areas.json` lists it, otherwise the
+area of the first open public issue the brief lines up with, otherwise none (the roadmap shows it under No area yet).
+Putting the issue in Later uses the board ids in `rules/areas.json` and needs `FACTORY_GH_TOKEN` to have access to the
+owner's projects; if that fails, the route comment says to set When by hand and nothing else fails.
 | 9 | pile | `noise`, or a question the docs answer | `triage:noise`, open |
 
 Matches in the brief count only once the script finds them in the issue lists it fetched itself. The auto-fix checks,

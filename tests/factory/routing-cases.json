@@ -37,7 +37,7 @@
       "number": 9,
       "state": "open",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -64,7 +64,7 @@
       "number": 120,
       "state": "open",
       "curated": true,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -162,7 +162,7 @@
       "number": 120,
       "state": "open",
       "curated": true,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -178,7 +178,7 @@
    }
   },
   {
-   "name": "feature part of a theme is evidence",
+   "name": "feature part of a curated issue is evidence",
    "input": {
     "kind": "feature",
     "security": false,
@@ -193,7 +193,7 @@
       "number": 44,
       "state": "open",
       "curated": true,
-      "theme": true
+      "area": "area:pane"
      }
     ],
     "our_words": null,
@@ -224,7 +224,7 @@
       "number": 44,
       "state": "open",
       "curated": true,
-      "theme": true
+      "area": "area:pane"
      },
      {
       "relation": "same",
@@ -232,7 +232,7 @@
       "number": 7,
       "state": "open",
       "curated": true,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -263,7 +263,7 @@
       "number": 130,
       "state": "open",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -291,7 +291,7 @@
       "number": 120,
       "state": "open",
       "curated": true,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -319,7 +319,7 @@
       "number": 9,
       "state": "open",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -350,7 +350,7 @@
       "number": 9,
       "state": "missing",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -378,7 +378,7 @@
       "number": 9,
       "state": "open",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -405,7 +405,7 @@
       "number": 130,
       "state": "closed",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -434,7 +434,7 @@
       "number": 130,
       "state": "closed",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -462,7 +462,7 @@
       "number": 130,
       "state": "closed",
       "curated": false,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -490,7 +490,7 @@
       "number": 130,
       "state": "closed",
       "curated": false,
-      "theme": false
+      "area": null
      },
      {
       "relation": "same",
@@ -498,7 +498,7 @@
       "number": 120,
       "state": "open",
       "curated": true,
-      "theme": false
+      "area": null
      }
     ],
     "our_words": null,
@@ -930,11 +930,11 @@
    },
    "expect": {
     "route": "plan",
-    "theme": null
+    "area": null
    }
   },
   {
-   "name": "feature related to a theme is planned under it",
+   "name": "feature related to an open issue takes its area",
    "input": {
     "kind": "feature",
     "security": false,
@@ -949,7 +949,7 @@
       "number": 44,
       "state": "open",
       "curated": true,
-      "theme": true
+      "area": "area:pane"
      }
     ],
     "our_words": null,
@@ -958,7 +958,7 @@
    },
    "expect": {
     "route": "plan",
-    "theme": 44
+    "area": "area:pane"
    }
   },
   {
@@ -1050,6 +1050,71 @@
    },
    "expect": {
     "route": "hold"
+   }
+  },
+  {
+   "name": "feature with the brief's area keeps it over a related issue's",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "area": "area:ai",
+    "matches": [
+     {
+      "relation": "related",
+      "target": "issue",
+      "number": 44,
+      "state": "open",
+      "curated": true,
+      "area": "area:pane"
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "plan",
+    "area": "area:ai"
+   }
+  },
+  {
+   "name": "docs gap takes the area of the open issue it lines up with",
+   "input": {
+    "kind": "question",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "medium",
+    "repro_test": "",
+    "docs_gap": true,
+    "matches": [
+     {
+      "relation": "related",
+      "target": "issue",
+      "number": 140,
+      "state": "closed",
+      "curated": false,
+      "area": "area:rules"
+     },
+     {
+      "relation": "related",
+      "target": "issue",
+      "number": 120,
+      "state": "open",
+      "curated": true,
+      "area": "area:settings"
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "docs-gap",
+    "area": "area:settings"
    }
   }
  ]

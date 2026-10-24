@@ -94,12 +94,11 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   - Merge with merge commits (`gh pr merge --merge`). The repo doesn't allow auto-merge.
   - Required checks are `build` and `feedback-worker`.
   - Commit messages are a short summary line plus a body listing what changed and why.
-- **Issues** use labels `bug`, `enhancement`, `trust`, `pilot`, `security`, `ready-for-release` and `area:*` (core,
-  rules, guide, settings, pane, install), `theme` for roadmap themes, plus one origin label: `from:tester`,
-  `from:owner` or `from:research`.
-- **The roadmap** is the project board at https://github.com/users/abmorrill4/projects/2. There are no phases or
-  milestones. Themes (issues labeled `theme`) hold their issues as sub-issues, and the board's `When` field (Now,
-  Next, Later) orders themes and single issues. The `work-loop` skill has the details.
+- **Issues** use labels `bug`, `enhancement`, `trust`, `pilot`, `security`, `ready-for-release`, at least one `area:*`
+  label, plus one origin label: `from:tester`, `from:owner` or `from:research`.
+- **The roadmap** is the project board at https://github.com/users/abmorrill4/projects/2. There are no phases,
+  milestones or themes. Every open issue has its own `When` (Now, Next, Later) on the board, and its `area:*` label
+  puts it in a product area (`rules/areas.json` maps labels to areas). The `work-loop` skill has the details.
 - **Every piece of work goes through the work loop** (`.claude/skills/work-loop`): intent, research, spec with a
   verification plan, spec review, build, verify, build review, ship. The reviews run the `work-loop-review` workflow.
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the

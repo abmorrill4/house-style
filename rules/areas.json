@@ -1,0 +1,24 @@
+{
+  "_about": "Product areas: how the roadmap groups issues, named the way a writer would recognize them. Each area:* label belongs to exactly one area. An issue with labels from several areas goes to the area of its first label in precedence, and an open issue with no area:* label shows under 'none'. The command center (planning/roadmap/build.py) reads this file from main, the triage agent picks one label from it for a planned issue, and the factory's plan and docs-gap routes add that label and put the new issue on the board in Later. board holds the roadmap project's ids for that. Order on the page is the order of areas here. Changing an area is the owner's call.",
+  "areas": [
+    { "name": "Linting and the Issues pane", "labels": ["area:pane", "area:ribbon", "area:core"] },
+    { "name": "Rules and the style guide", "labels": ["area:rules", "area:guide"] },
+    { "name": "AI writing help", "labels": ["area:ai"] },
+    { "name": "Setup and settings", "labels": ["area:settings"] },
+    { "name": "Team and governance", "labels": ["area:governance"] },
+    { "name": "Install, updates and feedback", "labels": ["area:install", "area:feedback"] },
+    { "name": "Command line", "labels": ["area:cli"] },
+    { "name": "Markdown", "labels": ["area:markdown"] },
+    { "name": "Factory and tooling", "labels": ["area:factory"], "engineering": true }
+  ],
+  "precedence": [
+    "area:factory", "area:ai", "area:governance", "area:feedback", "area:cli", "area:markdown", "area:install",
+    "area:settings", "area:rules", "area:guide", "area:pane", "area:ribbon", "area:core"
+  ],
+  "none": "No area yet",
+  "board": {
+    "project": "PVT_kwHOA60Rfs4Bm1k6",
+    "whenField": "PVTSSF_lAHOA60Rfs4Bm1k6zhm-9TQ",
+    "later": "b1831b2d"
+  }
+}
