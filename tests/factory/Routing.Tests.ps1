@@ -4,6 +4,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $here '..\..\scripts\factory\Triage.psm1') -Force
 $rules = Get-Content (Join-Path $here '..\..\rules\routing.json') -Raw | ConvertFrom-Json
 $cases = (Get-Content (Join-Path $here 'routing-cases.json') -Raw | ConvertFrom-Json).cases
+$areas = Get-Content (Join-Path $here '..\..\rules\areas.json') -Raw | ConvertFrom-Json
 
 function New-Brief {
     [pscustomobject]@{
@@ -38,6 +39,40 @@ Describe 'rules/routing.json' {
     }
 }
 
+Describe 'rules/areas.json' {
+    It 'puts every area label in exactly one area, and in the precedence list' {
+        $all = @($areas.areas | ForEach-Object { $_.labels })
+        @($all | Select-Object -Unique).Count | Should Be $all.Count
+        @($areas.precedence | Sort-Object) -join ',' | Should Be (@($all | Sort-Object) -join ',')
+        foreach ($l in $all) { $l | Should Match '^area:[a-z-]+$' }
+    }
+    It 'names an area for engineering-only work, and the board ids the plan route needs' {
+        @($areas.areas | Where-Object { $_.engineering }).Count | Should Be 1
+        $areas.none | Should Be "No area yet"
+        $areas.board.project | Should Match '^PVT_'
+        $areas.board.whenField | Should Match '^PVTSSF_'
+        $areas.board.later | Should Not BeNullOrEmpty
+    }
+}
+
+Describe 'Areas for planned issues' {
+    It 'keeps the brief''s area only when rules/areas.json lists it' {
+        $b = New-Brief; $b | Add-Member -NotePropertyName area -NotePropertyValue "area:ai"
+        (New-RouteInput $b @() 3 $areas.precedence).area | Should Be "area:ai"
+        $b.area = "area:made-up"
+        (New-RouteInput $b @() 3 $areas.precedence).area | Should Be ""
+        $b.area = "AREA:AI"
+        (New-RouteInput $b @() 3 $areas.precedence).area | Should Be ""
+        (New-RouteInput (New-Brief) @() 3 $areas.precedence).area | Should Be ""
+    }
+    It 'a plan with no area anywhere has none, so it shows under No area yet' {
+        (Get-Route (New-Input @{ kind = "feature" }) $rules).area | Should Be $null
+    }
+    It 'a bug route never carries an area' {
+        (Get-Route (New-Input @{ area = "area:ai" }) $rules).area | Should Be $null
+    }
+}
+
 Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
     foreach ($c in $cases) {
         It $c.name {
@@ -56,7 +91,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
         foreach ($route in $Routes) { @($cases | Where-Object { $_.expect.route -eq $route }).Count | Should BeGreaterThan 0 }
     }
     It 'holds no report text: every input field is a known routing field' {
-        $known = "kind", "security", "reproduced", "confidence", "repro_test", "docs_gap", "matches", "our_words", "fix", "cap_left"
+        $known = "kind", "security", "reproduced", "confidence", "repro_test", "docs_gap", "area", "matches", "our_words", "fix", "cap_left"
         foreach ($c in $cases) { foreach ($p in $c.input.PSObject.Properties) { $known -contains $p.Name | Should Be $true } }
     }
 }
@@ -64,7 +99,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
 Describe 'Get-Route matrix order' {
     It 'takes rows in order: hold, evidence, regression, bug, plan, docs-gap, pile' {
         (Get-Route (New-Input @{ security = $true; kind = "feature" }) $rules).row | Should Be 1
-        (Get-Route (New-Input @{ matches = @([pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; theme = $false }) }) $rules).row | Should Be 2
+        (Get-Route (New-Input @{ matches = @([pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; area = $null }) }) $rules).row | Should Be 2
         (Get-Route (New-Input) $rules).row | Should Be 4
         (Get-Route (New-Input @{ confidence = "low" }) $rules).row | Should Be 5
         (Get-Route (New-Input @{ reproduced = "no" }) $rules).row | Should Be 6
@@ -86,7 +121,7 @@ Describe 'Get-Route matrix order' {
 
 Describe 'Resolve-Matches' {
     $issues = @(
-        [pscustomobject]@{ number = 44; state = "OPEN"; labels = @([pscustomobject]@{ name = "theme" }) },
+        [pscustomobject]@{ number = 44; state = "OPEN"; labels = @([pscustomobject]@{ name = "from:owner" }, [pscustomobject]@{ name = "area:core" }, [pscustomobject]@{ name = "area:ai" }) },
         [pscustomobject]@{ number = 120; state = "OPEN"; labels = @([pscustomobject]@{ name = "from:tester" }) },
         [pscustomobject]@{ number = 130; state = "OPEN"; labels = @([pscustomobject]@{ name = "bug" }) },
         [pscustomobject]@{ number = 140; state = "CLOSED"; labels = @([pscustomobject]@{ name = "from:owner" }) })
@@ -94,9 +129,16 @@ Describe 'Resolve-Matches' {
     function Mt($ref, $rel = "same") { [pscustomobject]@{ ref = $ref; relation = $rel; title = "t"; why = "w" } }
     It 'marks issues we curate' {
         $m = @(Resolve-Matches @((Mt "#44" "part-of"), (Mt "#120"), (Mt "#130")) $issues $reps 8)
-        $m[0].curated | Should Be $true; $m[0].theme | Should Be $true
-        $m[1].curated | Should Be $true; $m[1].theme | Should Be $false
+        $m[0].curated | Should Be $true; $m[0].area | Should Be "area:core"
+        $m[1].curated | Should Be $true; $m[1].area | Should Be $null
         $m[2].curated | Should Be $false
+    }
+    It 'a theme label alone no longer makes an issue curated' {
+        Test-CuratedIssue ([pscustomobject]@{ number = 7; state = "OPEN"; labels = @([pscustomobject]@{ name = "theme" }) }) | Should Be $false
+    }
+    It 'takes the area label first in precedence (rules/areas.json)' {
+        $m = @(Resolve-Matches @((Mt "#44" "related")) $issues $reps 8 $areas.precedence)
+        $m[0].area | Should Be "area:ai"
     }
     It 'a closed issue is not curated, and keeps its state for regressions' {
         $m = @(Resolve-Matches @((Mt "#140")) $issues $reps 8)

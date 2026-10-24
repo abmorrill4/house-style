@@ -12,9 +12,12 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
 ## The contract
 - **Input record** (what `Get-Route` reads, and what the decision log stores in full): the brief's `kind`, `security`,
   `confidence`, whether it was `reproduced` and its `repro_test`, the best `match` (issue or report, its relation
-  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not), the **diff facts** (changed lines and
-  files, owner-only paths, behavior paths), the our-words check, and the cap state.
-- **Output**: one route and the reason.
+  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label), the brief's
+  `area` when `rules/areas.json` lists it, the **diff facts** (changed lines and files, owner-only paths, behavior
+  paths), the our-words check, and the cap state. Curated means open and labeled `from:*`.
+- **Output**: one route and the reason. A plan or docs-gap route also carries the `area:*` label for the new public
+  issue: the brief's, otherwise the first open matched issue's, otherwise none. The factory adds that label and puts
+  the issue in Later on the board. Nothing attaches issues to themes any more (owner decision 2026-10-24).
 - The diff facts and the our-words check are `Get-Route`'s own helpers. Don't compute them a second way.
 - **Replay cases** in `tests/factory/routing-cases.json` hold only an input record and the expected route. No report
   text, ids or reasons, because the repo is public.
@@ -54,3 +57,7 @@ command center:
 
 Several of these (`Update`, `Settings`, `Llm`, `Editing`, `Feedback`) are owner-only, so a fix there is held and never
 auto-fixed in the first place.
+
+The `area:*` labels in turn belong to product areas in `rules/areas.json`, which is how the roadmap groups issues.
+`area:ai`, `area:governance`, `area:feedback` and `area:factory` have no code folder of their own: they group issues
+by what a writer would look for, and `area:factory` is engineering-only work (the factory, corpus, tests and CI).

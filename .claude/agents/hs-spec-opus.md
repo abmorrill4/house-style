@@ -1,6 +1,6 @@
 ---
 name: hs-spec-opus
-description: Use to draft a House Style Theme spec with its verification plan, or any spec that shapes the product across features. Same job and output as hs-spec, on Opus.
+description: Use to draft a House Style Large spec with its verification plan, or any spec that shapes the product across features. Same job and output as hs-spec, on Opus.
 model: opus
 effort: medium
 tools: Read, Grep, Glob, Write

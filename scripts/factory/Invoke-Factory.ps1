@@ -16,7 +16,7 @@ Safeguards against a report, or code an agent wrote, doing more than the fix:
   behavior paths, owner-only paths, our words, the daily cap. rules/routing.json is read from main before any agent runs.
 - The fix step runs only for a route this run computed or the owner's decision:fix. No label carries trust between
   runs (route:* and waiting:* are for display). Fix for review only ever opens a draft PR.
-- Evidence comments go only on open public issues labeled theme or from:*, checked again right before posting.
+- Evidence comments go only on open public issues labeled from:*, checked again right before posting.
 - The report reaches the agent as a file, framed as untrusted data, never inside the prompt.
 - No GitHub token while an agent runs or while agent-written code (tests, e2e) runs; it comes back only to push,
   open the PR and merge. The checkout keeps no credential (persist-credentials: false); the push uses the token once.
@@ -335,6 +335,9 @@ try {
     $reviewPrompt = (git show "${base}:.github/factory/review-prompt.md") -join "`n"
     $triagePrompt = (git show "${base}:.github/factory/triage-prompt.md") -join "`n"
     $rules = (git show "${base}:rules/routing.json") -join "`n" | ConvertFrom-Json
+    # Product areas: the area:* labels a planned issue may get, in precedence order, and the board's ids for When.
+    $areas = (git show "${base}:rules/areas.json") -join "`n" | ConvertFrom-Json
+    $areaLabels = @($areas.precedence | Where-Object { $_ -like "area:*" })
     # Lane suspension: areas rules/routing.json lists, plus the areas of auto-fixes main's history reverted (unless the
     # owner reinstated the area since). A fix in a suspended area goes for review.
     $revertLog = (git log $base -E --grep "This reverts commit [0-9a-f]{40}" --format="%x1e%cI%x1f%B") -join "`n"
@@ -349,7 +352,7 @@ try {
         # Context for matching, gathered now while the script has the token (the agent gets none).
         $contextPath = Join-Path $tmp "context-$n.md"
         $open = Gh issue list -R $repo --state open --limit 300 --json "number,title,labels" | ConvertFrom-Json
-        $ctx = @("# Open issues and themes in $repo", "")
+        $ctx = @("# Open issues in $repo", "")
         foreach ($i in $open) { $ctx += "- #$($i.number) $($i.title) [$(($i.labels.name) -join ', ')]" }
         $ctx += "", "# Other reports' triage state", ""
         foreach ($o in $all | Where-Object number -ne $n) { $ctx += "- report #$($o.number): $((@($o.labels.name | Where-Object { $_ -like 'triage:*' -or $_ -like 'decision:*' })) -join ', ')" }
@@ -377,7 +380,7 @@ try {
         # ---- route: the brief proposes, the script decides --------------------------------------------------------
         # Matches are checked against lists fetched here, so a brief can't point evidence at an issue we don't curate.
         $issuesAll = Gh issue list -R $repo --state all --limit 1000 --json "number,state,labels" | ConvertFrom-Json
-        $in = New-RouteInput $brief @(Resolve-Matches $brief.matches $issuesAll $all $n) (Get-CapLeft $rules)
+        $in = New-RouteInput $brief @(Resolve-Matches $brief.matches $issuesAll $all $n $areaLabels) (Get-CapLeft $rules) $areaLabels
         $route = Get-Route $in $rules
         $pub = Get-PublicText $route $brief $n
         $ow = @()
@@ -421,7 +424,7 @@ try {
                 "evidence" {
                     $t = $route.target.number
                     if ($route.target.type -eq "issue") {
-                        # Checked again right before posting: open, and labeled theme or from:*.
+                        # Checked again right before posting: open, and labeled from:*.
                         $target = Gh issue view $t -R $repo --json "number,state,labels,comments" | ConvertFrom-Json
                         if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
                         # A retry after a failure below must not post the evidence twice.
@@ -443,6 +446,7 @@ try {
                 }
                 { $_ -eq "plan" -or $_ -eq "docs-gap" } {
                     $pubLabels = if ($route.route -eq "plan") { @("from:tester", "loop:auto") } else { @("from:tester", "documentation", "docs-gap") }
+                    if ($route.area) { $pubLabels += $route.area }   # one of rules/areas.json's labels, checked in New-RouteInput
                     $la = @(); foreach ($x in $pubLabels) { $la += @("--label", $x) }
                     # One public issue per report: a retry reuses the issue an earlier run recorded on the report.
                     $prefix = "**Factory:** Public issue for this report: "
@@ -454,15 +458,19 @@ try {
                     }
                     $num = $url.Split('/')[-1]
                     # The issue exists from here on, so nothing below may fail the run.
-                    $under = ""
-                    if ($route.theme) {
-                        try {
-                            $id = Gh api "repos/$repo/issues/$num" --jq ".id"
-                            Gh api -X POST "repos/$repo/issues/$($route.theme)/sub_issues" -F "sub_issue_id=$id" | Out-Null
-                            $under = " under theme #$($route.theme)"
-                        }
-                        catch { $under = ". Attaching it to theme #$($route.theme) failed, so attach it by hand" }
+                    # On the board in Later: the owner moves it to Now or Next. Adding an item already there is a no-op.
+                    $under = if ($route.area) { " in $($route.area)" } else { " with no area yet" }
+                    try {
+                        $node = Gh api "repos/$repo/issues/$num" --jq ".node_id"
+                        # The queries go through files and the ids as variables, so no double quote reaches a native argument
+                        # (Windows PowerShell 5.1 mangles them; see New-BodyFile).
+                        $addQ = New-BodyFile 'mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}'
+                        $item = (Gh api graphql -F "query=@$addQ" -f "p=$($areas.board.project)" -f "c=$node" | ConvertFrom-Json).data.addProjectV2ItemById.item.id
+                        $setQ = New-BodyFile 'mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}'
+                        Gh api graphql -F "query=@$setQ" -f "p=$($areas.board.project)" -f "i=$item" -f "f=$($areas.board.whenField)" -f "o=$($areas.board.later)" | Out-Null
+                        $under += ", in Later on the board"
                     }
+                    catch { $under += ". Putting it in Later on the board failed, so set When by hand" }
                     Say $n (Format-RouteComment $route $in $routeMode "Planned as $url$under. This report is closed.")
                     Label $n @($triageLabel, "route:$($route.route)") $stale
                     Gh issue close $n -R $reports | Out-Null

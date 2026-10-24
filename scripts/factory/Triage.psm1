@@ -157,15 +157,25 @@ $Routes = "hold", "evidence", "auto-fix", "fix-for-review", "brief-only", "plan"
 # Why the owner is needed (spec section 3). One label per waiting item.
 $WaitingReasons = "want", "plan-input", "plan-review", "merge", "security", "stuck", "rule-change", "decide"
 
-# A public issue we curate: open, and labeled theme or from:*. Only these get evidence comments.
+# A public issue we curate: open, and labeled from:*. Only these get evidence comments.
 function Test-CuratedIssue($issue) {
     if (-not $issue -or ("" + $issue.state).ToUpperInvariant() -ne "OPEN") { return $false }
-    [bool](@(Get-Labels $issue) | Where-Object { $_ -eq "theme" -or $_ -like "from:*" })
+    [bool](@(Get-Labels $issue) | Where-Object { $_ -like "from:*" })
+}
+
+# The area label of an issue: its first label in $areaLabels (the precedence list in rules/areas.json), or with no
+# list its first area:* label. $null when it has none.
+function Get-IssueArea($issue, $areaLabels = @()) {
+    $labels = @(Get-Labels $issue)
+    $known = @($areaLabels | Where-Object { $_ })
+    if ($known.Count) { return @($known | Where-Object { $labels -contains $_ } | Select-Object -First 1)[0] }
+    @($labels | Where-Object { $_ -like "area:*" } | Select-Object -First 1)[0]
 }
 
 # The brief's matches, checked against what the script fetched. A ref the lists don't hold is "missing" and counts
 # for nothing. $issues: public issues (number, state, labels). $reports: the private reports. $self: this report.
-function Resolve-Matches($briefMatches, $issues, $reports, [int]$self) {
+# $areaLabels: the area labels in precedence order, from rules/areas.json.
+function Resolve-Matches($briefMatches, $issues, $reports, [int]$self, $areaLabels = @()) {
     $byIssue = @{}; foreach ($i in @($issues)) { if ($i) { $byIssue[[int]$i.number] = $i } }
     $byReport = @{}; foreach ($r in @($reports)) { if ($r) { $byReport[[int]$r.number] = $r } }
     foreach ($m in @($briefMatches | Where-Object { $_ } | Select-Object -First 10)) {
@@ -176,19 +186,21 @@ function Resolve-Matches($briefMatches, $issues, $reports, [int]$self) {
             $num = [int]$Matches[1]; $r = $byReport[$num]
             $state = if ($num -eq $self -or -not $r) { "missing" } else { ("" + $r.state).ToLowerInvariant() }
             if (-not $state) { $state = "open" }   # an open-only list has no state field
-            [pscustomobject]@{ relation = $rel; target = "report"; number = $num; state = $state; curated = $false; theme = $false }
+            [pscustomobject]@{ relation = $rel; target = "report"; number = $num; state = $state; curated = $false; area = $null }
         }
         elseif ($ref -match '^#(\d{1,6})$') {
             $num = [int]$Matches[1]; $i = $byIssue[$num]
             $state = if ($i) { ("" + $i.state).ToLowerInvariant() } else { "missing" }
-            [pscustomobject]@{ relation = $rel; target = "issue"; number = $num; state = $state; curated = (Test-CuratedIssue $i); theme = [bool]($i -and (@(Get-Labels $i) -contains "theme")) }
+            [pscustomobject]@{ relation = $rel; target = "issue"; number = $num; state = $state; curated = (Test-CuratedIssue $i); area = $(if ($i) { Get-IssueArea $i $areaLabels } else { $null }) }
         }
     }
 }
 
-# The Get-Route input record, before any fix is built.
-function New-RouteInput($brief, $resolved, [int]$capLeft) {
+# The Get-Route input record, before any fix is built. area is the brief's area label when it is one of $areaLabels
+# (rules/areas.json), otherwise empty: a label, never report text.
+function New-RouteInput($brief, $resolved, [int]$capLeft, $areaLabels = @()) {
     [pscustomobject]@{
+        area = $(if ($brief.area -and @($areaLabels) -ccontains ("" + $brief.area)) { "" + $brief.area } else { "" })
         kind = "" + $brief.kind; security = ($brief.security -eq $true); reproduced = "" + $brief.reproduced.result
         confidence = "" + $brief.confidence
         repro_test = $(if ($brief.repro_test -and (Test-TestName $brief.repro_test)) { "" + $brief.repro_test } else { "" })
@@ -200,11 +212,20 @@ function New-RouteInput($brief, $resolved, [int]$capLeft) {
     }
 }
 
+# The area label for a new plan or docs-gap issue: the brief's (already checked against rules/areas.json), otherwise
+# that of the first open public issue it lines up with. $null when neither has one, so it shows under No area yet.
+function Get-PlanArea($in, $resolved) {
+    if ($in.area) { return "" + $in.area }
+    $hit = @($resolved | Where-Object { $_ -and $_.target -eq "issue" -and $_.state -eq "open" -and $_.area } | Select-Object -First 1)
+    if ($hit.Count) { return "" + $hit[0].area }
+    $null
+}
+
 # Takes the first matching row of the matrix. $rules is rules/routing.json. Returns route, row, reasons, waiting (the
-# reason the owner is needed, or $null), regression (a closed issue number), target (where evidence goes), theme (for a
-# plan), build (the fix step may run now) and queued (over the daily cap).
+# reason the owner is needed, or $null), regression (a closed issue number), target (where evidence goes), area (the
+# area:* label for a plan or docs-gap issue), build (the fix step may run now) and queued (over the daily cap).
 function Get-Route($in, $rules) {
-    $out = [ordered]@{ route = ""; row = 0; reasons = @(); waiting = $null; regression = $null; target = $null; theme = $null; build = $false; queued = $false }
+    $out = [ordered]@{ route = ""; row = 0; reasons = @(); waiting = $null; regression = $null; target = $null; area = $null; build = $false; queued = $false }
     $ms = @($in.matches | Where-Object { $_ })
     $fix = $in.fix
 
@@ -274,12 +295,14 @@ function Get-Route($in, $rules) {
     # 7. plan
     if (@("feature", "friction") -contains $in.kind) {
         $out.route = "plan"; $out.row = 7; $out.reasons = @("it asks for new or changed behavior")
-        $th = @($ms | Where-Object { $_.target -eq "issue" -and $_.state -eq "open" -and $_.theme })
-        if ($th.Count) { $out.theme = $th[0].number }
+        $out.area = Get-PlanArea $in $ms
         return [pscustomobject]$out
     }
     # 8. docs-gap
-    if ($in.kind -eq "question" -and $in.docs_gap -eq $true) { $out.route = "docs-gap"; $out.row = 8; $out.reasons = @("the docs or UI copy don't answer it"); return [pscustomobject]$out }
+    if ($in.kind -eq "question" -and $in.docs_gap -eq $true) {
+        $out.route = "docs-gap"; $out.row = 8; $out.reasons = @("the docs or UI copy don't answer it"); $out.area = Get-PlanArea $in $ms
+        return [pscustomobject]$out
+    }
     # 9. pile
     if ($in.kind -eq "noise" -or $in.kind -eq "question") {
         $out.route = "pile"; $out.row = 9
@@ -661,6 +684,6 @@ function New-BodyFile([string]$Text) {
 }
 
 Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
-    Test-TestName, Test-CuratedIssue, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
+    Test-TestName, Test-CuratedIssue, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
     Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
