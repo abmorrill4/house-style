@@ -1,4 +1,4 @@
-# Pester 3 tests for the factory's run controls (command center spec section 4):
+﻿# Pester 3 tests for the factory's run controls (command center spec section 4):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Resolve-Path (Join-Path $here '..\..')
@@ -460,4 +460,15 @@ Describe 'gh bodies go through a file' {
         $hits = @(Get-ChildItem $dir -Filter *.ps1 | Select-String -Pattern ' --body (?!-file)' -SimpleMatch:$false)
         $hits.Count | Should Be 0
     }
+}
+
+Describe 'factory.yml drains the queue' {
+    $yml = Get-Content (Join-Path $PSScriptRoot '..\..\.github\workflows\factory.yml') -Raw
+    $script = Get-Content (Join-Path $PSScriptRoot '..\..\scripts\factory\Invoke-Factory.ps1') -Raw
+    It 'stops on the messages Invoke-Factory prints when the queue is empty or the day is used up' {
+        $yml | Should Match 'Nothing to triage and no fix approved\|waits for tomorrow'
+        $script | Should Match 'Nothing to triage and no fix approved\.'
+        $script | Should Match "waits for tomorrow's agent runs"
+    }
+    It 'runs each pass in its own process' { $yml | Should Match ([regex]::Escape('-File .\scripts\factory\Invoke-Factory.ps1 @a')) }
 }
