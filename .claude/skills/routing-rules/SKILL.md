@@ -20,8 +20,8 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
   paths), the our-words check, and the cap state.
 - **Split reports.** Routing works per ask. An ask an open curated issue covers fully or partly becomes evidence on
   that issue, and for `partial` the comment carries what the issue lacks, so closing the report loses nothing. A bug
-  ask never becomes evidence. A `fix_now` ask that an issue covers is planned work, so it is evidence too; only an
-  uncovered `fix_now` ask goes to fix for review as a draft PR, one per report: another fix-now ask, or one beside a
+  ask never becomes evidence. A friction or question `fix_now` ask goes to fix for review as a draft PR, and when an issue covers it, that
+  issue gets the evidence as well (owner decision 2026-10-24). One per report: another fix-now ask, or one beside a
   bug (the fix is for the bug), is planned instead. Uncovered feature and friction asks get one new planned
   issue, listing only them. Evidence and that planned issue are posted whatever the route, a fix route included, and
   never for a hold at triage (a fix that turns into a hold later doesn't take back evidence already posted). The asks

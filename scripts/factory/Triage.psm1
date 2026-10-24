@@ -326,8 +326,8 @@ function Get-RouteAsks($in) {
                        covers = $(if ($same.Count) { "full" } else { "none" }); issue = $(if ($same.Count) { $same[0] } else { $null }) }
 }
 
-# An ask that becomes evidence: not a bug, and an open issue we curate covers it. Covered work is planned work, so a
-# fix_now on it counts for nothing: the issue gets the evidence.
+# An ask that becomes evidence: not a bug, and an open issue we curate covers it. A fix-now ask on covered work is
+# evidence too, and the report also gets the small fix as a draft PR (row 5, owner decision 2026-10-24).
 function Test-EvidenceAsk($a) {
     $a.kind -ne "bug" -and $a.issue -and $a.issue.state -eq "open" -and $a.issue.curated -and @("full", "partial") -contains $a.covers
 }
@@ -395,7 +395,9 @@ function Get-RouteRow($in, $rules) {
     }
     # The bug rows follow the asks: a report is a bug when one of its asks is (an older record's one ask is its kind).
     $hasBug = [bool]@($asks | Where-Object { $_.kind -eq "bug" }).Count
-    if ($parts.Count -and -not $rest.Count -and -not $hasBug) {
+    # A fix now on planned work gets both: the evidence, and a small interim fix as a draft PR (owner decision 2026-10-24).
+    $nowAll = @($asks | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind -and -not $_.uncertain -and [int]$_.index -ge 0 })
+    if ($parts.Count -and -not $rest.Count -and -not $hasBug -and -not $nowAll.Count) {
         $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "issue"; number = $parts[0].issue }
         $out.evidence = $parts
         $out.reasons = @($parts | ForEach-Object { "open issue #$($_.issue) covers $(if ($_.amend) { 'part of it, so the comment says what the issue lacks' } else { 'it' })" })
@@ -466,12 +468,13 @@ function Get-RouteRow($in, $rules) {
 
     # 5. fix-for-review without a bug: the brief wants a small change now (UI copy, a missing click). Built as a draft
     # PR for the owner, never auto-merged.
-    if (@($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind }).Count) {
+    if ($nowAll.Count) {
         $out.route = "fix-for-review"; $out.row = 5; $out.reasons = @("it is a small change to existing behavior, built as a draft for review")
-        $nows = @($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind -and [int]$_.index -ge 0 } | Sort-Object { [int]$_.index })
+        # Uncovered first: an untracked small fix has nowhere else to go, while a covered one already has its issue.
+        $nows = @($nowAll | Sort-Object @{ Expression = { if (Test-EvidenceAsk $_) { 1 } else { 0 } } }, @{ Expression = { [int]$_.index } })
         $out.fix_ask = [int]$nows[0].index
         # One small fix per draft PR. Any other fix-now ask is planned instead of lost.
-        $more = @($nows | Select-Object -Skip 1 | ForEach-Object { [int]$_.index })
+        $more = @($nows | Select-Object -Skip 1 | Where-Object { -not (Test-EvidenceAsk $_) } | ForEach-Object { [int]$_.index })
         if ($more.Count) { $out.plan = @($out.plan) + $more; if (-not $out.area) { $out.area = Get-PlanArea $in $ms } }
         if ($fix -and @($fix.behavior | Where-Object { $_ }).Count) { $out.reasons += "the fix changes behavior writers see ($(@($fix.behavior) -join ', '))" }
         if ($fix -and @($fix.tamper | Where-Object { $_ }).Count) { $out.reasons += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
