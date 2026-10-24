@@ -417,6 +417,7 @@ Describe 'Test-TriageBrief routing fields' {
         @(Test-TriageBrief $b).Count | Should Be 0
     }
     It 'needs at least one ask' { (Test-TriageBrief (New-Brief)) -join ' ' | Should Match 'no asks' }
+    It 'lets noise have no asks' { $b = New-Brief; $b.kind = "noise"; (Test-TriageBrief $b) -join ' ' | Should Not Match 'no asks' }
     It 'needs a bug ask in a bug brief' {
         $b = New-Brief
         $b | Add-Member asks @([pscustomobject]@{ ask = "Lint a folder"; kind = "feature"; ref = ""; covers = "none"; missing = ""; fix_now = $false })

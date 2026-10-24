@@ -87,7 +87,7 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | # | Route | When | Live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
-| 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*`, apart from plain questions riding along, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
+| 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*` and written by the owner or the factory, apart from questions the docs answer riding along, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
 | 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
 | 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
 | 5 | fix-for-review | a bug, reproduced, and any check fails; or an ask the brief wants fixed now (`fix_now`: a small change to existing behavior, never a bug or a feature) | A **draft** PR with the reasons. `waiting:merge` |
@@ -102,7 +102,8 @@ issue covers become evidence whatever the route, and the asks left over pick the
 and one bug adds the evidence and goes to the bug rows. A bug never becomes evidence, and a part-of or related match
 alone never does either (owner decision 2026-10-24).
 Uncovered feature and friction asks get one new planned issue whatever the route, listing only them. A question riding
-along with covered asks goes with them. An ask the judges split on sends the report to the owner (brief-only).
+along with covered asks goes with them, unless the docs don't answer it (`docs_gap`): then it gets a docs-gap issue,
+or a place in the new planned issue. A second fix-now ask, or one beside a bug, is planned. An ask the judges split on sends the report to the owner (brief-only).
 
 The `area:*` label of a plan or docs-gap issue is the brief's `area` when `rules/areas.json` lists it, otherwise the
 area of the first open public issue the brief lines up with, otherwise none (the roadmap shows it under No area yet).

@@ -2122,6 +2122,130 @@
     "plan": "",
     "evidence": ""
    }
+  },
+  {
+   "name": "a second fix now is planned, one fix per report",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "fix_ask": 0,
+    "plan": "1"
+   }
+  },
+  {
+   "name": "noise posts nothing, even with an ask an issue covers",
+   "input": {
+    "kind": "noise",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "question",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 50,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "pile",
+    "evidence": "",
+    "plan": ""
+   }
+  },
+  {
+   "name": "a duplicate of an open report adds no evidence even when its asks are covered",
+   "input": {
+    "kind": "duplicate",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "report",
+      "number": 3,
+      "state": "open",
+      "curated": false,
+      "area": null
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 50,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "report",
+     "number": 3
+    },
+    "evidence": ""
+   }
   }
  ]
 }

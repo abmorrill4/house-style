@@ -17,17 +17,19 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
   **asks** (each distinct thing the tester wants: its kind, whether the brief wants it fixed now, how much the closest
   open issue `covers` it, `full`, `partial` or `none`, and that issue, resolved like a match), the brief's
   `area` when `rules/areas.json` lists it, the **diff facts** (changed lines and files, owner-only paths, behavior
-  paths), the our-words check, and the cap state. Curated means open and labeled `from:*`.
+  paths), the our-words check, and the cap state.
 - **Split reports.** Routing works per ask. An ask an open curated issue covers fully or partly becomes evidence on
   that issue, and for `partial` the comment carries what the issue lacks, so closing the report loses nothing. A bug
   ask never becomes evidence. A `fix_now` ask that an issue covers is planned work, so it is evidence too; only an
-  uncovered `fix_now` ask goes to fix for review as a draft PR. Uncovered feature and friction asks get one new planned
+  uncovered `fix_now` ask goes to fix for review as a draft PR, one per report: another fix-now ask, or one beside a
+  bug (the fix is for the bug), is planned instead. Uncovered feature and friction asks get one new planned
   issue, listing only them. Evidence and that planned issue are posted whatever the route, a fix route included, and
   never for a hold at triage (a fix that turns into a hold later doesn't take back evidence already posted). The asks
   left over decide the route. A question that rides along with covered asks is answered by the issue they go to. A
   question the docs don't answer that comes with other asks still to route goes in the new planned issue. An
   ask the judges split on (covered, but no one issue has a majority, or one vote each way) sends the report to the
-  owner. A report takes the bug rows when one of its asks is a bug. A report with evidence asks and other asks gets both:
+  owner. A report takes the bug rows when one of its asks is a bug. Noise goes to the pile with nothing posted, and a
+  duplicate of an open report adds nothing (that report routes its own asks). A report with evidence asks and other asks gets both:
   the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
   record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
   shadow review in `planning/work/shadow-review/`).

@@ -19,7 +19,7 @@ function Test-TriageBrief($b) {
     # The test name reaches dotnet test --filter, so it is an identifier and nothing else.
     if ($b.repro_test -and -not (Test-TestName $b.repro_test)) { $problems += "repro_test must be a test name (letters, digits, underscores and dots)." }
     $asks = @($b.asks | Where-Object { $_ })
-    if (-not $asks.Count) { $problems += "There are no asks." }
+    if (-not $asks.Count -and $b.kind -ne "noise") { $problems += "There are no asks." }
     if ($b.kind -eq "bug" -and $asks.Count -and -not @($asks | Where-Object { $_.kind -eq "bug" }).Count) { $problems += "kind is bug, but no ask is a bug." }
     if ($asks.Count -gt 4) { $problems += "There are more than four asks." }
     foreach ($a in $asks) {
@@ -178,7 +178,8 @@ $Routes = "hold", "evidence", "auto-fix", "fix-for-review", "brief-only", "plan"
 # Why the owner is needed (spec section 3). One label per waiting item.
 $WaitingReasons = "want", "plan-input", "plan-review", "merge", "security", "stuck", "rule-change", "decide"
 
-# A public issue we curate: open, and labeled from:*. Only these get evidence comments.
+# A public issue we curate: open, labeled from:*, and (once Set-CuratedAuthors has run) written by the owner or the
+# factory's account. Only these get evidence comments, and only their bodies reach the agents.
 function Test-CuratedIssue($issue) {
     if (-not $issue -or ("" + $issue.state).ToUpperInvariant() -ne "OPEN") { return $false }
     if (-not [bool](@(Get-Labels $issue) | Where-Object { $_ -like "from:*" })) { return $false }
@@ -361,6 +362,17 @@ function Get-RouteRow($in, $rules) {
     if ($in.our_words -eq $false) { $hold += "text we would publish failed the our-words check" }
     if ($hold.Count) { $out.route = "hold"; $out.row = 1; $out.reasons = $hold; $out.waiting = "security"; return [pscustomobject]$out }
 
+    # A duplicate of an open report: the report it duplicates routes its own asks, so this one adds no evidence and plans
+    # nothing. Noise has nothing to route, whatever asks the brief holds.
+    if ($in.kind -eq "duplicate") {
+        $dup = @($ms | Where-Object { $_.target -eq "report" -and $_.state -eq "open" -and $_.relation -eq "same" })
+        if ($dup.Count) {
+            $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "report"; number = $dup[0].number }
+            $out.reasons = @("it duplicates open report #$($dup[0].number)"); return [pscustomobject]$out
+        }
+    }
+    if ($in.kind -eq "noise") { $out.route = "pile"; $out.row = 9; $out.reasons = @("nothing to act on"); return [pscustomobject]$out }
+
     # 2. evidence: each ask an open issue we curate covers, fully or partly. A report whose asks are all covered is
     # evidence. Otherwise those asks still go as evidence and the rest decide the route below. A bug never does.
     $asks = @(Get-RouteAsks $in)
@@ -400,15 +412,6 @@ function Get-RouteRow($in, $rules) {
     }
     $out.plan = @($planAsks | ForEach-Object { [int]$_.index })
     if ($planAsks.Count) { $out.area = Get-PlanArea $in $ms }
-    if ($in.kind -eq "duplicate") {
-        $dup = @($ms | Where-Object { $_.target -eq "report" -and $_.state -eq "open" -and $_.relation -eq "same" })
-        if ($dup.Count) {
-            # The report it duplicates routes its own asks, so this one adds no evidence and plans nothing.
-            $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "report"; number = $dup[0].number }
-            $out.evidence = @(); $out.plan = @(); $out.area = $null
-            $out.reasons = @("it duplicates open report #$($dup[0].number)"); return [pscustomobject]$out
-        }
-    }
 
     # The judges split on which issue covers an ask: the owner decides, with the brief.
     if (@($rest | Where-Object { $_.uncertain -and $_.kind -ne "bug" }).Count) {
@@ -464,7 +467,11 @@ function Get-RouteRow($in, $rules) {
     # PR for the owner, never auto-merged.
     if (@($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind }).Count) {
         $out.route = "fix-for-review"; $out.row = 5; $out.reasons = @("it is a small change to existing behavior, built as a draft for review")
-        $out.fix_ask = [int]@($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind } | Sort-Object { [int]$_.index })[0].index
+        $nows = @($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind -and [int]$_.index -ge 0 } | Sort-Object { [int]$_.index })
+        $out.fix_ask = [int]$nows[0].index
+        # One small fix per draft PR. Any other fix-now ask is planned instead of lost.
+        $more = @($nows | Select-Object -Skip 1 | ForEach-Object { [int]$_.index })
+        if ($more.Count) { $out.plan = @($out.plan) + $more; if (-not $out.area) { $out.area = Get-PlanArea $in $ms } }
         if ($fix -and @($fix.behavior | Where-Object { $_ }).Count) { $out.reasons += "the fix changes behavior writers see ($(@($fix.behavior) -join ', '))" }
         if ($fix -and @($fix.tamper | Where-Object { $_ }).Count) { $out.reasons += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
         if ($fix -and [int]$fix.lines -gt [int]$rules.autoFix.maxChangedLines) { $out.reasons += "the fix changes $($fix.lines) lines, over $($rules.autoFix.maxChangedLines)" }

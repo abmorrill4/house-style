@@ -86,7 +86,7 @@ function Label($n, $add, $remove) {
 }
 # Posts one evidence comment on public issue $t for report $n, once: a retry finds its marker on the report.
 function Add-Evidence([int]$t, [string]$text) {
-    # Checked again right before posting: open, and labeled from:*.
+    # Checked again right before posting: still curated (Test-CuratedIssue).
     $target = Gh issue view $t -R $repo --json "number,state,labels,comments,author" | ConvertFrom-Json
     if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
     $marker = "Evidence posted on https://github.com/$repo/issues/$t"
