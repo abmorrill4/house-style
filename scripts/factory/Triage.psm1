@@ -19,6 +19,7 @@ function Test-TriageBrief($b) {
     # The test name reaches dotnet test --filter, so it is an identifier and nothing else.
     if ($b.repro_test -and -not (Test-TestName $b.repro_test)) { $problems += "repro_test must be a test name (letters, digits, underscores and dots)." }
     $asks = @($b.asks | Where-Object { $_ })
+    if (-not $asks.Count) { $problems += "There are no asks." }
     if ($asks.Count -gt 4) { $problems += "There are more than four asks." }
     foreach ($a in $asks) {
         if (-not ("" + $a.ask).Trim()) { $problems += "An ask has no text." }
@@ -364,8 +365,14 @@ function Get-RouteRow($in, $rules) {
     $parts = @($byIssue.Values)
     $rest = @($asks | Where-Object { -not (Test-EvidenceAsk $_) })
     # A question that rides along with covered asks is answered by the issue they go to.
-    if ($parts.Count) { $rest = @($rest | Where-Object { $_.kind -ne "question" -or $_.fix_now -or $_.uncertain }) }
-    if ($parts.Count -and -not $rest.Count -and $in.kind -ne "bug") {
+    if ($parts.Count) {
+        $riding = @($rest | Where-Object { $_.kind -eq "question" -and -not $_.fix_now -and -not $_.uncertain -and [int]$_.index -ge 0 })
+        $parts[0].asks = @($parts[0].asks) + @($riding | ForEach-Object { [int]$_.index })   # named in that issue's evidence
+        $rest = @($rest | Where-Object { $riding -notcontains $_ })
+    }
+    # The bug rows follow the asks: a report is a bug when one of its asks is (an older record's one ask is its kind).
+    $hasBug = [bool]@($asks | Where-Object { $_.kind -eq "bug" }).Count
+    if ($parts.Count -and -not $rest.Count -and -not $hasBug) {
         $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "issue"; number = $parts[0].issue }
         $out.evidence = $parts
         $out.reasons = @($parts | ForEach-Object { "open issue #$($_.issue) covers $(if ($_.amend) { 'part of it, so the comment says what the issue lacks' } else { 'it' })" })
@@ -376,6 +383,11 @@ function Get-RouteRow($in, $rules) {
     # judges split on.
     # They get their planned issue whatever the route, like covered asks get their evidence.
     $planAsks = @($rest | Where-Object { ($_.kind -eq "feature" -or ($_.kind -eq "friction" -and -not $_.fix_now)) -and -not $_.uncertain -and [int]$_.index -ge 0 })
+    # A question the docs don't answer (docs_gap) that comes with other asks still to route goes in the same new issue,
+    # so it isn't lost when the report closes. Alone, it takes the docs-gap row below.
+    if ($in.docs_gap -eq $true -and @($rest | Where-Object { $_.kind -ne "question" }).Count) {
+        $planAsks = @($planAsks) + @($rest | Where-Object { $_.kind -eq "question" -and -not $_.fix_now -and -not $_.uncertain -and [int]$_.index -ge 0 })
+    }
     $out.plan = @($planAsks | ForEach-Object { [int]$_.index })
     if ($planAsks.Count) { $out.area = Get-PlanArea $in $ms }
     if ($in.kind -eq "duplicate") {
@@ -396,7 +408,7 @@ function Get-RouteRow($in, $rules) {
     $reg = @($ms | Where-Object { $_.target -eq "issue" -and $_.state -eq "closed" -and $_.relation -eq "same" })
     if ($reg.Count) { $out.regression = $reg[0].number }
 
-    if ($in.kind -eq "bug" -or $out.regression -or @($rest | Where-Object { $_.kind -eq "bug" }).Count) {
+    if ($hasBug -or $out.regression) {
         # The fix is for the bug. A small fix the brief wants now for another ask is planned instead of lost.
         $out.plan = @($out.plan) + @($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind -and [int]$_.index -ge 0 } | ForEach-Object { [int]$_.index })
         if (@($out.plan).Count -and -not $out.area) { $out.area = Get-PlanArea $in $ms }
@@ -442,6 +454,10 @@ function Get-RouteRow($in, $rules) {
         $out.route = "fix-for-review"; $out.row = 5; $out.reasons = @("it is a small change to existing behavior, built as a draft for review")
         if ($fix -and @($fix.behavior | Where-Object { $_ }).Count) { $out.reasons += "the fix changes behavior writers see ($(@($fix.behavior) -join ', '))" }
         if ($fix -and @($fix.tamper | Where-Object { $_ }).Count) { $out.reasons += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
+        if ($fix -and [int]$fix.lines -gt [int]$rules.autoFix.maxChangedLines) { $out.reasons += "the fix changes $($fix.lines) lines, over $($rules.autoFix.maxChangedLines)" }
+        if ($fix -and [int]$fix.files -gt [int]$rules.autoFix.maxChangedFiles) { $out.reasons += "the fix changes $($fix.files) files, over $($rules.autoFix.maxChangedFiles)" }
+        if ($fix -and @($fix.overlap | Where-Object { $_ }).Count) { $out.reasons += "another open factory PR changes the same files (#$(@($fix.overlap) -join ', #'))" }
+        if ($fix -and $fix.area -and @($rules.suspended | Where-Object { $_ -eq $fix.area }).Count) { $out.reasons += "fixes are suspended for the $($fix.area) area after a reverted fix" }
         $out.build = -not $fix; if ($fix) { $out.waiting = "merge" }
         return [pscustomobject]$out
     }
@@ -724,7 +740,9 @@ function Get-PublicText($route, $brief, [int]$n) {
         if ($mine.Count) {
             $lead = if (@($mine | Where-Object { $_.kind -ne "friction" }).Count) { "Another tester asked for this." } else { "Another tester ran into this." }
             $lines = @(foreach ($a in $mine) {
-                $lack = if ($a.covers -eq "partial" -and ("" + $a.missing).Trim()) { " **Not covered here yet.** $(Format-Field $a.missing 300)" } else { "" }
+                $lack = if ($a.covers -ne "partial") { "" }
+                        elseif (("" + $a.missing).Trim()) { " **Not covered here yet.** $(Format-Field $a.missing 300)" }
+                        else { " **Not covered here yet.** This issue doesn't say this yet." }
                 "- $(Format-Field $a.ask 300)$lack"
             })
             # The report's impact belongs to the whole report, so it goes with the evidence only when this is all of it.

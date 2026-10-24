@@ -411,7 +411,12 @@ Describe 'Test-TriageBrief routing fields' {
             $b = New-Brief; $b.repro_test = $bad; (Test-TriageBrief $b) -join ' ' | Should Match 'repro_test'
         }
     }
-    It 'allows an empty test name' { $b = New-Brief; $b.repro_test = ""; @(Test-TriageBrief $b).Count | Should Be 0 }
+    It 'allows an empty test name' {
+        $b = New-Brief; $b.repro_test = ""
+        $b | Add-Member asks @([pscustomobject]@{ ask = "Keep an ignored issue ignored"; kind = "bug"; ref = ""; covers = "none"; missing = ""; fix_now = $false })
+        @(Test-TriageBrief $b).Count | Should Be 0
+    }
+    It 'needs at least one ask' { (Test-TriageBrief (New-Brief)) -join ' ' | Should Match 'no asks' }
     It 'a bad test name never reaches the route' {
         $b = New-Brief; $b.repro_test = 'X"; rm'
         (New-RouteInput $b @() 3).repro_test | Should Be ""

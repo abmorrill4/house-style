@@ -12,6 +12,7 @@ function New-Brief {
                     [pscustomobject]@{ option = "Park"; effort = "S"; risk = "None"; for_writers = "Nothing changes." })
         recommendation = [pscustomobject]@{ option = "Fix now"; why = "Small and clear." }
         questions = @("Should Ignore apply to the whole project?"); confidence = "high"; security = $false
+        asks = @([pscustomobject]@{ ask = "Keep an ignored issue ignored after a relint"; kind = "bug"; ref = ""; covers = "none"; missing = ""; fix_now = $false })
     }
 }
 

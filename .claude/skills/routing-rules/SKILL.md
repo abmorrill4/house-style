@@ -23,8 +23,10 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
   uncovered `fix_now` ask goes to fix for review as a draft PR. Uncovered feature and friction asks get one new planned
   issue, listing only them. Evidence and that planned issue are posted whatever the route, a fix route included, and
   never for a hold at triage (a fix that turns into a hold later doesn't take back evidence already posted). The asks
-  left over decide the route. A question that rides along with covered asks is answered by the issue they go to. An
-  ask the judges split on (covered, but no one issue has a majority) sends the report to the owner. A report with evidence asks and other asks gets both:
+  left over decide the route. A question that rides along with covered asks is answered by the issue they go to. A
+  question the docs don't answer that comes with other asks still to route goes in the new planned issue. An
+  ask the judges split on (covered, but no one issue has a majority, or one vote each way) sends the report to the
+  owner. A report takes the bug rows when one of its asks is a bug. A report with evidence asks and other asks gets both:
   the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
   record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
   shadow review in `planning/work/shadow-review/`).

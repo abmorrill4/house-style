@@ -346,7 +346,7 @@ function Get-Overlap($paths, [string]$branch) {
 }
 
 $NextSteps = @{
-    "hold" = "Look at it privately. Nothing went to GitHub, and any branch stays on the factory VM."
+    "hold" = "Look at it privately. Nothing more goes to GitHub, and any branch stays on the factory VM."
     "evidence" = "Nothing for you. Each issue it lines up with gets the evidence and this report is closed."
     "auto-fix" = "Nothing for you. The fix merges once CI passes. It ships in tonight's release."
     "fix-for-review" = "Review the draft PR. Merging it is the one step left."
@@ -566,11 +566,14 @@ try {
     if ($routed) {
         $gate = Test-FixAllowed $routed (Get-Labels $r) @() $owner
         if ($gate) { throw "The fix gate refused: $gate" }
+        # The order follows what the route is for: a bug (with or without a named test), or a small fix now.
+        $isBug = $routeIn.kind -eq "bug" -or $routed.regression -or @($routeIn.asks | Where-Object { $_ -and $_.kind -eq "bug" }).Count
         $orderText = $triageComment + "`n`n**Route:** $($routed.route), computed by the factory in this run. " +
-            $(if ($routeIn.repro_test) { "Add the test named above, with that exact name, and make it pass." }
+            $(if ($routeIn.repro_test) { "Fix the bug. Add the test named above, with that exact name, and make it pass. Leave the other asks alone." }
+              elseif ($isBug) { "Fix the bug the brief describes, and add a test that fails on main and passes with the fix where a unit test can show it. Leave the other asks alone." }
               else {
                   $now = @($brief.asks | Where-Object { $_ -and $_.fix_now -eq $true -and $_.covers -eq "none" -and @("friction", "question") -contains $_.kind } | Select-Object -First 1)
-                  "Make only this small change to existing behavior: $(if ($now.Count) { Format-Field $now[0].ask 300 } else { 'the ask marked fix now' }). Leave the other asks alone; they are planned or added as evidence. Add a test that shows it where a unit test can."
+                  "Make only this small change to existing behavior: $(if ($now.Count) { Format-Field $now[0].ask 300 } else { 'the ask marked fix now' }). Leave the other asks alone. Add a test that shows it where a unit test can."
               })
     }
     else {
