@@ -574,7 +574,10 @@ try {
     $review = Get-Content $reviewPath -Raw | ConvertFrom-Json
     if ($review.verdict -ne "MERGE") { throw "Review blocked the fix: $($review.reasons -join '; ')" }
 
-    if ($DryRun) { Write-Host "Dry run: would push $branch, open a $(if ($routed -and $routed.route -eq 'fix-for-review') { 'draft ' })PR$(if (-not $routed -or $routed.route -eq 'auto-fix') { ' and merge it' })."; return }
+    # The test-tamper guard holds for the owner's decision:fix too: such a fix opens a draft PR instead of merging.
+    $tamperDraft = -not $routed -and @($facts.tamper | Where-Object { $_ }).Count
+    $draft = ($routed -and $routed.route -eq "fix-for-review") -or $tamperDraft
+    if ($DryRun) { Write-Host "Dry run: would push $branch, open a $(if ($draft) { 'draft ' })PR$(if (-not $draft) { ' and merge it' })."; return }
     if ($routed -and -not $live) {
         # Shadow: the route and its checks are posted privately; the branch stays on the factory VM.
         $would = if ($routed.route -eq "auto-fix") { "merge on its own once CI passed" } else { "open a draft PR for you to merge" }
@@ -587,10 +590,10 @@ try {
     $head = git rev-parse HEAD
     git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$token")))" push -q -f origin $branch
     if ($LASTEXITCODE) { throw "Push failed." }
-    $draft = $routed -and $routed.route -eq "fix-for-review"
     $robot = [char]::ConvertFromUtf32(0x1F916)
     $prBody = "$prLead`n`nThe factory's second agent reviewed the diff: MERGE. Unit tests and the end-to-end checks in Flare passed on the factory VM.$(if ($retried) { " These passed only on a retry after a VM failure, so look for a flaky start-up: $($retried -join ', ')." })"
-    if ($draft) { $prBody += "`n`nThe factory didn't merge this on its own, because`n" + ((@($routed.reasons) | ForEach-Object { "- $_" }) -join "`n") }
+    $draftWhy = if ($tamperDraft) { @("the fix changes existing tests or protected test files ($(@($facts.tamper) -join ', '))") } elseif ($draft) { @($routed.reasons) } else { @() }
+    if ($draft) { $prBody += "`n`nThe factory didn't merge this on its own, because`n" + (($draftWhy | ForEach-Object { "- $_" }) -join "`n") }
     $prBody += "`n`n$robot Generated with [Claude Code](https://claude.com/claude-code)"
     # Every fix should carry a changes/ note; if the agent left it out, the PR says so with no-notes rather than fail CI.
     $prArgs = @()
@@ -599,6 +602,11 @@ try {
     if ($routed -and $routed.route -eq "auto-fix") { $prArgs += @("--label", "factory:auto-fix") }   # counted for the daily cap
     $url = Gh pr create -R $repo --base main --head $branch --title $prTitle --body $prBody @prArgs
     $pr = ($url -split '/')[-1]
+    if ($tamperDraft) {
+        Say $n "Opened the draft PR $url instead of merging, because $($draftWhy -join ', and '). Review it. Merging it is the one step left."
+        Label $n @("waiting:merge", "factory:needs-decision") @("factory:working")
+        return
+    }
     if ($draft) {
         Say $n (Format-RouteComment $routed $routeIn $routeMode "Review the draft PR, $url. Merging it is the one step left.")
         Label $n @("triage:ready", "route:fix-for-review", "waiting:merge", "factory:needs-decision") $stale

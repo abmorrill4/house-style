@@ -119,8 +119,13 @@ all run by the script with thresholds from `rules/routing.json` (read from main 
    change (new files too) to protected test data goes for review: `tests/baselines/`, any `fixtures/` or `golden/`
    folder under `tests/`, `tests/FlareAI.Scenarios/Output/`, `corpus/` (its ground truth included), `tests/FlareAI.TestKit/`,
    `tests/Isolation/`, project wiring (`*.csproj`, `Directory.Build.*`) and the e2e harness (also refused outright).
-   Added lines in an existing test file (a new test method) and new test files are fine, since that's how a
-   reproduction test is written. `$TestProtected` and `Get-TestTamper` in `Triage.psm1`.
+   New test files are fine, and so is a hunk in an existing test file that only adds whole new tests: C# members
+   that start with a test attribute (`[Fact]`, `[Theory]`, `[InlineData]` and the like, never a Skip) and end with
+   their balanced closing brace, or complete Pester `It`, `Describe` or `Context` blocks with no `-Skip` or
+   `-Pending`. That's how a reproduction test is written. Any other added line in an existing test file (inside an
+   existing test, a `using`, a helper, another attribute) goes for review. `$TestProtected`, `Get-TestTamper` and
+   `Test-WholeTests` in `Triage.psm1`. The same check applies to a fix the owner approved with `decision:fix`: a
+   tampering diff there opens a draft PR with the reason instead of merging.
 9. **Not in a suspended area.** The area is the folder under `src/FlareAI.Core/` or `src/FlareAI.Flare/` the fix
    changed most (`Style`, `UI`, ...; a file directly in a project folder counts as `Core` or `Flare`). See lane
    suspension below.

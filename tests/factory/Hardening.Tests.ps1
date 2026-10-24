@@ -22,6 +22,31 @@ function New-Fix([hashtable]$over = @{}) {
 function Route-Fix($fix, $r = $rules) { $in = New-RouteInput (New-Brief) @() 3; $in.fix = $fix; Get-Route $in $r }
 
 # A real git diff -U0 of a small repo, so the status and hunk parsing see what git really prints.
+$CsBase = @"
+using Xunit;
+
+namespace FlareAI.Core.Tests
+{
+    public class IgnoreTests
+    {
+        [Fact]
+        public void IgnoreSticks()
+        {
+            var x = Make("a");
+            Assert.Equal(1, x.Count);
+        }
+    }
+}
+"@ -replace "`r`n", "`n"
+$PesterBase = @"
+Describe 'Ignore' {
+    It 'sticks' {
+        1 | Should Be 1
+    }
+}
+"@ -replace "`r`n", "`n"
+function Set-File($repo, $path, $text) { [IO.File]::WriteAllText((Join-Path $repo $path), ($text -replace "`r`n", "`n")) }
+
 function New-RealDiff([scriptblock]$change) {
     $repo = Join-Path $TestDrive ("r" + [guid]::NewGuid().ToString("N").Substring(0, 8))
     New-Item -ItemType Directory -Force $repo | Out-Null
@@ -34,6 +59,9 @@ function New-RealDiff([scriptblock]$change) {
             New-Item -ItemType Directory -Force (Split-Path $p) | Out-Null
             [IO.File]::WriteAllText((Join-Path $repo $p), "line one`nline two`nline three`n")
         }
+        Set-File $repo "tests/FlareAI.Core.Tests/IgnoreTests.cs" $CsBase
+        New-Item -ItemType Directory -Force (Join-Path $repo "tests/agent") | Out-Null
+        Set-File $repo "tests/agent/Ignore.Tests.ps1" $PesterBase
         git add -A 2>&1 | Out-Null; git commit -q -m base 2>&1 | Out-Null
         & $change $repo
         git add -A 2>&1 | Out-Null
@@ -43,9 +71,65 @@ function New-RealDiff([scriptblock]$change) {
 }
 
 Describe 'The test-tamper guard (spec section 4.2)' {
-    It 'allows added lines in an existing test file: a new test method in the area''s test class' {
-        $d = New-RealDiff { param($r) Add-Content (Join-Path $r "tests/FlareAI.Core.Tests/IgnoreTests.cs") "public void IgnoreSurvivesRelint() { }" -NoNewline }
+    $newFact = @"
+
+        [Fact]
+        public void IgnoreSurvivesRelint()
+        {
+            var x = Make("a { b");
+            if (x != null) { Assert.Equal(1, x.Count); }
+        }
+"@
+    It 'allows a new [Fact] method added to an existing test class' {
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("        }`n    }`n}", "        }`n$($newFact -replace "`r`n", "`n")`n    }`n}")) }
+        $f = Split-Diff $d.diff
+        @($f["tests/FlareAI.Core.Tests/IgnoreTests.cs"].removed).Count | Should Be 0
+        @(Get-TestTamper $f).Count | Should Be 0
+    }
+    It 'allows a new [Theory] with [InlineData] rows' {
+        $theory = "`n        [Theory]`n        [InlineData(1)]`n        [InlineData(2)]`n        public void Counts(int n)`n        {`n            Assert.True(n > 0);`n        }"
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("        }`n    }`n}", "        }`n$theory`n    }`n}")) }
         @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 0
+    }
+    It 'sends an early return added inside an existing test to review' {
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("        {`n            var x", "        {`n            return;`n            var x")) }
+        $f = Split-Diff $d.diff
+        @($f["tests/FlareAI.Core.Tests/IgnoreTests.cs"].removed).Count | Should Be 0   # added lines only, and still caught
+        Get-TestTamper $f | Should Be "tests/FlareAI.Core.Tests/IgnoreTests.cs (added lines that aren't whole new tests)"
+    }
+    It 'sends a Skip to review, on an existing test or on a new one' {
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("[Fact]", "[Fact(Skip = `"later`")]")) }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+        $skipped = $newFact.Replace("[Fact]", "[Fact(Skip = `"later`")]")
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("        }`n    }`n}", "        }`n$($skipped -replace "`r`n", "`n")`n    }`n}")) }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+    }
+    It 'sends a new using, a helper method or an attribute that is not a test to review' {
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ("using Assert = Fake.Assert;`n" + $CsBase) }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+        Test-WholeTests @("        private static int Helper()", "        {", "            return 1;", "        }") "cs" | Should Be $false
+        Test-WholeTests @("        [Obsolete]", "        [Fact]", "        public void A()", "        {", "        }") "cs" | Should Be $false
+        Test-WholeTests @("        [Fact]", "        public void A()", "        {") "cs" | Should Be $false   # unbalanced
+    }
+    It 'allows a new It block in an existing Pester file, and refuses a skipped one or a line inside an existing It' {
+        $d = New-RealDiff { param($r) Set-File $r "tests/agent/Ignore.Tests.ps1" ($PesterBase.Replace("    }`n}", "    }`n    It 'survives a relint' {`n        `$x = @{ a = '}' }`n        2 | Should Be 2`n    }`n}")) }
+        $f = Split-Diff $d.diff
+        @($f["tests/agent/Ignore.Tests.ps1"].removed).Count | Should Be 0
+        @(Get-TestTamper $f).Count | Should Be 0
+        Test-WholeTests @("    It 'later' -Skip {", "    }") "pester" | Should Be $false
+        $d = New-RealDiff { param($r) Set-File $r "tests/agent/Ignore.Tests.ps1" ($PesterBase.Replace("    It 'sticks' {`n", "    It 'sticks' {`n        return`n")) }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+    }
+    It 'any added line in an existing test file that is not C# or Pester goes to review' {
+        $d = New-RealDiff { param($r) Add-Content (Join-Path $r "tests/FlareAI.Core.Tests/OldTests.cs") "public void X() { }" -NoNewline }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+        Test-WholeTests @("a") "" | Should Be $false
+    }
+    It 'an owner-approved decision:fix that tampers opens a draft PR instead of merging' {
+        $factoryScript | Should Match '\$tamperDraft = -not \$routed -and @\(\$facts\.tamper'
+        $factoryScript | Should Match '\$draft = \(\$routed -and \$routed\.route -eq "fix-for-review"\) -or \$tamperDraft'
+        $factoryScript.IndexOf('if ($tamperDraft) {') | Should BeLessThan $factoryScript.IndexOf('Gh pr merge')
+        $factoryScript.IndexOf('$draft = ($routed') | Should BeLessThan $factoryScript.IndexOf('if ($draft) { $prArgs += "--draft" }')
     }
     It 'allows a new test file' {
         $d = New-RealDiff { param($r) [IO.File]::WriteAllText((Join-Path $r "tests/FlareAI.Core.Tests/NewTests.cs"), "class NewTests {}`n") }

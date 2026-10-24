@@ -358,14 +358,16 @@ $OwnerOnly = '^src/FlareAI\.Core/(Update|Settings|Llm|Editing|Feedback)/|^src/Fl
 function Split-Diff([string]$diff) {
     $files = @{}; $cur = $null; $inHunk = $false
     foreach ($line in ($diff -split "`r?`n")) {
-        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @(); status = "M" }; $inHunk = $false; continue }
+        if ($line -match '^diff --git a/.+ b/(.+)$') { $cur = $Matches[1]; $files[$cur] = @{ added = @(); removed = @(); status = "M"; hunks = @() }; $inHunk = $false; continue }
         if (-not $cur) { continue }
-        if ($line.StartsWith("@@")) { $inHunk = $true; continue }
+        if ($line.StartsWith("@@")) { $inHunk = $true; $files[$cur].hunks += , @{ added = @(); removed = @() }; continue }
         if (-not $inHunk) {   # index, mode, ---, +++ and other header lines
             if ($line.StartsWith("new file mode")) { $files[$cur].status = "A" } elseif ($line.StartsWith("deleted file mode")) { $files[$cur].status = "D" }
             continue
         }
-        if ($line.StartsWith("+")) { $files[$cur].added += $line.Substring(1) } elseif ($line.StartsWith("-")) { $files[$cur].removed += $line.Substring(1) }
+        $h = $files[$cur].hunks[-1]
+        if ($line.StartsWith("+")) { $files[$cur].added += $line.Substring(1); $h.added += $line.Substring(1) }
+        elseif ($line.StartsWith("-")) { $files[$cur].removed += $line.Substring(1); $h.removed += $line.Substring(1) }
     }
     $files
 }
@@ -382,19 +384,63 @@ function Get-AddedText([string]$diff) {
 $TestProtected = '^tests/(.+/)?(baselines|fixtures|golden)/|^tests/FlareAI\.Scenarios/Output/|^corpus/|^tests/FlareAI\.TestKit/|^tests/Isolation/|' +
                  '\.csproj$|(^|/)Directory\.(Build|Packages)\.|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
 
-# The test-tamper guard. A reproduction test is written by adding lines, so added lines in an existing test file and
-# new test files are fine. Anything else that weakens what the tests check is listed: a deleted or changed line in an
-# existing file under tests/ (a deleted file too), and any change in a protected folder. $files: Split-Diff output.
+# The test-tamper guard. A reproduction test is a new test, so a new test file is fine, and so is a hunk in an existing
+# test file that only adds whole new tests (Test-WholeTests). Everything else is listed: a deleted file, a hunk that
+# removes or changes a line, a hunk that adds anything else (a line inside an existing test, a Skip, a using), and any
+# change in a protected folder. $files: Split-Diff output.
 function Get-TestTamper($files, [string]$protected = $TestProtected) {
     $found = @()
     foreach ($p in @($files.Keys | Sort-Object)) {
         $f = $files[$p]
         if ($p -match $protected) { $found += "$p (protected test files)"; continue }
-        if ($p -notlike "tests/*") { continue }
-        if ($f.status -eq "D") { $found += "$p (deleted)" }
-        elseif ($f.status -ne "A" -and @($f.removed).Count) { $found += "$p (changed or deleted lines)" }
+        if ($p -notlike "tests/*" -or $f.status -eq "A") { continue }
+        if ($f.status -eq "D") { $found += "$p (deleted)"; continue }
+        $lang = if ($p -like "*.cs") { "cs" } elseif ($p -like "*.Tests.ps1") { "pester" } else { "" }
+        foreach ($h in @($f.hunks)) {
+            if (@($h.removed).Count) { $found += "$p (changed or deleted lines)"; break }
+            if (@($h.added).Count -and -not (Test-WholeTests @($h.added) $lang)) { $found += "$p (added lines that aren't whole new tests)"; break }
+        }
     }
     $found
+}
+
+# A line with its strings, characters and comments taken out, so only real braces are counted.
+function Get-CodeOnly([string]$line, [string]$lang) {
+    if ($lang -eq "cs") { $line -replace '@"([^"]|"")*"', '""' -replace '"(\\.|[^"\\])*"', '""' -replace "'(\\.|[^'\\])+'", "''" -replace '/\*.*?\*/', '' -replace '//.*$', '' }
+    else { $line -replace '"(`.|[^"`])*"', '""' -replace "'([^']|'')*'", "''" -replace '#.*$', '' }
+}
+
+# True when the added lines of one hunk are nothing but complete new tests: in C#, members that start with test
+# attributes ([Fact], [Theory], [InlineData] and the like, never a Skip) and end with their balanced closing brace; in
+# Pester, complete It, Describe or Context blocks with no -Skip or -Pending. Blank and comment lines between them are fine.
+function Test-WholeTests($lines, [string]$lang) {
+    if (@("cs", "pester") -notcontains $lang) { return $false }
+    $lines = @($lines); $i = 0; $n = $lines.Count; $members = 0
+    if ($lang -eq "pester" -and @($lines | Where-Object { $_ -match '(?i)\s-(Skip|Pending)\b|Set-ItResult' }).Count) { return $false }
+    while ($i -lt $n) {
+        $t = ("" + $lines[$i]).Trim()
+        if (-not $t -or ($lang -eq "cs" -and $t.StartsWith("//")) -or ($lang -eq "pester" -and $t.StartsWith("#"))) { $i++; continue }
+        if ($lang -eq "cs") {
+            $attrs = @()
+            while ($i -lt $n -and ("" + $lines[$i]).Trim() -match '^\[.*\]$') { $attrs += ("" + $lines[$i]).Trim(); $i++ }
+            if (-not $attrs.Count -or @($attrs | Where-Object { $_ -match '(?i)skip' }).Count) { return $false }
+            if (@($attrs | Where-Object { $_ -notmatch '^\[\s*(Fact|Theory|InlineData|MemberData|ClassData|Trait|Test|TestCase|TestMethod)\b' }).Count) { return $false }
+            if (-not @($attrs | Where-Object { $_ -match '^\[\s*(Fact|Theory|Test|TestCase|TestMethod)\b' }).Count) { return $false }
+            if ($i -ge $n -or ("" + $lines[$i]) -notmatch '\w\s*\(') { return $false }   # the method's signature
+        }
+        elseif ($t -notmatch '^(It|Describe|Context)\s+[''"]') { return $false }
+        $depth = 0; $opened = $false; $closed = $false
+        while ($i -lt $n) {
+            foreach ($ch in (Get-CodeOnly ("" + $lines[$i]) $lang).ToCharArray()) {
+                if ($ch -eq '{') { $depth++; $opened = $true } elseif ($ch -eq '}') { $depth--; if ($depth -lt 0) { return $false } }
+            }
+            $i++
+            if ($opened -and $depth -eq 0) { $closed = $true; break }
+        }
+        if (-not $closed) { return $false }
+        $members++
+    }
+    $members -gt 0
 }
 
 # The area a fix belongs to: the folder under src/FlareAI.Core/ or src/FlareAI.Flare/ it changed the most lines in
@@ -592,4 +638,4 @@ function Get-ReasonCodes($reasons) {
 Export-ModuleMember -Function Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
     Test-TestName, Test-CuratedIssue, Resolve-Matches, New-RouteInput, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
-    Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
+    Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
