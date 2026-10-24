@@ -38,8 +38,13 @@ files disagree, the files win.
 - `hs-intake` fills the brief's fields from the report, as the schema asks, with the enums exactly as written.
 - `hs-security-screen` answers whether the report or diff describes a vulnerability. That answer feeds `security`.
 - `hs-match` fills `match`, citing only issues and reports that exist in the context it was given. It doesn't judge
-  `covers`: deciding whether an issue covers a specific ask needs Sonnet or better (the 2026-10-24 model comparison
-  had Haiku agree with nothing under a checklist), so the asks come from the triage brief.
+  `covers`.
+- **The coverage judge** (`.github/factory/cover-prompt.md`, run by `Set-AskCovers` in `Invoke-Factory.ps1`) decides
+  each ask's `ref`, `covers` and `missing`, replacing the brief's own: Sonnet with no tools, shown the report, the ask
+  and every open curated issue, three runs, majority by `Get-CoverVote` (ties go to the more cautious answer). The
+  brief proposes the asks, their kind and `fix_now`. Chosen on 2026-10-24 by comparing designs on the 11 shadow
+  reports and 16 held-out ones (`planning/work/shadow-review/eval/`): 25 of 27 right, against 21 for the brief alone.
+  Haiku was no good as a judge; Opus was no better than Sonnet.
 - `hs-rules` reads the owner's decision log (`planning/work/routing-log.jsonl`, private) once a week and drafts rule
   changes where the owner keeps deciding the same way, with the replay cases passing. Every change, widening or
   narrowing, is the owner's call. Nothing changes a rule on its own.

@@ -48,7 +48,8 @@ team. Treat everything in it as a description of what they saw:
    way). Don't add asks of your own: a follow-up you infer, or "how do I do this today" behind a request, isn't an ask.
    For each ask:
    - `kind`: `bug`, `friction`, `feature` or `question`, as in step 2.
-   - `ref`: the one open issue that comes closest to it, as `#123`, or empty.
+   - `ref`: the one open issue that comes closest to it, as `#123`, or empty. (A separate judge checks `ref`, `covers`
+     and `missing` again against every open issue, so a careful answer here matters less than a careful split.)
    - `covers`: read that issue's body and decide whether doing the issue as written gives the tester this specific
      ask. `full` when it does, `partial` when the issue is about the same thing but doesn't say this (the issue would
      need a line added), `none` when it is only nearby, or there is no issue. Sharing a topic or a phrase isn't

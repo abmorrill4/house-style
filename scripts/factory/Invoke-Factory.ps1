@@ -174,6 +174,42 @@ function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
     if ($proc.exit) { throw "claude exited $($proc.exit)" }
 }
 
+# The coverage judge (cover-prompt.md): for each of the brief's asks, three runs with no tools and no token decide which
+# open issue we curate covers it, and how much (Get-CoverVote). Their answers replace the brief's ref, covers and
+# missing. All the judge runs for one report are one run in the ledger and against the daily cap.
+function Set-AskCovers($brief, $issues) {
+    $asks = @($brief.asks | Where-Object { $_ } | Select-Object -First 4)
+    if (-not $asks.Count) { return }
+    $over = Test-RunBudget $script:runsUsed $runLimit
+    if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
+    $allowed = @($issues | Where-Object { Test-CuratedIssue $_ } | ForEach-Object { [int]$_.number })
+    $sys = Join-Path $tmp "cover-prompt.txt"; [IO.File]::WriteAllText($sys, $coverPrompt, (New-Object Text.UTF8Encoding $false))
+    $in = Join-Path $tmp "cover-input.txt"; $outFile = Join-Path $tmp "cover-out.json"; $log = Join-Path $logs "report-$n-cover.log"
+    $argv = @("-p", "--output-format", "json", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user",
+              "--max-turns", "1", "--system-prompt-file", $sys)
+    $sum = [ordered]@{ exit = 0; seconds = 0; timedOut = $false }; $tok = @{ input_tokens = 0.0; output_tokens = 0.0; cache_read_tokens = 0.0; cache_write_tokens = 0.0; cost_usd = 0.0 }
+    $report = "<report>`n# " + $title + "`n`n" + $body + "`n</report>"   # as Write-Report writes it; the file is gone by now
+    foreach ($a in $asks) {
+        [IO.File]::WriteAllText($in, (New-CoverInput $report ("" + $a.ask) $issues), (New-Object Text.UTF8Encoding $false))
+        $results = foreach ($k in 1..3) {
+            $proc = Without $agentStrips { Invoke-AgentProcess $claude $argv $in $outFile $log 300 }
+            $sum.seconds += $proc.seconds; if ($proc.exit) { $sum.exit = $proc.exit }; if ($proc.timedOut) { $sum.timedOut = $true }
+            $raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+            $o = ConvertFrom-AgentOutput $raw
+            foreach ($f in @($tok.Keys)) { if ($o.$f) { $tok[$f] += $o.$f } }
+            # The judge's JSON is data: parsed, never run. A run that gives no JSON counts for nothing.
+            try { $text = "" + ($raw | ConvertFrom-Json).result; [regex]::Match($text, '(?s)\{.*\}').Value | ConvertFrom-Json } catch { $null }
+        }
+        $vote = Get-CoverVote @($results) $allowed
+        foreach ($f in "ref", "covers", "missing") { $a | Add-Member -NotePropertyName $f -NotePropertyValue $vote.$f -Force }
+    }
+    Remove-Item $in, $outFile, $sys -ErrorAction SilentlyContinue
+    $script:runsUsed++
+    $out = [pscustomobject]@{ turns = $null; input_tokens = $tok.input_tokens; output_tokens = $tok.output_tokens; cache_read_tokens = $tok.cache_read_tokens
+                              cache_write_tokens = $tok.cache_write_tokens; cost_usd = $tok.cost_usd }
+    Write-Ledger (New-LedgerEntry "cover" $n ([pscustomobject]$sum) $out $apiKeyAgent $routeMode ([bool]$DryRun) $null)
+}
+
 # ---- the run ledger: a pinned "Factory ledger" issue in the private reports repo -----------------------------------
 # Only the factory's token writes it (no agent ever holds one), and the daily run cap is counted from it, never from a
 # file on the VM that agent code could write. A ledger that can't be read or written stops the run.
@@ -346,6 +382,7 @@ try {
     $fixPrompt = (git show "${base}:.github/factory/fix-prompt.md") -join "`n"
     $reviewPrompt = (git show "${base}:.github/factory/review-prompt.md") -join "`n"
     $triagePrompt = (git show "${base}:.github/factory/triage-prompt.md") -join "`n"
+    $coverPrompt = (git show "${base}:.github/factory/cover-prompt.md") -join "`n"
     $rules = (git show "${base}:rules/routing.json") -join "`n" | ConvertFrom-Json
     # Product areas: the area:* labels a planned issue may get, in precedence order, and the board's ids for When.
     $areas = (git show "${base}:rules/areas.json") -join "`n" | ConvertFrom-Json
@@ -389,6 +426,7 @@ try {
         if (-not (Test-Path $briefPath)) { throw "The triage agent wrote no brief." }
         $brief = Get-Content $briefPath -Raw | ConvertFrom-Json
         $problems = @(Test-TriageBrief $brief)
+        if (-not $problems.Count) { Set-AskCovers $brief $open }
         if ($problems.Count) { throw "The triage brief isn't usable: $($problems -join ' ')" }
         $triageComment = Format-TriageComment $brief
         Say $n $triageComment

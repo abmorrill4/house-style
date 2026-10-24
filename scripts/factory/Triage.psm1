@@ -249,6 +249,40 @@ function ConvertTo-RouteAsks($brief, $askRefs = @()) {
     }
 }
 
+# ==== The coverage judge (.github/factory/cover-prompt.md) ===========================================================
+# The triage brief proposes the asks. Whether an open issue covers each one is decided again by a judge with no tools,
+# which sees the report, the ask and every open issue we curate, three times, by majority. A model comparison on the
+# shadow reports and a held-out set (2026-10-24, planning/work/shadow-review) found this steadier than the brief's own
+# covers, and immune to the brief missing the right issue.
+
+# The judge's input: the report, one ask, and the bodies of the open issues we curate. All data.
+function New-CoverInput([string]$report, [string]$ask, $issues) {
+    $lines = @($report.Trim(), "", "<ask>$(Format-Field $ask 300)</ask>", "")
+    foreach ($i in @($issues | Where-Object { Test-CuratedIssue $_ } | Sort-Object { [int]$_.number })) {
+        $lines += "<issue>", "#$($i.number) $(Format-Field $i.title 200)", "", ("" + $i.body).Replace("</issue>", "").Trim(), "</issue>", ""
+    }
+    $lines -join "`n"
+}
+
+# The judges' answer by majority: covers by most votes (a tie goes to the more cautious, none before partial before
+# full), then the issue most of those votes named. A ref that isn't one of $allowed (the issues the judge was shown)
+# counts as none. $results: the judges' parsed JSON, $null for one that gave no usable answer.
+function Get-CoverVote($results, [int[]]$allowed) {
+    $rank = @{ "none" = 0; "partial" = 1; "full" = 2 }
+    $votes = @(foreach ($r in @($results | Where-Object { $_ -and $_.best })) {
+        $c = "" + $r.best.covers; $num = 0
+        if (("" + $r.best.ref).Trim() -match '^#(\d{1,6})$') { $num = [int]$Matches[1] }
+        if (-not $rank.ContainsKey($c) -or ($c -ne "none" -and $allowed -notcontains $num)) { $c = "none"; $num = 0 }
+        [pscustomobject]@{ covers = $c; number = $(if ($c -eq "none") { 0 } else { $num }); missing = "" + $r.best.missing }
+    })
+    if (-not $votes.Count) { return [pscustomobject]@{ ref = ""; covers = "none"; missing = ""; votes = 0 } }
+    $groups = @($votes | Group-Object covers | Sort-Object @{ Expression = { $_.Count }; Descending = $true }, @{ Expression = { $rank[$_.Name] } })
+    $covers = $groups[0].Name
+    $pick = @($groups[0].Group | Group-Object number | Sort-Object Count -Descending)[0].Group[0]
+    [pscustomobject]@{ ref = $(if ($covers -eq "none") { "" } else { "#$($pick.number)" }); covers = $covers
+                       missing = $(if ($covers -eq "partial") { $pick.missing } else { "" }); votes = $votes.Count }
+}
+
 # The asks Get-Route works from. A record with none (an older brief) gets one ask from its kind and its first "same"
 # match on an issue, so a part-of or related match never counts as covering the report.
 function Get-RouteAsks($in) {
@@ -771,6 +805,6 @@ function New-BodyFile([string]$Text) {
 }
 
 Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
-    Test-TestName, Test-CuratedIssue, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
+    Test-TestName, Test-CuratedIssue, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, New-CoverInput, Get-CoverVote, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
     Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes

@@ -95,7 +95,10 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | 7 | plan | a `feature` or `friction` ask no open issue covers | A public `from:tester` + `loop:auto` issue in our words, listing only the uncovered asks, with its `area:*` label, in Later on the board |
 | 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue, with its `area:*` label, in Later on the board |
 
-**Split reports.** The brief splits a report into its asks (one to four), and routing works per ask. Asks an open
+**Split reports.** The brief splits a report into its asks (one to four), and routing works per ask. Which open
+issue covers each ask, and how much, is decided by the coverage judge (`.github/factory/cover-prompt.md`): Sonnet with
+no tools, shown every open curated issue, three runs and a majority. All its runs for a report count as one run in the
+ledger. Asks an open
 issue covers become evidence whatever the route, and the asks left over pick the row: a report with one covered ask
 and one bug adds the evidence and goes to the bug rows. A bug never becomes evidence, and a part-of or related match
 alone never does either (owner decision 2026-10-24).
