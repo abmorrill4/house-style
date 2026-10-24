@@ -417,6 +417,22 @@ Describe 'Test-TriageBrief routing fields' {
         @(Test-TriageBrief $b).Count | Should Be 0
     }
     It 'needs at least one ask' { (Test-TriageBrief (New-Brief)) -join ' ' | Should Match 'no asks' }
+    It 'needs a bug ask in a bug brief' {
+        $b = New-Brief
+        $b | Add-Member asks @([pscustomobject]@{ ask = "Lint a folder"; kind = "feature"; ref = ""; covers = "none"; missing = ""; fix_now = $false })
+        (Test-TriageBrief $b) -join ' ' | Should Match 'no ask is a bug'
+    }
+    It 'counts only issues by the trusted accounts as curated, once they are set' {
+        $i = [pscustomobject]@{ number = 5; state = "OPEN"; labels = @([pscustomobject]@{ name = "from:owner" }); author = [pscustomobject]@{ login = "someone" } }
+        $n = [pscustomobject]@{ number = 6; state = "OPEN"; labels = @([pscustomobject]@{ name = "from:owner" }) }
+        try {
+            Set-CuratedAuthors @("abmorrill4")
+            Test-CuratedIssue $i | Should Be $false
+            Test-CuratedIssue $n | Should Be $false
+            $i.author.login = "abmorrill4"; Test-CuratedIssue $i | Should Be $true
+        }
+        finally { Set-CuratedAuthors @() }
+    }
     It 'a bad test name never reaches the route' {
         $b = New-Brief; $b.repro_test = 'X"; rm'
         (New-RouteInput $b @() 3).repro_test | Should Be ""

@@ -12,7 +12,8 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
 ## The contract
 - **Input record** (what `Get-Route` reads, and what the decision log stores in full): the brief's `kind`, `security`,
   `confidence`, whether it was `reproduced` and its `repro_test`, the best `match` (issue or report, its relation
-  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label), the brief's
+  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label; curated means
+  open, labeled `from:*` and written by the owner or the factory's account), the brief's
   **asks** (each distinct thing the tester wants: its kind, whether the brief wants it fixed now, how much the closest
   open issue `covers` it, `full`, `partial` or `none`, and that issue, resolved like a match), the brief's
   `area` when `rules/areas.json` lists it, the **diff facts** (changed lines and files, owner-only paths, behavior

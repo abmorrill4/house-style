@@ -1989,6 +1989,139 @@
     "route": "brief-only",
     "plan": "1"
    }
+  },
+  {
+   "name": "a docs-gap question beside a covered ask gets a docs-gap issue, not evidence",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": true,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 50,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "question",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "docs-gap",
+    "evidence": "50",
+    "plan": "1"
+   }
+  },
+  {
+   "name": "a question the docs answer rides along with a covered ask",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 50,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "question",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "evidence": "50",
+    "plan": ""
+   }
+  },
+  {
+   "name": "a duplicate of an open report plans nothing of its own",
+   "input": {
+    "kind": "duplicate",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "report",
+      "number": 9,
+      "state": "open",
+      "curated": false,
+      "area": null
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "report",
+     "number": 9
+    },
+    "plan": "",
+    "evidence": ""
+   }
   }
  ]
 }

@@ -87,7 +87,7 @@ function Label($n, $add, $remove) {
 # Posts one evidence comment on public issue $t for report $n, once: a retry finds its marker on the report.
 function Add-Evidence([int]$t, [string]$text) {
     # Checked again right before posting: open, and labeled from:*.
-    $target = Gh issue view $t -R $repo --json "number,state,labels,comments" | ConvertFrom-Json
+    $target = Gh issue view $t -R $repo --json "number,state,labels,comments,author" | ConvertFrom-Json
     if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
     $marker = "Evidence posted on https://github.com/$repo/issues/$t"
     if (@($comments | Where-Object { ("" + $_.body).StartsWith("**Factory:** $marker") }).Count) { return }
@@ -380,6 +380,8 @@ if ($over) { Write-Host "Nothing started, because $over (Factory ledger, in the 
 # The open factory PRs against their limit. At the limit no new fix starts; a count that fails reads as full.
 $openPrs = try { Get-OpenFactoryPrCount (Gh pr list -R $repo --state open --limit 100 --json "number,headRefName" | ConvertFrom-Json) } catch { $wipLimit }
 $wipFull = Test-WipFull $openPrs $wipLimit
+# Only the owner's and the factory's own public issues count as curated (Test-CuratedIssue).
+Set-CuratedAuthors @($owner, ("" + (Gh api user --jq ".login")).Trim())
 $all = Gh issue list -R $reports --state open --limit 200 --json "number,title,body,author,labels" | ConvertFrom-Json
 if ($wipFull) {
     Write-Host "$openPrs factory PRs are open, the limit is $wipLimit, so no new fix starts."
@@ -446,7 +448,7 @@ try {
         # ---- triage: read, try to reproduce, compare with the roadmap, write a brief. Never a branch, PR or issue. --
         # Context for matching, gathered now while the script has the token (the agent gets none).
         $contextPath = Join-Path $tmp "context-$n.md"
-        $open = Gh issue list -R $repo --state open --limit 300 --json "number,title,labels,body,state" | ConvertFrom-Json
+        $open = Gh issue list -R $repo --state open --limit 300 --json "number,title,labels,body,state,author" | ConvertFrom-Json
         $ctx = @("# Open issues in $repo", "")
         foreach ($i in $open) {
             $ctx += "- #$($i.number) $($i.title) [$(($i.labels.name) -join ', ')]"
@@ -479,7 +481,7 @@ try {
 
         # ---- route: the brief proposes, the script decides --------------------------------------------------------
         # Matches are checked against lists fetched here, so a brief can't point evidence at an issue we don't curate.
-        $issuesAll = Gh issue list -R $repo --state all --limit 1000 --json "number,state,labels" | ConvertFrom-Json
+        $issuesAll = Gh issue list -R $repo --state all --limit 1000 --json "number,state,labels,author" | ConvertFrom-Json
         $askRefs = @(Resolve-Matches @($brief.asks | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ ref = $_.ref; relation = "same" } }) $issuesAll $all $n $areaLabels)
         $in = New-RouteInput $brief @(Resolve-Matches $brief.matches $issuesAll $all $n $areaLabels) (Get-CapLeft $rules) $areaLabels $askRefs
         $route = Get-Route $in $rules
@@ -572,7 +574,7 @@ try {
             $(if ($routeIn.repro_test) { "Fix the bug. Add the test named above, with that exact name, and make it pass. Leave the other asks alone." }
               elseif ($isBug) { "Fix the bug the brief describes, and add a test that fails on main and passes with the fix where a unit test can show it. Leave the other asks alone." }
               else {
-                  $now = @($brief.asks | Where-Object { $_ -and $_.fix_now -eq $true -and $_.covers -eq "none" -and @("friction", "question") -contains $_.kind } | Select-Object -First 1)
+                  $now = @(@($brief.asks | Where-Object { $_ })[[int]$routed.fix_ask] | Where-Object { $_ -and [int]$routed.fix_ask -ge 0 })
                   "Make only this small change to existing behavior: $(if ($now.Count) { Format-Field $now[0].ask 300 } else { 'the ask marked fix now' }). Leave the other asks alone. Add a test that shows it where a unit test can."
               })
     }

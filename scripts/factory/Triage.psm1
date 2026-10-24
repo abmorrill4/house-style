@@ -20,6 +20,7 @@ function Test-TriageBrief($b) {
     if ($b.repro_test -and -not (Test-TestName $b.repro_test)) { $problems += "repro_test must be a test name (letters, digits, underscores and dots)." }
     $asks = @($b.asks | Where-Object { $_ })
     if (-not $asks.Count) { $problems += "There are no asks." }
+    if ($b.kind -eq "bug" -and $asks.Count -and -not @($asks | Where-Object { $_.kind -eq "bug" }).Count) { $problems += "kind is bug, but no ask is a bug." }
     if ($asks.Count -gt 4) { $problems += "There are more than four asks." }
     foreach ($a in $asks) {
         if (-not ("" + $a.ask).Trim()) { $problems += "An ask has no text." }
@@ -180,8 +181,16 @@ $WaitingReasons = "want", "plan-input", "plan-review", "merge", "security", "stu
 # A public issue we curate: open, and labeled from:*. Only these get evidence comments.
 function Test-CuratedIssue($issue) {
     if (-not $issue -or ("" + $issue.state).ToUpperInvariant() -ne "OPEN") { return $false }
-    [bool](@(Get-Labels $issue) | Where-Object { $_ -like "from:*" })
+    if (-not [bool](@(Get-Labels $issue) | Where-Object { $_ -like "from:*" })) { return $false }
+    # Once the factory names the accounts it trusts, only their issues count: an issue's author can edit its body after
+    # it is labeled, and curated bodies reach the triage agent and the coverage judge. Fails closed with no author.
+    if ($script:CuratedAuthors.Count) { return [bool]($issue.author -and $script:CuratedAuthors -contains ("" + $issue.author.login)) }
+    $true
 }
+
+# The accounts whose issues count as curated (the owner and the factory's own). Set once by the factory.
+$script:CuratedAuthors = @()
+function Set-CuratedAuthors([string[]]$logins) { $script:CuratedAuthors = @($logins | Where-Object { $_ } | Select-Object -Unique) }
 
 # The area label of an issue: its first label in $areaLabels (the precedence list in rules/areas.json), or with no
 # list its first area:* label. $null when it has none.
@@ -341,7 +350,7 @@ function Get-Route($in, $rules) {
 }
 
 function Get-RouteRow($in, $rules) {
-    $out = [ordered]@{ route = ""; row = 0; reasons = @(); waiting = $null; regression = $null; target = $null; area = $null; build = $false; queued = $false; evidence = @(); plan = @() }
+    $out = [ordered]@{ route = ""; row = 0; reasons = @(); waiting = $null; regression = $null; target = $null; area = $null; build = $false; queued = $false; evidence = @(); plan = @(); fix_ask = -1 }
     $ms = @($in.matches | Where-Object { $_ })
     $fix = $in.fix
 
@@ -366,7 +375,8 @@ function Get-RouteRow($in, $rules) {
     $rest = @($asks | Where-Object { -not (Test-EvidenceAsk $_) })
     # A question that rides along with covered asks is answered by the issue they go to.
     if ($parts.Count) {
-        $riding = @($rest | Where-Object { $_.kind -eq "question" -and -not $_.fix_now -and -not $_.uncertain -and [int]$_.index -ge 0 })
+        # Not when the docs don't answer it (docs_gap): that question gets its own issue, below.
+        $riding = @(if ($in.docs_gap -ne $true) { $rest | Where-Object { $_.kind -eq "question" -and -not $_.fix_now -and -not $_.uncertain -and [int]$_.index -ge 0 } })
         $parts[0].asks = @($parts[0].asks) + @($riding | ForEach-Object { [int]$_.index })   # named in that issue's evidence
         $rest = @($rest | Where-Object { $riding -notcontains $_ })
     }
@@ -385,7 +395,7 @@ function Get-RouteRow($in, $rules) {
     $planAsks = @($rest | Where-Object { ($_.kind -eq "feature" -or ($_.kind -eq "friction" -and -not $_.fix_now)) -and -not $_.uncertain -and [int]$_.index -ge 0 })
     # A question the docs don't answer (docs_gap) that comes with other asks still to route goes in the same new issue,
     # so it isn't lost when the report closes. Alone, it takes the docs-gap row below.
-    if ($in.docs_gap -eq $true -and @($rest | Where-Object { $_.kind -ne "question" }).Count) {
+    if ($in.docs_gap -eq $true -and ($parts.Count -or @($rest | Where-Object { $_.kind -ne "question" }).Count)) {
         $planAsks = @($planAsks) + @($rest | Where-Object { $_.kind -eq "question" -and -not $_.fix_now -and -not $_.uncertain -and [int]$_.index -ge 0 })
     }
     $out.plan = @($planAsks | ForEach-Object { [int]$_.index })
@@ -393,7 +403,9 @@ function Get-RouteRow($in, $rules) {
     if ($in.kind -eq "duplicate") {
         $dup = @($ms | Where-Object { $_.target -eq "report" -and $_.state -eq "open" -and $_.relation -eq "same" })
         if ($dup.Count) {
+            # The report it duplicates routes its own asks, so this one adds no evidence and plans nothing.
             $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "report"; number = $dup[0].number }
+            $out.evidence = @(); $out.plan = @(); $out.area = $null
             $out.reasons = @("it duplicates open report #$($dup[0].number)"); return [pscustomobject]$out
         }
     }
@@ -452,6 +464,7 @@ function Get-RouteRow($in, $rules) {
     # PR for the owner, never auto-merged.
     if (@($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind }).Count) {
         $out.route = "fix-for-review"; $out.row = 5; $out.reasons = @("it is a small change to existing behavior, built as a draft for review")
+        $out.fix_ask = [int]@($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind } | Sort-Object { [int]$_.index })[0].index
         if ($fix -and @($fix.behavior | Where-Object { $_ }).Count) { $out.reasons += "the fix changes behavior writers see ($(@($fix.behavior) -join ', '))" }
         if ($fix -and @($fix.tamper | Where-Object { $_ }).Count) { $out.reasons += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
         if ($fix -and [int]$fix.lines -gt [int]$rules.autoFix.maxChangedLines) { $out.reasons += "the fix changes $($fix.lines) lines, over $($rules.autoFix.maxChangedLines)" }
@@ -463,13 +476,13 @@ function Get-RouteRow($in, $rules) {
     }
 
     # 7. plan: an ask no open issue covers
-    if ($planAsks.Count -or (-not @($in.asks | Where-Object { $_ }).Count -and @("feature", "friction") -contains $in.kind)) {
+    if (@($planAsks | Where-Object { $_.kind -ne "question" }).Count -or (-not @($in.asks | Where-Object { $_ }).Count -and @("feature", "friction") -contains $in.kind)) {
         $out.route = "plan"; $out.row = 7; $out.reasons = @("it asks for new or changed behavior")
         $out.area = Get-PlanArea $in $ms
         return [pscustomobject]$out
     }
     # 8. docs-gap
-    if ($in.kind -eq "question" -and $in.docs_gap -eq $true) {
+    if (($in.kind -eq "question" -or $planAsks.Count) -and $in.docs_gap -eq $true) {
         $out.route = "docs-gap"; $out.row = 8; $out.reasons = @("the docs or UI copy don't answer it"); $out.area = Get-PlanArea $in $ms
         return [pscustomobject]$out
     }
@@ -880,6 +893,6 @@ function New-BodyFile([string]$Text) {
 }
 
 Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
-    Test-TestName, Test-CuratedIssue, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, New-CoverInput, Get-CoverVote, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
+    Test-TestName, Test-CuratedIssue, Set-CuratedAuthors, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, New-CoverInput, Get-CoverVote, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
     Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
