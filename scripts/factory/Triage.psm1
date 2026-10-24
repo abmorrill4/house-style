@@ -57,7 +57,8 @@ function Format-TriageComment($b) {
     if ($asks.Count) {
         $lines += "", "**What they asked for:**"
         foreach ($a in $asks) {
-            $cov = if ($a.uncertain -eq $true) { "the judges split on which issue covers it" }
+            $cov = if ($a.kind -eq "bug") { "a bug, so where it lines up isn't checked" }
+                   elseif ($a.uncertain -eq $true) { "the judges split on which issue covers it" }
                    elseif ($a.covers -eq "none" -or -not $a.ref) { "no issue covers it" } else { "$(Format-Field $a.covers 10) in $(Format-Field $a.ref 30)" }
             $now = if ($a.fix_now -eq $true) { ", fix now" } else { "" }
             $lack = if (("" + $a.missing).Trim()) { ". Missing: " + (Format-Field $a.missing 200) } else { "" }
@@ -346,7 +347,7 @@ function Get-PlanArea($in, $resolved) {
 function Get-Route($in, $rules) {
     $route = Get-RouteRow $in $rules
     if ($route.route -ne "evidence" -and @($route.evidence).Count) { $route.reasons = @($route.reasons) + "it also adds evidence on $(@($route.evidence | ForEach-Object { "#$($_.issue)" }) -join ', ') for the asks those issues cover" }
-    if (@("plan", "hold") -notcontains $route.route -and @($route.plan).Count) { $route.reasons = @($route.reasons) + "it also plans a new issue for the asks nothing covers" }
+    if (@("plan", "docs-gap", "hold") -notcontains $route.route -and @($route.plan).Count) { $route.reasons = @($route.reasons) + "it also plans a new issue for the asks nothing covers" }
     $route
 }
 
