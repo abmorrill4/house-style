@@ -55,7 +55,8 @@ function Format-TriageComment($b) {
     if ($asks.Count) {
         $lines += "", "**What they asked for:**"
         foreach ($a in $asks) {
-            $cov = if ($a.covers -eq "none" -or -not $a.ref) { "no issue covers it" } else { "$(Format-Field $a.covers 10) in $(Format-Field $a.ref 30)" }
+            $cov = if ($a.uncertain -eq $true) { "the judges split on which issue covers it" }
+                   elseif ($a.covers -eq "none" -or -not $a.ref) { "no issue covers it" } else { "$(Format-Field $a.covers 10) in $(Format-Field $a.ref 30)" }
             $now = if ($a.fix_now -eq $true) { ", fix now" } else { "" }
             $lack = if (("" + $a.missing).Trim()) { ". Missing: " + (Format-Field $a.missing 200) } else { "" }
             $lines += "- $(Format-Field $a.ask 200) ($(Format-Field $a.kind 10)$now; $cov)$lack"
@@ -258,7 +259,12 @@ function ConvertTo-RouteAsks($brief, $askRefs = @()) {
 # (each capped at 6,000).
 # All data. The tags that frame them are taken out of every part, so no part can close its block and pose as another.
 function New-CoverInput([string]$report, [string]$ask, $issues) {
-    function Unframe([string]$t) { $t -replace '(?i)<\s*/?\s*(report|ask|issue)\b[^>]*>', '[tag]' }
+    function Unframe([string]$t) {
+        # Lookalikes first: escaped and fullwidth angle brackets, and invisible characters inside a tag.
+        $t = $t -replace '(?i)&lt;', '<' -replace '(?i)&gt;', '>' -replace '[\uFF1C\uFE64\u2039\u3008]', '<' -replace '[\uFF1E\uFE65\u203A\u3009]', '>'
+        $t = $t -replace '[\u200B-\u200F\u2060\uFEFF\u00AD]', ''
+        $t -replace '(?i)<\s*/?\s*(report|ask|issue)\b[^>]*>', '[tag]'
+    }
     $body = ($report.Trim() -replace '(?is)^<report>\s*', '' -replace '(?is)\s*</report>$', '')
     if ($body.Length -gt 20000) { $body = $body.Substring(0, 19999) + "…" }   # the tester's text sets no one's costs
     $lines = @("<report>", (Unframe $body), "</report>", "", "<ask>$(Unframe (Format-Field $ask 300))</ask>", "")
@@ -281,7 +287,11 @@ function Get-CoverVote($results, [int[]]$allowed) {
         [pscustomobject]@{ covers = $c; number = $num; missing = "" + $r.best.missing }
     })
     $covered = @($votes | Where-Object { $_.covers -ne "none" })
-    if (-not $votes.Count -or $covered.Count * 2 -le $votes.Count) {
+    if ($votes.Count -and $covered.Count * 2 -eq $votes.Count) {
+        # As many say covered as say not (one and one): the owner decides.
+        return [pscustomobject]@{ ref = ""; covers = "none"; missing = ""; votes = $votes.Count; uncertain = $true }
+    }
+    if (-not $votes.Count -or $covered.Count * 2 -lt $votes.Count) {
         return [pscustomobject]@{ ref = ""; covers = "none"; missing = ""; votes = $votes.Count; uncertain = $false }
     }
     $top = @($covered | Group-Object number | Sort-Object @{ Expression = { $_.Count }; Descending = $true }, @{ Expression = { [int]$_.Name } })[0].Group
@@ -354,7 +364,7 @@ function Get-RouteRow($in, $rules) {
     $parts = @($byIssue.Values)
     $rest = @($asks | Where-Object { -not (Test-EvidenceAsk $_) })
     # A question that rides along with covered asks is answered by the issue they go to.
-    if ($parts.Count) { $rest = @($rest | Where-Object { $_.kind -ne "question" }) }
+    if ($parts.Count) { $rest = @($rest | Where-Object { $_.kind -ne "question" -or $_.fix_now -or $_.uncertain }) }
     if ($parts.Count -and -not $rest.Count -and $in.kind -ne "bug") {
         $out.route = "evidence"; $out.row = 2; $out.target = [pscustomobject]@{ type = "issue"; number = $parts[0].issue }
         $out.evidence = $parts
@@ -377,7 +387,7 @@ function Get-RouteRow($in, $rules) {
     }
 
     # The judges split on which issue covers an ask: the owner decides, with the brief.
-    if (@($rest | Where-Object { $_.uncertain }).Count) {
+    if (@($rest | Where-Object { $_.uncertain -and $_.kind -ne "bug" }).Count) {
         $out.route = "brief-only"; $out.row = 6; $out.waiting = "decide"; $out.reasons = @("the judges split on which open issue covers one of its asks")
         return [pscustomobject]$out
     }
@@ -387,6 +397,9 @@ function Get-RouteRow($in, $rules) {
     if ($reg.Count) { $out.regression = $reg[0].number }
 
     if ($in.kind -eq "bug" -or $out.regression -or @($rest | Where-Object { $_.kind -eq "bug" }).Count) {
+        # The fix is for the bug. A small fix the brief wants now for another ask is planned instead of lost.
+        $out.plan = @($out.plan) + @($rest | Where-Object { $_.fix_now -and @("friction", "question") -contains $_.kind -and [int]$_.index -ge 0 } | ForEach-Object { [int]$_.index })
+        if (@($out.plan).Count -and -not $out.area) { $out.area = Get-PlanArea $in $ms }
         $pre = if ($out.regression) { @("it looks like a regression of closed issue #$($out.regression)") } else { @() }
         # 6. brief-only: not reproduced
         if ($in.reproduced -ne "yes") {
@@ -714,7 +727,9 @@ function Get-PublicText($route, $brief, [int]$n) {
                 $lack = if ($a.covers -eq "partial" -and ("" + $a.missing).Trim()) { " **Not covered here yet.** $(Format-Field $a.missing 300)" } else { "" }
                 "- $(Format-Field $a.ask 300)$lack"
             })
-            $texts["evidence on #$($p.issue)"] = "**Evidence from testers**`n`n$lead`n$($lines -join "`n")`n`n$impact`n`nFrom tester report $n, in the private reports repo."
+            # The report's impact belongs to the whole report, so it goes with the evidence only when this is all of it.
+            $imp = if ($all.Count -le 1) { "`n`n$impact" } else { "" }
+            $texts["evidence on #$($p.issue)"] = "**Evidence from testers**`n`n$lead`n$($lines -join "`n")$imp`n`nFrom tester report $n, in the private reports repo."
         }
         else { $texts["evidence on #$($p.issue)"] = "**Evidence from testers**`n`nAnother tester ran into this. $summary`n`n$impact`n`nFrom tester report $n, in the private reports repo." }
     }
@@ -731,7 +746,11 @@ function Get-PublicText($route, $brief, [int]$n) {
         $lead = if ($route.route -eq "docs-gap") { "A tester couldn't find how to do this in the docs or the UI." } else { "A tester asked for this." }
         $askText = if ($planned.Count) { "`n`n**What this issue is for.**`n$(@($planned | ForEach-Object { '- ' + (Format-Field $_.ask 300) }) -join "`n")" } else { "" }
         $texts["issue title"] = $title
-        $texts["issue body"] = "$lead $summary$askText`n`n**What they were trying to do.** $goal`n`n**Impact on writers.** $impact`n`nFrom tester report $n, in the private reports repo."
+        # A split report's issue is built from its own asks alone: the summary, goal and impact describe the whole
+        # report, asks that went elsewhere included.
+        $split = @($route.evidence).Count -or ($planned.Count -and $planned.Count -lt $all.Count)
+        $texts["issue body"] = if ($split) { "$lead$askText`n`nFrom tester report $n, in the private reports repo." }
+                               else { "$lead $summary$askText`n`n**What they were trying to do.** $goal`n`n**Impact on writers.** $impact`n`nFrom tester report $n, in the private reports repo." }
     }
     $texts
 }

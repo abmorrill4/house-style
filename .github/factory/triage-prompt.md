@@ -88,7 +88,7 @@ Write `{{RESULT_PATH}}` as JSON and nothing else:
   "impact": "How many writers hit it, how often, and whether it blocks their work",
   "reproduced": { "result": "yes|no|not-tried", "how": "test name, steps, or the cause in the code" },
   "matches": [ { "ref": "#123 or report #4", "title": "...", "relation": "same|part-of|related|conflicts", "why": "..." } ],
-  "asks": [ { "ask": "One thing the tester wants, in your words", "kind": "bug|friction|feature|question", "ref": "#123 or empty", "covers": "full|partial|none", "missing": "the line the issue lacks, or empty", "fix_now": false } ],
+  "asks": [ { "ask": "A short imperative title for it, as an issue title, such as Lint a single folder", "kind": "bug|friction|feature|question", "ref": "#123 or empty", "covers": "full|partial|none", "missing": "the line the issue lacks, or empty", "fix_now": false } ],
   "options": [ { "option": "...", "effort": "S|M|L", "risk": "...", "for_writers": "..." } ],
   "recommendation": { "option": "one of the options above", "why": "..." },
   "questions": [ "..." ],

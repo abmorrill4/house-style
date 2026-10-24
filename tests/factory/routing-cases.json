@@ -1821,6 +1821,71 @@
     "route": "plan",
     "plan": "0"
    }
+  },
+  {
+   "name": "a fix now beside a reproduced bug is planned, and the bug is fixed",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "bug",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "auto-fix",
+    "plan": "1"
+   }
+  },
+  {
+   "name": "a split vote on a bug ask does not stop its fix",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "bug",
+      "fix_now": false,
+      "uncertain": true,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "auto-fix"
+   }
   }
  ]
 }

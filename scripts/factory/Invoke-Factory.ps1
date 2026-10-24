@@ -221,6 +221,8 @@ function Set-AskCovers($brief, $issues) {
     try {
         [IO.File]::WriteAllText($sys, $coverPrompt, (New-Object Text.UTF8Encoding $false))
         foreach ($a in $asks) {
+            # A bug never becomes evidence, so where it lines up doesn't change its route: no judge.
+            if ($a.kind -eq "bug") { foreach ($f in @{ ref = ""; covers = "none"; missing = ""; uncertain = $false }.GetEnumerator()) { $a | Add-Member -NotePropertyName $f.Key -NotePropertyValue $f.Value -Force }; continue }
             # Each ask's three runs are one run against the daily cap and one ledger entry, written even when they fail.
             $over = Test-RunBudget $script:runsUsed $runLimit
             if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
@@ -566,7 +568,10 @@ try {
         if ($gate) { throw "The fix gate refused: $gate" }
         $orderText = $triageComment + "`n`n**Route:** $($routed.route), computed by the factory in this run. " +
             $(if ($routeIn.repro_test) { "Add the test named above, with that exact name, and make it pass." }
-              else { "Make the small change the brief asks for now, to existing behavior only, and add a test that shows it where a unit test can." })
+              else {
+                  $now = @($brief.asks | Where-Object { $_ -and $_.fix_now -eq $true -and $_.covers -eq "none" -and @("friction", "question") -contains $_.kind } | Select-Object -First 1)
+                  "Make only this small change to existing behavior: $(if ($now.Count) { Format-Field $now[0].ask 300 } else { 'the ask marked fix now' }). Leave the other asks alone; they are planned or added as evidence. Add a test that shows it where a unit test can."
+              })
     }
     else {
         # The work order: the triage brief the owner decided on, and the owner's decision comment. Both quote nothing

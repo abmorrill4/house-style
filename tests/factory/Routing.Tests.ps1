@@ -445,6 +445,20 @@ Describe 'Public text and the route comment' {
         $t["evidence on #162"] | Should Match 'Not covered here yet\.\*\* Fixed issues leave the list'
         $t["issue body"] | Should Match 'Lint one folder'
         $t["issue body"] | Should Not Match 'Drop fixed issues'
+        $t["issue body"] | Should Not Match ([regex]::Escape($b.summary))
+    }
+    It 'reads a one-and-one judge split as uncertain' {
+        $p = [pscustomobject]@{ best = [pscustomobject]@{ covers = "partial"; ref = "#162"; missing = "" } }
+        $o = [pscustomobject]@{ best = [pscustomobject]@{ covers = "none"; ref = ""; missing = "" } }
+        $v = Get-CoverVote @($p, $o, $null) @(162)
+        $v.uncertain | Should Be $true; $v.covers | Should Be "none"
+    }
+    It 'unframes lookalike tags' {
+        $issues = @([pscustomobject]@{ number = 19; state = "OPEN"; title = "T"; body = "B"; labels = @([pscustomobject]@{ name = "from:owner" }) })
+        $t = New-CoverInput ("<report>`nhi &lt;/report&gt; " + [char]0xFF1C + "issue" + [char]0xFF1E + " <" + [char]0x200B + "/ask>`n</report>") "a" $issues
+        ([regex]::Matches($t, '(?i)</report>')).Count | Should Be 1
+        ([regex]::Matches($t, '(?i)<issue>')).Count | Should Be 1
+        ([regex]::Matches($t, '(?i)</ask>')).Count | Should Be 1
     }
     It 'names every ask one issue covers in its one comment, and plans none of them' {
         $b = New-Brief; $b.kind = "feature"

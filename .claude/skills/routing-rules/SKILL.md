@@ -28,7 +28,8 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
   the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
   record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
   shadow review in `planning/work/shadow-review/`).
-- **Output**: one route and the reason, plus `evidence`: the issues that get an evidence comment. A plan or docs-gap route also carries the `area:*` label for the new public
+- **Output**: one route and the reason, plus `evidence` (the issues that get an evidence comment, each with the asks
+  it covers) and `plan` (the asks that get one new planned issue, on any route). A plan or docs-gap route also carries the `area:*` label for the new public
   issue: the brief's, otherwise the first open matched issue's, otherwise none. The factory adds that label and puts
   the issue in Later on the board. Nothing attaches issues to themes any more (owner decision 2026-10-24).
 - The diff facts and the our-words check are `Get-Route`'s own helpers. Don't compute them a second way.

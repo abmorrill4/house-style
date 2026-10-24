@@ -8,8 +8,10 @@ description: Help the owner decide what to do with tester reports from the priva
 Tester reports arrive through Report a Problem in the private `abmorrill4/house-style-reports` repo. The factory
 triages each one on its VM, posts a brief, then routes it by a fixed decision matrix (`Get-Route` in
 `scripts/factory/Triage.psm1`, thresholds in `rules/routing.json`) and posts the route. Clear-cut bugs fix and merge on
-their own, each ask an open issue already covers becomes evidence on it (with what the issue lacks), and asks nothing
-covers become `loop:auto` issues. A report can split: evidence for one ask and a fix or a decision for another. What's left for the
+their own, each ask an open issue already covers becomes evidence on it (with what the issue lacks), asks nothing
+covers become one `loop:auto` issue (or a docs-gap issue for a question), and a small fix nothing plans becomes a draft
+PR. An ask the judges split on comes to the owner. A report can split: evidence for one ask and a fix or a decision
+for another. What's left for the
 owner carries one `waiting:*` label saying what kind of input is wanted. This skill brings those items, adds the
 private context the VM can't see, recommends, records the call and logs it.
 
