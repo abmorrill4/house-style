@@ -83,6 +83,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
                     "route" { }
                     "target" { $r.target.type | Should Be $p.Value.type; $r.target.number | Should Be $p.Value.number }
                     "evidence" { (@($r.evidence | ForEach-Object { $_.issue }) -join ',') | Should Be $p.Value }
+                    "plan" { (@($r.plan) -join ',') | Should Be $p.Value }
                     default { $r.($p.Name) | Should Be $p.Value }
                 }
             }
@@ -441,9 +442,36 @@ Describe 'Public text and the route comment' {
         $r.route | Should Be "plan"
         $t = Get-PublicText $r $b 12
         $t["evidence on #162"] | Should Match 'Drop fixed issues from the list'
-        $t["evidence on #162"] | Should Match 'Not covered here yet:\*\* Fixed issues leave the list'
+        $t["evidence on #162"] | Should Match 'Not covered here yet\.\*\* Fixed issues leave the list'
         $t["issue body"] | Should Match 'Lint one folder'
         $t["issue body"] | Should Not Match 'Drop fixed issues'
+    }
+    It 'names every ask one issue covers in its one comment, and plans none of them' {
+        $b = New-Brief; $b.kind = "feature"
+        $b | Add-Member asks @(
+            [pscustomobject]@{ ask = "Alpha"; kind = "feature"; ref = "#5"; covers = "full"; missing = ""; fix_now = $false },
+            [pscustomobject]@{ ask = "Beta"; kind = "feature"; ref = "#5"; covers = "partial"; missing = "Say m."; fix_now = $false },
+            [pscustomobject]@{ ask = "Gamma"; kind = "feature"; ref = ""; covers = "none"; missing = ""; fix_now = $false })
+        $i5 = [pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; area = $null }
+        $r = Get-Route (New-RouteInput $b @() 3 @() @($i5)) $rules
+        $r.route | Should Be "plan"
+        $t = Get-PublicText $r $b 12
+        $t["evidence on #5"] | Should Match 'Alpha'
+        $t["evidence on #5"] | Should Match 'Beta \*\*Not covered here yet\.\*\* Say m\.'
+        $t["issue body"] | Should Match 'Gamma'
+        $t["issue body"] | Should Not Match 'Alpha|Beta'
+        $t["issue title"] | Should Be "Gamma"
+    }
+    It 'plans an uncovered feature beside a fix, and says so' {
+        $b = New-Brief; $b.kind = "friction"; $b.repro_test = ""
+        $b | Add-Member asks @(
+            [pscustomobject]@{ ask = "Rename the button"; kind = "friction"; ref = ""; covers = "none"; missing = ""; fix_now = $true },
+            [pscustomobject]@{ ask = "Lint a folder"; kind = "feature"; ref = ""; covers = "none"; missing = ""; fix_now = $false })
+        $r = Get-Route (New-RouteInput $b @() 3 @() @()) $rules
+        $r.route | Should Be "fix-for-review"
+        (@($r.plan) -join ',') | Should Be "1"
+        ($r.reasons -join ' ') | Should Match 'plans a new issue'
+        (Get-PublicText $r $b 12)["issue body"] | Should Match 'Lint a folder'
     }
     It 'carries a routing record that parses back to the input' {
         $in = New-Input
@@ -469,7 +497,7 @@ Describe 'The coverage judge' {
         $v = Get-CoverVote @((V full "#5"), (V partial "#5" "Add it."), (V none)) @(5, 7)
         $v.covers | Should Be "partial"; $v.ref | Should Be "#5"; $v.missing | Should Be "Add it."
         $v = Get-CoverVote @((V full "#7"), (V full "#5"), (V none)) @(5, 7)
-        $v.covers | Should Be "full"; $v.ref | Should Be "#5"
+        $v.covers | Should Be "none"; $v.uncertain | Should Be $true
     }
     It 'names the issue most of the winning votes named' {
         (Get-CoverVote @((V partial "#20"), (V partial "#161"), (V partial "#161")) @(20, 161)).ref | Should Be "#161"

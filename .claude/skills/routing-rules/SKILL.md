@@ -20,8 +20,11 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
 - **Split reports.** Routing works per ask. An ask an open curated issue covers fully or partly becomes evidence on
   that issue, and for `partial` the comment carries what the issue lacks, so closing the report loses nothing. A bug
   ask never becomes evidence. A `fix_now` ask that an issue covers is planned work, so it is evidence too; only an
-  uncovered `fix_now` ask goes to fix for review as a draft PR. The asks left over decide the route. Evidence is posted
-  whatever the route, a fix route included, and never for a hold. A report with evidence asks and other asks gets both:
+  uncovered `fix_now` ask goes to fix for review as a draft PR. Uncovered feature and friction asks get one new planned
+  issue, listing only them. Evidence and that planned issue are posted whatever the route, a fix route included, and
+  never for a hold at triage (a fix that turns into a hold later doesn't take back evidence already posted). The asks
+  left over decide the route. A question that rides along with covered asks is answered by the issue they go to. An
+  ask the judges split on (covered, but no one issue has a majority) sends the report to the owner. A report with evidence asks and other asks gets both:
   the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
   record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
   shadow review in `planning/work/shadow-review/`).
@@ -43,7 +46,8 @@ files disagree, the files win.
 - **The coverage judge** (`.github/factory/cover-prompt.md`, run by `Set-AskCovers` in `Invoke-Factory.ps1`) decides
   each ask's `ref`, `covers` and `missing`, replacing the brief's own: Sonnet with no tools, shown the report, the ask
   and every open curated issue, three runs, majority by `Get-CoverVote` (covered at all by majority, then the issue
-  most covered votes named). Fewer than two usable answers fails the triage, to be retried, rather than read as none. The
+  more than half the votes named, else the ask is uncertain). Fewer than two usable answers fails the triage, to be
+  retried, rather than read as none. Each ask's three runs are one run against the daily cap and one ledger entry. The
   brief proposes the asks, their kind and `fix_now`. Chosen on 2026-10-24 by comparing designs on the 11 shadow
   reports and 16 held-out ones (`planning/work/shadow-review/eval/`): 25 of 27 right, against 21 for the brief alone.
   Haiku was no good as a judge; Opus was no better than Sonnet.

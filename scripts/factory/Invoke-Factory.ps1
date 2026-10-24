@@ -96,6 +96,38 @@ function Add-Evidence([int]$t, [string]$text) {
     Say $n "$marker."
 }
 
+# Opens the one public issue for this report's asks nothing covers (or reuses the one an earlier run recorded), and
+# puts it in Later on the board. Returns its URL and where it went, for the route comment.
+function Add-PlanIssue($route) {
+    $pubLabels = if ($route.route -eq "docs-gap") { @("from:tester", "documentation", "docs-gap") } else { @("from:tester", "loop:auto") }
+    if ($route.area) { $pubLabels += $route.area }   # one of rules/areas.json's labels, checked in New-RouteInput
+    $la = @(); foreach ($x in $pubLabels) { $la += @("--label", $x) }
+    # One public issue per report: a retry reuses the issue an earlier run recorded on the report.
+    $prefix = "**Factory:** Public issue for this report: "
+    $earlier = @($comments | Where-Object { ("" + $_.body).StartsWith($prefix) }) | Select-Object -Last 1
+    if ($earlier -and ($earlier.body.Substring($prefix.Length).Trim() -match "^https://github\.com/$([regex]::Escape($repo))/issues/\d+$")) { $url = $Matches[0] }
+    else {
+        $url = ("" + (Gh issue create -R $repo --title $pub["issue title"] --body-file (New-BodyFile $pub["issue body"]) @la)).Trim()
+        Say $n "Public issue for this report: $url"   # recorded before anything else can fail
+    }
+    $num = $url.Split('/')[-1]
+    # The issue exists from here on, so nothing below may fail the run.
+    # On the board in Later: the owner moves it to Now or Next. Adding an item already there is a no-op.
+    $under = if ($route.area) { " in $($route.area)" } else { " with no area yet" }
+    try {
+        $node = Gh api "repos/$repo/issues/$num" --jq ".node_id"
+        # The queries go through files and the ids as variables, so no double quote reaches a native argument
+        # (Windows PowerShell 5.1 mangles them; see New-BodyFile).
+        $addQ = New-BodyFile 'mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}'
+        $item = (Gh api graphql -F "query=@$addQ" -f "p=$($areas.board.project)" -f "c=$node" | ConvertFrom-Json).data.addProjectV2ItemById.item.id
+        $setQ = New-BodyFile 'mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}'
+        Gh api graphql -F "query=@$setQ" -f "p=$($areas.board.project)" -f "i=$item" -f "f=$($areas.board.whenField)" -f "o=$($areas.board.later)" | Out-Null
+        $under += ", in Later on the board"
+    }
+    catch { $under += ". Putting it in Later on the board failed, so set When by hand" }
+    "$url$under"
+}
+
 # The display labels a report carries from an earlier triage or route, dropped when it is routed again.
 # blocked:* goes too: a report picked again is no longer blocked.
 function Get-StaleLabels($r) { @(Get-Labels $r | Where-Object { $_ -like "triage:*" -or $_ -like "route:*" -or $_ -like "waiting:*" -or $_ -like "blocked:*" -or $_ -eq "factory:queued" -or $_ -eq "factory:wip-limit" -or $_ -eq "factory:working" }) }
@@ -176,42 +208,50 @@ function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
 
 # The coverage judge (cover-prompt.md): for each of the brief's asks, three runs with no tools and no token decide which
 # open issue we curate covers it, and how much (Get-CoverVote). Their answers replace the brief's ref, covers and
-# missing. Each ask's three runs count as one run against the daily cap; the report's judge runs are one ledger entry.
+# missing. Each ask's three runs are one run against the daily cap and one ledger entry.
 function Set-AskCovers($brief, $issues) {
     $asks = @($brief.asks | Where-Object { $_ } | Select-Object -First 4)
     if (-not $asks.Count) { return }
     $allowed = @($issues | Where-Object { Test-CuratedIssue $_ } | ForEach-Object { [int]$_.number })
-    $sys = Join-Path $tmp "cover-prompt.txt"; [IO.File]::WriteAllText($sys, $coverPrompt, (New-Object Text.UTF8Encoding $false))
-    $in = Join-Path $tmp "cover-input.txt"; $outFile = Join-Path $tmp "cover-out.json"; $log = Join-Path $logs "report-$n-cover.log"
+    $sys = Join-Path $tmp "cover-prompt.txt"; $in = Join-Path $tmp "cover-input.txt"; $outFile = Join-Path $tmp "cover-out.json"
+    $log = Join-Path $logs "report-$n-cover.log"
     $argv = @("-p", "--output-format", "json", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user",
               "--max-turns", "1", "--system-prompt-file", $sys)
-    $sum = [ordered]@{ exit = 0; seconds = 0; timedOut = $false }; $tok = @{ input_tokens = 0.0; output_tokens = 0.0; cache_read_tokens = 0.0; cache_write_tokens = 0.0; cost_usd = 0.0 }
     $report = "<report>`n# " + $title + "`n`n" + $body + "`n</report>"   # as Write-Report writes it; the file is gone by now
-    foreach ($a in $asks) {
-        # Each ask's three runs count as one run against the daily cap.
-        $over = Test-RunBudget $script:runsUsed $runLimit
-        if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
-        $script:runsUsed++
-        [IO.File]::WriteAllText($in, (New-CoverInput $report ("" + $a.ask) $issues), (New-Object Text.UTF8Encoding $false))
-        $results = foreach ($k in 1..3) {
-            $proc = Without $agentStrips { Invoke-AgentProcess $claude $argv $in $outFile $log 300 }
-            $sum.seconds += $proc.seconds; if ($proc.exit) { $sum.exit = $proc.exit }; if ($proc.timedOut) { $sum.timedOut = $true }
-            $raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
-            $o = ConvertFrom-AgentOutput $raw
-            foreach ($f in @($tok.Keys)) { if ($o.$f) { $tok[$f] += $o.$f } }
-            # The judge's JSON is data: parsed, never run. A run that gives no JSON counts for nothing.
-            try { $text = "" + ($raw | ConvertFrom-Json).result; [regex]::Match($text, '(?s)\{.*\}').Value | ConvertFrom-Json } catch { $null }
+    try {
+        [IO.File]::WriteAllText($sys, $coverPrompt, (New-Object Text.UTF8Encoding $false))
+        foreach ($a in $asks) {
+            # Each ask's three runs are one run against the daily cap and one ledger entry, written even when they fail.
+            $over = Test-RunBudget $script:runsUsed $runLimit
+            if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
+            $script:runsUsed++
+            $sum = [ordered]@{ exit = 0; seconds = 0; timedOut = $false }
+            $tok = @{ input_tokens = 0.0; output_tokens = 0.0; cache_read_tokens = 0.0; cache_write_tokens = 0.0; cost_usd = 0.0 }
+            try {
+                [IO.File]::WriteAllText($in, (New-CoverInput $report ("" + $a.ask) $issues), (New-Object Text.UTF8Encoding $false))
+                $results = foreach ($k in 1..3) {
+                    $proc = Without $agentStrips { Invoke-AgentProcess $claude $argv $in $outFile $log 300 }
+                    $sum.seconds += $proc.seconds; if ($proc.exit) { $sum.exit = $proc.exit }; if ($proc.timedOut) { $sum.timedOut = $true }
+                    $raw = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+                    $o = ConvertFrom-AgentOutput $raw
+                    foreach ($f in @($tok.Keys)) { if ($o.$f) { $tok[$f] += $o.$f } }
+                    # The judge's JSON is data: parsed, never run. A run that gives no JSON counts for nothing.
+                    try { $text = "" + ($raw | ConvertFrom-Json).result; [regex]::Match($text, '(?s)\{.*\}').Value | ConvertFrom-Json } catch { $null }
+                }
+            }
+            finally {
+                $out = [pscustomobject]@{ turns = $null; input_tokens = $tok.input_tokens; output_tokens = $tok.output_tokens
+                                          cache_read_tokens = $tok.cache_read_tokens; cache_write_tokens = $tok.cache_write_tokens; cost_usd = $tok.cost_usd }
+                Write-Ledger (New-LedgerEntry "cover" $n ([pscustomobject]$sum) $out $apiKeyAgent $routeMode ([bool]$DryRun) $null)
+            }
+            $vote = Get-CoverVote @($results) $allowed
+            # Fewer than two answers is a failed triage, retried on a later run. Never a silent "nothing covers it",
+            # which would plan a duplicate issue.
+            if ($vote.votes -lt 2) { throw "The coverage judge gave $($vote.votes) usable answers of 3 for one ask." }
+            foreach ($f in "ref", "covers", "missing", "uncertain") { $a | Add-Member -NotePropertyName $f -NotePropertyValue $vote.$f -Force }
         }
-        $vote = Get-CoverVote @($results) $allowed
-        # Fewer than two answers is a failed triage, retried on a later run. Never a silent "nothing covers it", which
-        # would plan a duplicate issue.
-        if ($vote.votes -lt 2) { throw "The coverage judge gave $($vote.votes) usable answers of 3 for one ask." }
-        foreach ($f in "ref", "covers", "missing") { $a | Add-Member -NotePropertyName $f -NotePropertyValue $vote.$f -Force }
     }
-    Remove-Item $in, $outFile, $sys -ErrorAction SilentlyContinue
-    $out = [pscustomobject]@{ turns = $null; input_tokens = $tok.input_tokens; output_tokens = $tok.output_tokens; cache_read_tokens = $tok.cache_read_tokens
-                              cache_write_tokens = $tok.cache_write_tokens; cost_usd = $tok.cost_usd }
-    Write-Ledger (New-LedgerEntry "cover" $n ([pscustomobject]$sum) $out $apiKeyAgent $routeMode ([bool]$DryRun) $null)
+    finally { Remove-Item $in, $outFile, $sys -ErrorAction SilentlyContinue }   # no report text left on disk
 }
 
 # ---- the run ledger: a pinned "Factory ledger" issue in the private reports repo -----------------------------------
@@ -305,7 +345,7 @@ function Get-Overlap($paths, [string]$branch) {
 
 $NextSteps = @{
     "hold" = "Look at it privately. Nothing went to GitHub, and any branch stays on the factory VM."
-    "evidence" = "Nothing for you. The issue gets the evidence and this report is closed."
+    "evidence" = "Nothing for you. Each issue it lines up with gets the evidence and this report is closed."
     "auto-fix" = "Nothing for you. The fix merges once CI passes. It ships in tonight's release."
     "fix-for-review" = "Review the draft PR. Merging it is the one step left."
     "brief-only" = "Decide with a label, ``decision:fix``, ``decision:plan``, ``decision:park`` or ``decision:decline``."
@@ -453,8 +493,12 @@ try {
         $triageLabel = Get-TriageLabel $route   # from the route: the pile is triage:noise, the rest triage:ready
 
         # Evidence for every ask an open issue covers, whatever the route, including a fix: the covered ask doesn't wait
-        # on the fix. Live mode only, and never for a hold. A retry finds its marker and posts nothing twice.
-        if ($live -and $route.route -ne "hold") { foreach ($p in @($route.evidence)) { Add-Evidence $p.issue $pub["evidence on #$($p.issue)"] } }
+        # on the fix. Live mode only, and never for a hold at triage. A retry finds its marker and posts nothing twice.
+        if ($live -and $route.route -ne "hold") {
+            foreach ($p in @($route.evidence)) { Add-Evidence $p.issue $pub["evidence on #$($p.issue)"] }
+            # Asks nothing covers get their planned issue whatever the route; the plan route opens it below.
+            if (@($route.plan).Count -and @("plan", "docs-gap") -notcontains $route.route) { Say $n "Planned the asks nothing covers as $(Add-PlanIssue $route)." }
+        }
         if ($route.build -and $wipFull) {
             # At the open-PR limit no new fix starts. The report is routed again once a factory PR closes.
             Say $n (Format-RouteComment $route $in $routeMode "The fix waits until fewer than $wipLimit factory PRs are open. It is routed again then.")
@@ -497,33 +541,8 @@ try {
                     Gh issue close $n -R $reports | Out-Null
                 }
                 { $_ -eq "plan" -or $_ -eq "docs-gap" } {
-                    $pubLabels = if ($route.route -eq "plan") { @("from:tester", "loop:auto") } else { @("from:tester", "documentation", "docs-gap") }
-                    if ($route.area) { $pubLabels += $route.area }   # one of rules/areas.json's labels, checked in New-RouteInput
-                    $la = @(); foreach ($x in $pubLabels) { $la += @("--label", $x) }
-                    # One public issue per report: a retry reuses the issue an earlier run recorded on the report.
-                    $prefix = "**Factory:** Public issue for this report: "
-                    $earlier = @($comments | Where-Object { ("" + $_.body).StartsWith($prefix) }) | Select-Object -Last 1
-                    if ($earlier -and ($earlier.body.Substring($prefix.Length).Trim() -match "^https://github\.com/$([regex]::Escape($repo))/issues/\d+$")) { $url = $Matches[0] }
-                    else {
-                        $url = ("" + (Gh issue create -R $repo --title $pub["issue title"] --body-file (New-BodyFile $pub["issue body"]) @la)).Trim()
-                        Say $n "Public issue for this report: $url"   # recorded before anything else can fail
-                    }
-                    $num = $url.Split('/')[-1]
-                    # The issue exists from here on, so nothing below may fail the run.
-                    # On the board in Later: the owner moves it to Now or Next. Adding an item already there is a no-op.
-                    $under = if ($route.area) { " in $($route.area)" } else { " with no area yet" }
-                    try {
-                        $node = Gh api "repos/$repo/issues/$num" --jq ".node_id"
-                        # The queries go through files and the ids as variables, so no double quote reaches a native argument
-                        # (Windows PowerShell 5.1 mangles them; see New-BodyFile).
-                        $addQ = New-BodyFile 'mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}'
-                        $item = (Gh api graphql -F "query=@$addQ" -f "p=$($areas.board.project)" -f "c=$node" | ConvertFrom-Json).data.addProjectV2ItemById.item.id
-                        $setQ = New-BodyFile 'mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}'
-                        Gh api graphql -F "query=@$setQ" -f "p=$($areas.board.project)" -f "i=$item" -f "f=$($areas.board.whenField)" -f "o=$($areas.board.later)" | Out-Null
-                        $under += ", in Later on the board"
-                    }
-                    catch { $under += ". Putting it in Later on the board failed, so set When by hand" }
-                    Say $n (Format-RouteComment $route $in $routeMode "Planned as $url$under. This report is closed.")
+                    $planned = Add-PlanIssue $route
+                    Say $n (Format-RouteComment $route $in $routeMode "Planned as $planned. This report is closed.")
                     Label $n @($triageLabel, "route:$($route.route)") $stale
                     Gh issue close $n -R $reports | Out-Null
                 }

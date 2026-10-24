@@ -1637,6 +1637,190 @@
    "expect": {
     "route": "plan"
    }
+  },
+  {
+   "name": "two asks on one issue are one evidence part",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 5,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 5,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "evidence": "5"
+   }
+  },
+  {
+   "name": "a fix now and an uncovered feature split into a fix and a planned issue",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "plan": "1"
+   }
+  },
+  {
+   "name": "a bug and an uncovered feature split into the bug lane and a planned issue",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "medium",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "bug",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "brief-only",
+    "plan": "1"
+   }
+  },
+  {
+   "name": "an ask the judges split on goes to the owner",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "uncertain": true,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "brief-only",
+    "waiting": "decide",
+    "plan": ""
+   }
+  },
+  {
+   "name": "a feature marked fix now is planned, not lost",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": true,
+      "uncertain": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "plan",
+    "plan": "0"
+   }
   }
  ]
 }
