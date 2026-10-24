@@ -1,6 +1,7 @@
 # Builds and tests on every push and PR. A release tag (v0.2.0) also packages the plugin, and the release job signs
 # checksums.txt and publishes HouseStyle-0.2.0.zip, checksums.txt and checksums.txt.sig. Release tags come only from
-# nightly.yml, which creates the tag and starts this workflow on it (only the GitHub Actions app may create v* tags).
+# nightly.yml, which creates the tag and starts this workflow on it. The release job refuses any run not started by a
+# running nightly.yml on main and any tag not on main, and the tag ruleset blocks moving or deleting v* tags.
 # Installed copies only take an update whose signature matches the key built into them.
 # Builds against ref\ (stubs of the Flare API), so no MadCap files are needed here.
 name: build

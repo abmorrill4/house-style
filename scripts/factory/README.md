@@ -115,13 +115,96 @@ all run by the script with thresholds from `rules/routing.json` (read from main 
 7. At most 3 auto-merged fixes per UTC day (merged PRs labeled `factory:auto-fix`). Over the cap, the report gets
    `factory:queued` and is triaged and routed again once the next day has room. A fix that changes a file another
    open factory PR changes goes for review.
+8. **No test tampering.** A deleted or changed line in an existing file under `tests/`, a deleted test file, or any
+   change (new files too) to protected test data goes for review: `tests/baselines/`, any `fixtures/` or `golden/`
+   folder under `tests/`, `tests/FlareAI.Scenarios/Output/`, `corpus/` (its ground truth included), `tests/FlareAI.TestKit/`,
+   `tests/Isolation/`, project wiring (`*.csproj`, `Directory.Build.*`) and the e2e harness (also refused outright).
+   New test files are fine, and so is a hunk in an existing test file that only adds whole new tests: C# members
+   that start with a test attribute (`[Fact]`, `[Theory]`, `[InlineData]` and the like, never a Skip) and end with
+   their balanced closing brace, or complete Pester `It`, `Describe` or `Context` blocks with no `-Skip` or
+   `-Pending`. That's how a reproduction test is written. A hunk with a line that could hide code over several
+   lines goes for review whatever else it holds: a C# preprocessor directive (`#if`, `#endif`), a block comment or
+   verbatim or raw string left open, or a Pester block comment mark (`<#`, `#>`) or here-string. Any other added line in an existing test file (inside an
+   existing test, a `using`, a helper, another attribute) goes for review. `$TestProtected`, `Get-TestTamper` and
+   `Test-WholeTests` in `Triage.psm1`. The same check applies to a fix the owner approved with `decision:fix`: a
+   tampering diff there opens a draft PR with the reason instead of merging.
+9. **Not in a suspended area.** The area is the folder under `src/FlareAI.Core/` or `src/FlareAI.Flare/` the fix
+   changed most (`Style`, `UI`, ...; a file directly in a project folder counts as `Core` or `Flare`). See lane
+   suspension below.
 
-**Shadow mode** is the default (`FACTORY_ROUTE_MODE` unset or anything but `live`, a repository variable passed in by
-`factory.yml`). The factory triages, routes and, for a fix route, builds, tests and reviews the fix on the VM as in
-live mode, but only posts the route on the private report. It pushes, merges and posts nothing public for a route, and
-the owner still decides every report the old way (`waiting:decide`). A fix the owner approved with `decision:fix`
-ships as before in both modes. To go live: `gh variable set FACTORY_ROUTE_MODE -R abmorrill4/house-style --body live`.
-Reports routed in shadow mode keep their labels when it goes live; a `**Retry triage**` routes one again.
+### The kill switch: `FACTORY_MODE`
+
+One repository variable, read by `factory.yml` (triage and fix) and `nightly.yml`:
+
+- **`off`**, unset, or anything it can't read: the factory fails closed. `factory.yml` doesn't start the job, and
+  `Invoke-Factory.ps1` checks again and stops before it reads or writes anything. `nightly.yml` tags nothing, so
+  nothing is released either.
+- **`shadow`**: the factory triages, routes and, for a fix route, builds, tests and reviews the fix on the VM as in
+  live mode, but only posts the route on the private report. It pushes, merges and posts nothing public for a route,
+  and the owner still decides every report the old way (`waiting:decide`). A fix the owner approved with
+  `decision:fix` ships as before in shadow and live.
+- **`live`**: routes act.
+
+Manual runs need shadow or live too, dry runs included: a `factory` or `nightly` run with `dry_run` stops at the
+switch like any other while the mode is off. Turning the factory on is setting it to shadow: `gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`.
+To go live, `--body live`; to stop everything, `--body off`. Only the owner changes it. Reports routed in shadow mode
+keep their labels when it goes live; a `**Retry triage**` routes one again.
+
+### Run controls
+
+Limits live in `rules/routing.json` (`limits`), read at the start of each run.
+
+- **Per agent:** at most 200 turns and `agentMinutes` (45) of wall-clock time. A run past the limit is stopped with
+  its whole process tree.
+- **Per day:** at most `agentRunsPerDay` (20) agent runs a UTC day, counted from the run ledger. At the cap no report
+  is picked. A report whose next agent would go over the cap gets the reason and `factory:queued`, and is picked
+  again once a new day has room.
+- A run stopped by the wall-clock limit or the turn cap posts the reason on the report and labels it
+  `factory:stuck`, `waiting:stuck` and `blocked:owner`, so the command center shows it as stuck.
+- `featureLoop` (1) and `vmBatch` (1) are placeholders the command center shows as limits. Nothing enforces them yet.
+- **Open factory PRs:** at `openFactoryPrs` (5) open `factory/*` PRs, no new fix starts. A fix route waits as
+  `factory:wip-limit` and is routed again once a PR closes; an approved `decision:fix` waits with the same label.
+- **The run ledger.** Every agent run is `claude -p --output-format json`. The script appends its tokens, turns and time
+  (and dollars, only when `ANTHROPIC_API_KEY` paid for it) as a comment on the pinned "Factory ledger" issue in the
+  private reports repo, which it creates when missing. Numbers only, never report text. Dry runs are recorded too,
+  because they spend tokens. The daily cap reads this ledger, never a file on the VM that agent code could write. A
+  ledger the script can't read or write stops the run.
+- **Blocked:** a report that gets stuck carries one `blocked:<cause>` label: `vm` (Flare or the VM failed),
+  `flaky-test` (it passed on the VM and failed in CI on the same commit), `owner` (a cap, or triage failed three
+  times) or `other`. It goes when the report is picked again.
+
+### Holdout scenarios
+
+A few e2e scenarios live in the private reports repo under `holdout/*.ps1`. The script fetches them only after the fix
+agent has finished, into a folder outside the checkout, runs them on the VM with the public suite
+(`Run-FlareE2E.ps1 -ScenarioDir`), and deletes them before the review agent starts. The agent never holds a token, so
+it can't fetch them, and the fix prompt doesn't change. No holdout folder is fine; the run logs it. A holdout failure
+is reported as "A holdout scenario fails on the fix", in the private report only.
+
+### Lane suspension
+
+When an auto-fix is reverted (GitHub's Revert button or `git revert -m 1` on main, which write "This reverts commit
+..."), auto-fix is suspended for its area: every fix there goes for review. Each run reads the reverts from main's
+history and adds their areas to the ones `suspended` in `rules/routing.json` lists (the scorecard shows them all).
+Nothing is reinstated automatically. The weekly rule proposal offers it once the area has 5 merged fix-for-review
+changes and no reverts. The owner reinstates an area by adding it to `reinstated` with the date, so reverts before
+then no longer count, and taking it off `suspended` if it's listed there.
+
+### Weekly scorecard
+
+`scorecard.yml` runs `Post-Scorecard.ps1` on Mondays and posts the week on the "Factory scorecard" issue in the private
+reports repo: reports in, routes taken, merge rate, revert rate (factory PRs reverted within 14 days of merge, over the
+factory PRs merged in 30 days), report-to-ship time, agent runs, tokens and cost per merged change, suspended areas,
+and rejection reasons as fixed codes (`$ReasonCodes` in `Triage.psm1`). Counts and codes only: no report text, titles
+or numbers. Owner touch time needs the waiting log on the owner's PC: `Post-Scorecard.ps1 -WaitingLog
+~\.claude\waiting-log.jsonl`. `-DryRun` (or the workflow's `dry_run`) prints it instead of posting.
+
+### Network egress (owner step)
+
+`Set-FactoryEgress.ps1`, run elevated inside the VM, sets Windows Firewall to block outbound traffic except DNS to the VM's own resolvers and
+HTTPS from the `factory` account to the Anthropic API, GitHub and NuGet. Run `-DryRun` first to see the rules, and
+again monthly with `Reset-FactoryVM.ps1 -Refresh`, since CDN addresses change. `-Remove` undoes it. The factory never
+runs it.
 
 Waiting reasons, one `waiting:*` label per item: `security`, `merge`, `decide`, `stuck`, and, for later pieces,
 `want`, `plan-input`, `plan-review` and `rule-change`. The `triage` skill logs every owner decision on a routed report
@@ -134,6 +217,17 @@ Guards against report text steering the agent:
 - The report reaches the agent as a file, framed as untrusted data, never inside the prompt.
 - No GitHub token while an agent runs or while agent-written code runs (the unit tests and e2e run with no secrets at
   all). The token is used only to push, open the PR and merge. The checkout keeps no credential.
+- The agents never run `dotnet` or the e2e harness themselves. Their only test command is a copy of
+  `scripts/agent/test-channel.ps1`, which removes every secret, their own sign-in included, from the child process.
+  Before each agent, the factory copies `scripts/agent` and the e2e harness from the base commit to a folder outside
+  the checkout and allows only that copy, so an agent can't edit the script that runs with its sign-in. After each
+  agent, those files in the checkout must still match the base commit and the copy must be unchanged, or the run
+  stops. The agents also can't edit `scripts/` or the harness (`--disallowedTools`).
+- Before each agent, the scratch folders are cleared of anything an earlier step left (holdout scenarios, e2e and
+  reproduction output, and the factory account's temp folder).
+- `decision:fix` counts only when the owner's account added it last.
+- Text the factory would publish is held if it holds something shaped like a key or token (the same shapes the
+  feedback worker redacts).
 - The agents sign in with the owner's subscription (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`) when that
   secret is set, else with `ANTHROPIC_API_KEY`.
 - None of the run's git calls use hooks (`core.hooksPath` points at an empty folder), so a hook planted in `.git/hooks`

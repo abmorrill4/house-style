@@ -1,5 +1,5 @@
 {
-  "_about": "Thresholds for the factory's routing (Get-Route in scripts/factory/Triage.psm1). The factory reads this file from main before any agent runs. Changes are the owner's call and come with updated replay cases in tests/factory/routing-cases.json.",
+  "_about": "Thresholds for the factory's routing (Get-Route in scripts/factory/Triage.psm1). The factory reads this file from main before any agent runs. Changes are the owner's call and come with updated replay cases in tests/factory/routing-cases.json. limits, suspended, reinstated and startingTargets come from the command center spec (planning/work/command-center/spec.md): suspended lists areas (folders under src/FlareAI.Core/ or src/FlareAI.Flare/) where fixes go for review; reinstated maps an area to the date the owner reinstated it, so reverts before then no longer suspend it; startingTargets are days per class of service until a class has 10 finished items. limits.featureLoop and limits.vmBatch are placeholders the command center shows; nothing enforces them yet.",
   "autoFix": {
     "maxChangedLines": 150,
     "maxChangedFiles": 5,
@@ -19,5 +19,20 @@
   ],
   "ourWords": {
     "runLength": 8
+  },
+  "limits": {
+    "openFactoryPrs": 5,
+    "agentRunsPerDay": 20,
+    "agentMinutes": 45,
+    "featureLoop": 1,
+    "vmBatch": 1
+  },
+  "suspended": [],
+  "reinstated": {},
+  "startingTargets": {
+    "security": 2,
+    "bug": 5,
+    "feature": 30,
+    "improvement": 30
   }
 }
