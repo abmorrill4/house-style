@@ -23,7 +23,6 @@ function Test-TriageBrief($b) {
     foreach ($a in $asks) {
         if (-not ("" + $a.ask).Trim()) { $problems += "An ask has no text." }
         if ($AskKinds -notcontains $a.kind) { $problems += "An ask's kind must be one of $($AskKinds -join ', ')." }
-        if (@("full", "partial", "none") -notcontains $a.covers) { $problems += "An ask's covers must be full, partial or none." }
         if ($null -ne $a.fix_now -and $a.fix_now -isnot [bool]) { $problems += "An ask's fix_now must be true or false." }
     }
     $problems
@@ -255,32 +254,40 @@ function ConvertTo-RouteAsks($brief, $askRefs = @()) {
 # shadow reports and a held-out set (2026-10-24, planning/work/shadow-review) found this steadier than the brief's own
 # covers, and immune to the brief missing the right issue.
 
-# The judge's input: the report, one ask, and the bodies of the open issues we curate. All data.
+# The judge's input: the report, one ask, and the bodies of the open issues we curate (each capped at 6,000 characters).
+# All data. The tags that frame them are taken out of every part, so no part can close its block and pose as another.
 function New-CoverInput([string]$report, [string]$ask, $issues) {
-    $lines = @($report.Trim(), "", "<ask>$(Format-Field $ask 300)</ask>", "")
+    function Unframe([string]$t) { $t -replace '(?i)</?\s*(report|ask|issue)\b[^>]*>', '[tag]' }
+    $body = ($report.Trim() -replace '(?is)^<report>\s*', '' -replace '(?is)\s*</report>$', '')
+    $lines = @("<report>", (Unframe $body), "</report>", "", "<ask>$(Unframe (Format-Field $ask 300))</ask>", "")
     foreach ($i in @($issues | Where-Object { Test-CuratedIssue $_ } | Sort-Object { [int]$_.number })) {
-        $lines += "<issue>", "#$($i.number) $(Format-Field $i.title 200)", "", ("" + $i.body).Replace("</issue>", "").Trim(), "</issue>", ""
+        $text = Unframe ("" + $i.body).Trim(); if ($text.Length -gt 6000) { $text = $text.Substring(0, 5999) + "…" }
+        $lines += "<issue>", "#$($i.number) $(Unframe (Format-Field $i.title 200))", "", $text, "</issue>", ""
     }
     $lines -join "`n"
 }
 
-# The judges' answer by majority: covers by most votes (a tie goes to the more cautious, none before partial before
-# full), then the issue most of those votes named. A ref that isn't one of $allowed (the issues the judge was shown)
-# counts as none. $results: the judges' parsed JSON, $null for one that gave no usable answer.
+# The judges' answer by majority, in two steps. First, is the ask covered at all: more than half the usable votes say
+# full or partial. Then which issue: the one most covered votes named, a tie going to the lower number, and full only
+# when most votes for that issue say full. A ref that isn't one of $allowed (the issues the judge was shown) counts as
+# none. $results: the judges' parsed JSON, $null for one that gave no usable answer. votes is how many were usable.
 function Get-CoverVote($results, [int[]]$allowed) {
-    $rank = @{ "none" = 0; "partial" = 1; "full" = 2 }
     $votes = @(foreach ($r in @($results | Where-Object { $_ -and $_.best })) {
         $c = "" + $r.best.covers; $num = 0
         if (("" + $r.best.ref).Trim() -match '^#(\d{1,6})$') { $num = [int]$Matches[1] }
-        if (-not $rank.ContainsKey($c) -or ($c -ne "none" -and $allowed -notcontains $num)) { $c = "none"; $num = 0 }
-        [pscustomobject]@{ covers = $c; number = $(if ($c -eq "none") { 0 } else { $num }); missing = "" + $r.best.missing }
+        if (@("full", "partial") -notcontains $c -or $allowed -notcontains $num) { $c = "none"; $num = 0 }
+        [pscustomobject]@{ covers = $c; number = $num; missing = "" + $r.best.missing }
     })
-    if (-not $votes.Count) { return [pscustomobject]@{ ref = ""; covers = "none"; missing = ""; votes = 0 } }
-    $groups = @($votes | Group-Object covers | Sort-Object @{ Expression = { $_.Count }; Descending = $true }, @{ Expression = { $rank[$_.Name] } })
-    $covers = $groups[0].Name
-    $pick = @($groups[0].Group | Group-Object number | Sort-Object Count -Descending)[0].Group[0]
-    [pscustomobject]@{ ref = $(if ($covers -eq "none") { "" } else { "#$($pick.number)" }); covers = $covers
-                       missing = $(if ($covers -eq "partial") { $pick.missing } else { "" }); votes = $votes.Count }
+    $covered = @($votes | Where-Object { $_.covers -ne "none" })
+    if (-not $votes.Count -or $covered.Count * 2 -le $votes.Count) {
+        return [pscustomobject]@{ ref = ""; covers = "none"; missing = ""; votes = $votes.Count }
+    }
+    $top = @($covered | Group-Object number | Sort-Object @{ Expression = { $_.Count }; Descending = $true }, @{ Expression = { [int]$_.Name } })[0].Group
+    $full = @($top | Where-Object { $_.covers -eq "full" }).Count
+    $covers = if ($full * 2 -gt $top.Count) { "full" } else { "partial" }
+    $miss = @($top | Where-Object { $_.covers -eq "partial" -and $_.missing } | Select-Object -First 1)
+    [pscustomobject]@{ ref = "#$($top[0].number)"; covers = $covers
+                       missing = $(if ($covers -eq "partial" -and $miss.Count) { $miss[0].missing } else { "" }); votes = $votes.Count }
 }
 
 # The asks Get-Route works from. A record with none (an older brief) gets one ask from its kind and its first "same"

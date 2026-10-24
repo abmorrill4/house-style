@@ -87,7 +87,7 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | # | Route | When | Live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
-| 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*`, and none is a bug or a fix now; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
+| 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*`, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
 | 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
 | 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
 | 5 | fix-for-review | a bug, reproduced, and any check fails; or an ask the brief wants fixed now (`fix_now`: a small change to existing behavior, never a bug or a feature) | A **draft** PR with the reasons. `waiting:merge` |

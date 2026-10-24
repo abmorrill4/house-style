@@ -176,12 +176,10 @@ function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
 
 # The coverage judge (cover-prompt.md): for each of the brief's asks, three runs with no tools and no token decide which
 # open issue we curate covers it, and how much (Get-CoverVote). Their answers replace the brief's ref, covers and
-# missing. All the judge runs for one report are one run in the ledger and against the daily cap.
+# missing. Each ask's three runs count as one run against the daily cap; the report's judge runs are one ledger entry.
 function Set-AskCovers($brief, $issues) {
     $asks = @($brief.asks | Where-Object { $_ } | Select-Object -First 4)
     if (-not $asks.Count) { return }
-    $over = Test-RunBudget $script:runsUsed $runLimit
-    if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
     $allowed = @($issues | Where-Object { Test-CuratedIssue $_ } | ForEach-Object { [int]$_.number })
     $sys = Join-Path $tmp "cover-prompt.txt"; [IO.File]::WriteAllText($sys, $coverPrompt, (New-Object Text.UTF8Encoding $false))
     $in = Join-Path $tmp "cover-input.txt"; $outFile = Join-Path $tmp "cover-out.json"; $log = Join-Path $logs "report-$n-cover.log"
@@ -190,6 +188,10 @@ function Set-AskCovers($brief, $issues) {
     $sum = [ordered]@{ exit = 0; seconds = 0; timedOut = $false }; $tok = @{ input_tokens = 0.0; output_tokens = 0.0; cache_read_tokens = 0.0; cache_write_tokens = 0.0; cost_usd = 0.0 }
     $report = "<report>`n# " + $title + "`n`n" + $body + "`n</report>"   # as Write-Report writes it; the file is gone by now
     foreach ($a in $asks) {
+        # Each ask's three runs count as one run against the daily cap.
+        $over = Test-RunBudget $script:runsUsed $runLimit
+        if ($over) { $script:runCapStop = $true; throw "Stopped before the coverage judge started, because $over." }
+        $script:runsUsed++
         [IO.File]::WriteAllText($in, (New-CoverInput $report ("" + $a.ask) $issues), (New-Object Text.UTF8Encoding $false))
         $results = foreach ($k in 1..3) {
             $proc = Without $agentStrips { Invoke-AgentProcess $claude $argv $in $outFile $log 300 }
@@ -201,10 +203,12 @@ function Set-AskCovers($brief, $issues) {
             try { $text = "" + ($raw | ConvertFrom-Json).result; [regex]::Match($text, '(?s)\{.*\}').Value | ConvertFrom-Json } catch { $null }
         }
         $vote = Get-CoverVote @($results) $allowed
+        # Fewer than two answers is a failed triage, retried on a later run. Never a silent "nothing covers it", which
+        # would plan a duplicate issue.
+        if ($vote.votes -lt 2) { throw "The coverage judge gave $($vote.votes) usable answers of 3 for one ask." }
         foreach ($f in "ref", "covers", "missing") { $a | Add-Member -NotePropertyName $f -NotePropertyValue $vote.$f -Force }
     }
     Remove-Item $in, $outFile, $sys -ErrorAction SilentlyContinue
-    $script:runsUsed++
     $out = [pscustomobject]@{ turns = $null; input_tokens = $tok.input_tokens; output_tokens = $tok.output_tokens; cache_read_tokens = $tok.cache_read_tokens
                               cache_write_tokens = $tok.cache_write_tokens; cost_usd = $tok.cost_usd }
     Write-Ledger (New-LedgerEntry "cover" $n ([pscustomobject]$sum) $out $apiKeyAgent $routeMode ([bool]$DryRun) $null)
@@ -448,6 +452,9 @@ try {
         "$(Get-Date -Format o) triage route: $($route | ConvertTo-Json -Depth 5 -Compress)" | Add-Content (Join-Path $logs "report-$n-route.log")
         $triageLabel = Get-TriageLabel $route   # from the route: the pile is triage:noise, the rest triage:ready
 
+        # Evidence for every ask an open issue covers, whatever the route, including a fix: the covered ask doesn't wait
+        # on the fix. Live mode only, and never for a hold. A retry finds its marker and posts nothing twice.
+        if ($live -and $route.route -ne "hold") { foreach ($p in @($route.evidence)) { Add-Evidence $p.issue $pub["evidence on #$($p.issue)"] } }
         if ($route.build -and $wipFull) {
             # At the open-PR limit no new fix starts. The report is routed again once a factory PR closes.
             Say $n (Format-RouteComment $route $in $routeMode "The fix waits until fewer than $wipLimit factory PRs are open. It is routed again then.")
@@ -471,8 +478,6 @@ try {
                 Label $n $add $stale
                 return
             }
-            # Evidence for every ask an open issue covers, whatever the route. Hold posts nothing public.
-            if ($route.route -ne "hold") { foreach ($p in @($route.evidence)) { Add-Evidence $p.issue $pub["evidence on #$($p.issue)"] } }
             switch ($route.route) {
                 "hold" {
                     Say $n (Format-RouteComment $route $in $routeMode $NextSteps["hold"])
@@ -481,7 +486,8 @@ try {
                 "evidence" {
                     $t = $route.target.number
                     if ($route.target.type -eq "issue") {
-                        Say $n (Format-RouteComment $route $in $routeMode "Added as evidence on https://github.com/$repo/issues/$t. This report is closed.")
+                        $on = (@($route.evidence | ForEach-Object { "https://github.com/$repo/issues/$($_.issue)" }) -join " and ")
+                        Say $n (Format-RouteComment $route $in $routeMode "Added as evidence on $on. This report is closed.")
                     }
                     else {
                         Say $t "Report #$n is the same as this one and was closed."
@@ -539,7 +545,9 @@ try {
     if ($routed) {
         $gate = Test-FixAllowed $routed (Get-Labels $r) @() $owner
         if ($gate) { throw "The fix gate refused: $gate" }
-        $orderText = $triageComment + "`n`n**Route:** $($routed.route), computed by the factory in this run. Add the test named above, with that exact name, and make it pass."
+        $orderText = $triageComment + "`n`n**Route:** $($routed.route), computed by the factory in this run. " +
+            $(if ($routeIn.repro_test) { "Add the test named above, with that exact name, and make it pass." }
+              else { "Make the small change the brief asks for now, to existing behavior only, and add a test that shows it where a unit test can." })
     }
     else {
         # The work order: the triage brief the owner decided on, and the owner's decision comment. Both quote nothing
