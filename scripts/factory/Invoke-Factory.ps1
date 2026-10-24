@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS The code factory: takes one open tester report. A new one is triaged into a brief and routed by a fixed
 decision matrix (Get-Route in Triage.psm1). A clear-cut bug is fixed and checked in the same run. A report the owner
 marked decision:fix is fixed too.
@@ -84,6 +84,18 @@ function Label($n, $add, $remove) {
     $a = @("issue", "edit", $n, "-R", $reports); foreach ($x in $add) { $a += @("--add-label", $x) }; foreach ($x in $remove) { $a += @("--remove-label", $x) }
     Gh @a | Out-Null
 }
+# Posts one evidence comment on public issue $t for report $n, once: a retry finds its marker on the report.
+function Add-Evidence([int]$t, [string]$text) {
+    # Checked again right before posting: open, and labeled from:*.
+    $target = Gh issue view $t -R $repo --json "number,state,labels,comments" | ConvertFrom-Json
+    if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
+    $marker = "Evidence posted on https://github.com/$repo/issues/$t"
+    if (@($comments | Where-Object { ("" + $_.body).StartsWith("**Factory:** $marker") }).Count) { return }
+    $count = 1 + @($target.comments | Where-Object { ("" + $_.body).StartsWith("**Evidence from testers**") }).Count
+    Gh issue comment $t -R $repo --body-file (New-BodyFile $text.Replace("**Evidence from testers**", "**Evidence from testers** ($count so far)")) | Out-Null
+    Say $n "$marker."
+}
+
 # The display labels a report carries from an earlier triage or route, dropped when it is routed again.
 # blocked:* goes too: a report picked again is no longer blocked.
 function Get-StaleLabels($r) { @(Get-Labels $r | Where-Object { $_ -like "triage:*" -or $_ -like "route:*" -or $_ -like "waiting:*" -or $_ -like "blocked:*" -or $_ -eq "factory:queued" -or $_ -eq "factory:wip-limit" -or $_ -eq "factory:working" }) }
@@ -351,9 +363,13 @@ try {
         # ---- triage: read, try to reproduce, compare with the roadmap, write a brief. Never a branch, PR or issue. --
         # Context for matching, gathered now while the script has the token (the agent gets none).
         $contextPath = Join-Path $tmp "context-$n.md"
-        $open = Gh issue list -R $repo --state open --limit 300 --json "number,title,labels" | ConvertFrom-Json
+        $open = Gh issue list -R $repo --state open --limit 300 --json "number,title,labels,body,state" | ConvertFrom-Json
         $ctx = @("# Open issues in $repo", "")
-        foreach ($i in $open) { $ctx += "- #$($i.number) $($i.title) [$(($i.labels.name) -join ', ')]" }
+        foreach ($i in $open) {
+            $ctx += "- #$($i.number) $($i.title) [$(($i.labels.name) -join ', ')]"
+            # The body of an issue we curate, so the agent can tell whether it covers an ask. Capped: data, not a spec.
+            if (Test-CuratedIssue $i) { $ctx += "  > $((Format-Field $i.body 1500))" }
+        }
         $ctx += "", "# Other reports' triage state", ""
         foreach ($o in $all | Where-Object number -ne $n) { $ctx += "- report #$($o.number): $((@($o.labels.name | Where-Object { $_ -like 'triage:*' -or $_ -like 'decision:*' })) -join ', ')" }
         Set-Content $contextPath ($ctx -join "`n") -Encoding UTF8
@@ -380,7 +396,8 @@ try {
         # ---- route: the brief proposes, the script decides --------------------------------------------------------
         # Matches are checked against lists fetched here, so a brief can't point evidence at an issue we don't curate.
         $issuesAll = Gh issue list -R $repo --state all --limit 1000 --json "number,state,labels" | ConvertFrom-Json
-        $in = New-RouteInput $brief @(Resolve-Matches $brief.matches $issuesAll $all $n $areaLabels) (Get-CapLeft $rules) $areaLabels
+        $askRefs = @(Resolve-Matches @($brief.asks | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ ref = $_.ref; relation = "same" } }) $issuesAll $all $n $areaLabels)
+        $in = New-RouteInput $brief @(Resolve-Matches $brief.matches $issuesAll $all $n $areaLabels) (Get-CapLeft $rules) $areaLabels $askRefs
         $route = Get-Route $in $rules
         $pub = Get-PublicText $route $brief $n
         $ow = @()
@@ -416,6 +433,8 @@ try {
                 Label $n $add $stale
                 return
             }
+            # Evidence for every ask an open issue covers, whatever the route. Hold posts nothing public.
+            if ($route.route -ne "hold") { foreach ($p in @($route.evidence)) { Add-Evidence $p.issue $pub["evidence on #$($p.issue)"] } }
             switch ($route.route) {
                 "hold" {
                     Say $n (Format-RouteComment $route $in $routeMode $NextSteps["hold"])
@@ -424,17 +443,6 @@ try {
                 "evidence" {
                     $t = $route.target.number
                     if ($route.target.type -eq "issue") {
-                        # Checked again right before posting: open, and labeled from:*.
-                        $target = Gh issue view $t -R $repo --json "number,state,labels,comments" | ConvertFrom-Json
-                        if (-not (Test-CuratedIssue $target)) { throw "Issue #$t isn't an open issue we curate any more, so no evidence was added." }
-                        # A retry after a failure below must not post the evidence twice.
-                        $marker = "Evidence posted on https://github.com/$repo/issues/$t"
-                        if (-not @($comments | Where-Object { ("" + $_.body).StartsWith("**Factory:** $marker") }).Count) {
-                            $count = 1 + @($target.comments | Where-Object { ("" + $_.body).StartsWith("**Evidence from testers**") }).Count
-                            $text = $pub["evidence comment"].Replace("**Evidence from testers**", "**Evidence from testers** ($count so far)")
-                            Gh issue comment $t -R $repo --body-file (New-BodyFile $text) | Out-Null
-                            Say $n "$marker."
-                        }
                         Say $n (Format-RouteComment $route $in $routeMode "Added as evidence on https://github.com/$repo/issues/$t. This report is closed.")
                     }
                     else {

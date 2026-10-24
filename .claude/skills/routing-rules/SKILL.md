@@ -13,9 +13,18 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
 - **Input record** (what `Get-Route` reads, and what the decision log stores in full): the brief's `kind`, `security`,
   `confidence`, whether it was `reproduced` and its `repro_test`, the best `match` (issue or report, its relation
   `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label), the brief's
+  **asks** (each distinct thing the tester wants: its kind, whether the brief wants it fixed now, how much the closest
+  open issue `covers` it, `full`, `partial` or `none`, and that issue, resolved like a match), the brief's
   `area` when `rules/areas.json` lists it, the **diff facts** (changed lines and files, owner-only paths, behavior
   paths), the our-words check, and the cap state. Curated means open and labeled `from:*`.
-- **Output**: one route and the reason. A plan or docs-gap route also carries the `area:*` label for the new public
+- **Split reports.** Routing works per ask. An ask an open curated issue covers fully or partly becomes evidence on
+  that issue, and for `partial` the comment carries what the issue lacks, so closing the report loses nothing. A bug
+  ask never becomes evidence, and neither does an ask the brief wants fixed now (`fix_now`, which goes to fix for
+  review as a draft PR). The asks left over decide the route. A report with evidence asks and other asks gets both:
+  the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
+  record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
+  shadow review in `planning/work/shadow-review/`).
+- **Output**: one route and the reason, plus `evidence`: the issues that get an evidence comment. A plan or docs-gap route also carries the `area:*` label for the new public
   issue: the brief's, otherwise the first open matched issue's, otherwise none. The factory adds that label and puts
   the issue in Later on the board. Nothing attaches issues to themes any more (owner decision 2026-10-24).
 - The diff facts and the our-words check are `Get-Route`'s own helpers. Don't compute them a second way.
@@ -28,7 +37,9 @@ files disagree, the files win.
 ## What an agent does
 - `hs-intake` fills the brief's fields from the report, as the schema asks, with the enums exactly as written.
 - `hs-security-screen` answers whether the report or diff describes a vulnerability. That answer feeds `security`.
-- `hs-match` fills `match`, citing only issues and reports that exist in the context it was given.
+- `hs-match` fills `match`, citing only issues and reports that exist in the context it was given. It doesn't judge
+  `covers`: deciding whether an issue covers a specific ask needs Sonnet or better (the 2026-10-24 model comparison
+  had Haiku agree with nothing under a checklist), so the asks come from the triage brief.
 - `hs-rules` reads the owner's decision log (`planning/work/routing-log.jsonl`, private) once a week and drafts rule
   changes where the owner keeps deciding the same way, with the replay cases passing. Every change, widening or
   narrowing, is the owner's call. Nothing changes a rule on its own.

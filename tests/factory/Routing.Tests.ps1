@@ -1,4 +1,4 @@
-# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
+﻿# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $here '..\..\scripts\factory\Triage.psm1') -Force
@@ -82,6 +82,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
                 switch ($p.Name) {
                     "route" { }
                     "target" { $r.target.type | Should Be $p.Value.type; $r.target.number | Should Be $p.Value.number }
+                    "evidence" { (@($r.evidence | ForEach-Object { $_.issue }) -join ',') | Should Be $p.Value }
                     default { $r.($p.Name) | Should Be $p.Value }
                 }
             }
@@ -91,7 +92,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
         foreach ($route in $Routes) { @($cases | Where-Object { $_.expect.route -eq $route }).Count | Should BeGreaterThan 0 }
     }
     It 'holds no report text: every input field is a known routing field' {
-        $known = "kind", "security", "reproduced", "confidence", "repro_test", "docs_gap", "area", "matches", "our_words", "fix", "cap_left"
+        $known = "kind", "security", "reproduced", "confidence", "repro_test", "docs_gap", "area", "matches", "asks", "our_words", "fix", "cap_left"
         foreach ($c in $cases) { foreach ($p in $c.input.PSObject.Properties) { $known -contains $p.Name | Should Be $true } }
     }
 }
@@ -99,7 +100,7 @@ Describe 'Get-Route replay cases (tests/factory/routing-cases.json)' {
 Describe 'Get-Route matrix order' {
     It 'takes rows in order: hold, evidence, regression, bug, plan, docs-gap, pile' {
         (Get-Route (New-Input @{ security = $true; kind = "feature" }) $rules).row | Should Be 1
-        (Get-Route (New-Input @{ matches = @([pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; area = $null }) }) $rules).row | Should Be 2
+        (Get-Route (New-Input @{ kind = "feature"; matches = @([pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; area = $null }) }) $rules).row | Should Be 2
         (Get-Route (New-Input) $rules).row | Should Be 4
         (Get-Route (New-Input @{ confidence = "low" }) $rules).row | Should Be 5
         (Get-Route (New-Input @{ reproduced = "no" }) $rules).row | Should Be 6
@@ -425,9 +426,24 @@ Describe 'Public text and the route comment' {
     }
     It 'evidence text for an issue, none for a duplicate report' {
         $m = [pscustomobject]@{ relation = "same"; target = "issue"; number = 5; state = "open"; curated = $true; theme = $false }
-        (Get-PublicText (Get-Route (New-Input @{ matches = @($m) }) $rules) (New-Brief) 12)["evidence comment"] | Should Match '^\*\*Evidence from testers\*\*'
+        (Get-PublicText (Get-Route (New-Input @{ kind = "friction"; matches = @($m) }) $rules) (New-Brief) 12)["evidence on #5"] | Should Match '^\*\*Evidence from testers\*\*'
         $d = [pscustomobject]@{ relation = "same"; target = "report"; number = 9; state = "open"; curated = $false; theme = $false }
         (Get-PublicText (Get-Route (New-Input @{ kind = "duplicate"; matches = @($d) }) $rules) (New-Brief) 12).Count | Should Be 0
+    }
+    It 'names each ask on its own issue, says what a partial issue lacks, and plans only the uncovered asks' {
+        $b = New-Brief; $b.kind = "feature"
+        $b | Add-Member asks @(
+            [pscustomobject]@{ ask = "Lint one folder"; kind = "feature"; ref = ""; covers = "none"; missing = ""; fix_now = $false },
+            [pscustomobject]@{ ask = "Drop fixed issues from the list"; kind = "friction"; ref = "#162"; covers = "partial"; missing = "Fixed issues leave the list."; fix_now = $false })
+        $i162 = [pscustomobject]@{ relation = "same"; target = "issue"; number = 162; state = "open"; curated = $true; area = $null }
+        $in = New-RouteInput $b @() 3 @() @($i162)
+        $r = Get-Route $in $rules
+        $r.route | Should Be "plan"
+        $t = Get-PublicText $r $b 12
+        $t["evidence on #162"] | Should Match 'Drop fixed issues from the list'
+        $t["evidence on #162"] | Should Match 'Not covered here yet:\*\* Fixed issues leave the list'
+        $t["issue body"] | Should Match 'Lint one folder'
+        $t["issue body"] | Should Not Match 'Drop fixed issues'
     }
     It 'carries a routing record that parses back to the input' {
         $in = New-Input

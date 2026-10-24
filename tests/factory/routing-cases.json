@@ -147,7 +147,7 @@
    }
   },
   {
-   "name": "bug the same as an open curated issue is evidence",
+   "name": "a bug the same as an open curated issue is still fixed, never evidence",
    "input": {
     "kind": "bug",
     "security": false,
@@ -170,15 +170,12 @@
     "cap_left": 3
    },
    "expect": {
-    "route": "evidence",
-    "target": {
-     "type": "issue",
-     "number": 120
-    }
+    "route": "auto-fix",
+    "build": true
    }
   },
   {
-   "name": "feature part of a curated issue is evidence",
+   "name": "a feature only part of a curated issue is planned, not evidence",
    "input": {
     "kind": "feature",
     "security": false,
@@ -201,11 +198,7 @@
     "cap_left": 3
    },
    "expect": {
-    "route": "evidence",
-    "target": {
-     "type": "issue",
-     "number": 44
-    }
+    "route": "plan"
    }
   },
   {
@@ -475,7 +468,7 @@
    }
   },
   {
-   "name": "open curated match beats a closed same match",
+   "name": "a bug the same as a closed issue and an open one is fixed as a regression",
    "input": {
     "kind": "bug",
     "security": false,
@@ -506,7 +499,8 @@
     "cap_left": 3
    },
    "expect": {
-    "route": "evidence"
+    "route": "auto-fix",
+    "regression": 130
    }
   },
   {
@@ -1115,6 +1109,533 @@
    "expect": {
     "route": "docs-gap",
     "area": "area:settings"
+   }
+  },
+  {
+   "name": "a feature the same as a curated issue is evidence",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 44,
+      "state": "open",
+      "curated": true,
+      "area": null
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 44
+    }
+   }
+  },
+  {
+   "name": "an ask a curated issue covers fully is evidence",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 19,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 19
+    },
+    "evidence": "19"
+   }
+  },
+  {
+   "name": "an ask a curated issue covers partly is evidence that carries what it lacks",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 162,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 162
+    },
+    "evidence": "162"
+   }
+  },
+  {
+   "name": "an ask the nearest issue does not cover is planned",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "none",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 162,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "plan",
+    "evidence": ""
+   }
+  },
+  {
+   "name": "a bug ask never becomes evidence",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "medium",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "bug",
+      "fix_now": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 27,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "brief-only",
+    "waiting": "decide",
+    "evidence": ""
+   }
+  },
+  {
+   "name": "a covered ask and a bug ask split into evidence and the bug lane",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "medium",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 15,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "bug",
+      "fix_now": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "brief-only",
+    "evidence": "15"
+   }
+  },
+  {
+   "name": "a small fix now nothing plans goes for review",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "build": true,
+    "evidence": ""
+   }
+  },
+  {
+   "name": "a small fix now and a covered ask split into a fix and evidence",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 161,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "build": true,
+    "evidence": "161"
+   }
+  },
+  {
+   "name": "two asks covered by two issues are evidence on both",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 161,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "friction",
+      "fix_now": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 162,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 161
+    },
+    "evidence": "161,162"
+   }
+  },
+  {
+   "name": "an uncovered ask and a covered one split into a plan and evidence",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "none",
+      "issue": null
+     },
+     {
+      "index": 1,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 162,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "plan",
+    "evidence": "162"
+   }
+  },
+  {
+   "name": "an ask covered by an issue we do not curate is planned",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": false,
+      "covers": "full",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 130,
+       "state": "open",
+       "curated": false,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "plan"
+   }
+  },
+  {
+   "name": "a fix now on work an issue already plans is evidence",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": true,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "evidence": "12"
+   }
+  },
+  {
+   "name": "a question riding along with a covered ask is evidence",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "friction",
+      "fix_now": false,
+      "covers": "partial",
+      "issue": {
+       "relation": "same",
+       "target": "issue",
+       "number": 12,
+       "state": "open",
+       "curated": true,
+       "area": null
+      }
+     },
+     {
+      "index": 1,
+      "kind": "question",
+      "fix_now": false,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "evidence",
+    "evidence": "12"
+   }
+  },
+  {
+   "name": "fix now on a new feature counts for nothing",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3,
+    "asks": [
+     {
+      "index": 0,
+      "kind": "feature",
+      "fix_now": true,
+      "covers": "none",
+      "issue": null
+     }
+    ]
+   },
+   "expect": {
+    "route": "plan"
    }
   }
  ]
