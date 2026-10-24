@@ -16,6 +16,7 @@ try {
     $why = Test-AgentCommand $command
     if (-not $why -and (Test-InvokesAgentScript $command)) {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $ErrorActionPreference = 'Continue'   # git may write to stderr; its exit code is what counts
         $ref = 'origin/main'
         & git -C $root rev-parse --verify --quiet $ref *> $null
         if ($LASTEXITCODE) { $ref = 'HEAD' }

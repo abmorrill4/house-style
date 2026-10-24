@@ -50,6 +50,7 @@ Describe 'Test-AgentCommand' {
 Describe 'bash-guard.ps1' {
     $guard = Join-Path $here '..\..\scripts\agent\bash-guard.ps1'
     function Invoke-Guard([string]$Json) {
+        $ErrorActionPreference = 'Continue'   # CI runs Pester under Stop, which turns the guard's stderr into an error
         $out = $Json | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard 2>&1
         [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($out | Out-String) }
     }

@@ -8,6 +8,7 @@ Describe 'stop-check.ps1' {
     $dir = Join-Path $repo "tests\$name"
     New-Item -ItemType Directory $dir | Out-Null
     function Invoke-Hook([string]$Json) {
+        $ErrorActionPreference = 'Continue'   # CI runs Pester under Stop, which turns the hook's stderr into an error
         $out = $Json | & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $hook -Paths "tests/$name" 2>&1
         [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($out | Out-String) }
     }

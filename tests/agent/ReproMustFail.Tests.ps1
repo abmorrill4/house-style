@@ -88,7 +88,7 @@ Describe 'repro-must-fail.ps1 in a scratch repo (Pester channel)' {
     $lock = Join-Path $root 'lock'
     New-Item -ItemType Directory -Force (Join-Path $root 'r\src'), (Join-Path $root 'r\tests') | Out-Null
     $r = Join-Path $root 'r'
-    function G { & git -C $r -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false @args 2>&1 | Out-Null }
+    function G { $ErrorActionPreference = 'Continue'; & git -C $r -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false @args 2>&1 | Out-Null }
     function Commit([string]$Message) { G add -A; G commit -q -m $Message }
     function Put([string]$Rel, [string]$Text) {
         $p = Join-Path $r $Rel
