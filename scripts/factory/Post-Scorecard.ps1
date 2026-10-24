@@ -76,8 +76,8 @@ $text = Format-Scorecard $card
 if ($DryRun) { Write-Output "Dry run: this would be posted on the Factory scorecard issue in the private reports repo."; Write-Output ""; Write-Output $text; return }
 $si = @((Gh issue list -R $reports --state open --author "@me" --search "Factory scorecard in:title" --limit 20 --json "number,title" | ConvertFrom-Json) | Where-Object { $_.title -eq "Factory scorecard" }) | Sort-Object number | Select-Object -First 1
 $num = if ($si) { [int]$si.number } else {
-    $url = "" + (Gh issue create -R $reports --title "Factory scorecard" --body "The factory's weekly scorecard, posted every Monday. Counts and reason codes only.")
+    $url = "" + (Gh issue create -R $reports --title "Factory scorecard" --body-file (New-BodyFile "The factory's weekly scorecard, posted every Monday. Counts and reason codes only."))
     [int]($url.Trim().Split('/')[-1])
 }
-Gh issue comment $num -R $reports --body $text | Out-Null
+Gh issue comment $num -R $reports --body-file (New-BodyFile $text) | Out-Null
 Write-Output "Posted the scorecard on the Factory scorecard issue in the private reports repo."

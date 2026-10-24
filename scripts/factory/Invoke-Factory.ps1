@@ -69,7 +69,7 @@ $env:GIT_CONFIG_COUNT = "1"; $env:GIT_CONFIG_KEY_0 = "core.hooksPath"; $env:GIT_
 # Errors name the gh command only: its arguments can hold a comment body, and job logs are public.
 function Gh { $o = & gh.exe @args; if ($LASTEXITCODE) { throw "gh $($args[0]) $($args[1]) failed" }; $o }
 function Say($n, $text) {
-    if (-not $DryRun) { Gh issue comment $n -R $reports --body "**Factory:** $text" | Out-Null; return }
+    if (-not $DryRun) { Gh issue comment $n -R $reports --body-file (New-BodyFile ("**Factory:** " + $text)) | Out-Null; return }
     $text | Add-Content (Join-Path $logs "report-$n-comments.log"); Write-Host "[comment #$n] $($text.Length) chars, in factory-logs"
 }
 Import-Module (Join-Path $PSScriptRoot "Triage.psm1") -Force
@@ -169,7 +169,7 @@ function Get-LedgerIssue {
     $found = @(Gh issue list -R $reports --state open --author "@me" --search "Factory ledger in:title" --limit 20 --json "number,title" | ConvertFrom-Json) |
              Where-Object { $_.title -eq "Factory ledger" } | Sort-Object number | Select-Object -First 1
     if ($found) { return [int]$found.number }
-    $url = "" + (Gh issue create -R $reports --title "Factory ledger" --body "One comment per factory agent run, with its tokens, turns and time (and dollars when an API key paid for it). No report text. The daily run cap is counted from here.")
+    $url = "" + (Gh issue create -R $reports --title "Factory ledger" --body-file (New-BodyFile "One comment per factory agent run, with its tokens, turns and time (and dollars when an API key paid for it). No report text. The daily run cap is counted from here."))
     $num = [int]($url.Trim().Split('/')[-1])
     try { Gh issue pin $num -R $reports | Out-Null } catch { Write-Host "Couldn't pin the Factory ledger issue." }
     $num
@@ -181,7 +181,7 @@ function Get-LedgerToday {
     @($rows | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.login -eq $me } | ForEach-Object { ConvertFrom-LedgerComment $_.body } | Where-Object { $_ })
 }
 # Dry runs are recorded too: they spend tokens, so the cap counts them.
-function Write-Ledger($entry) { Gh issue comment $script:ledgerIssue -R $reports --body (Format-LedgerComment $entry) | Out-Null }
+function Write-Ledger($entry) { Gh issue comment $script:ledgerIssue -R $reports --body-file (New-BodyFile (Format-LedgerComment $entry)) | Out-Null }
 
 function Assert-CleanTree($who) {
     Assert-GitConfig $who   # first: git status could run a program an agent configured (core.fsmonitor)
@@ -432,7 +432,7 @@ try {
                         if (-not @($comments | Where-Object { ("" + $_.body).StartsWith("**Factory:** $marker") }).Count) {
                             $count = 1 + @($target.comments | Where-Object { ("" + $_.body).StartsWith("**Evidence from testers**") }).Count
                             $text = $pub["evidence comment"].Replace("**Evidence from testers**", "**Evidence from testers** ($count so far)")
-                            Gh issue comment $t -R $repo --body $text | Out-Null
+                            Gh issue comment $t -R $repo --body-file (New-BodyFile $text) | Out-Null
                             Say $n "$marker."
                         }
                         Say $n (Format-RouteComment $route $in $routeMode "Added as evidence on https://github.com/$repo/issues/$t. This report is closed.")
@@ -453,7 +453,7 @@ try {
                     $earlier = @($comments | Where-Object { ("" + $_.body).StartsWith($prefix) }) | Select-Object -Last 1
                     if ($earlier -and ($earlier.body.Substring($prefix.Length).Trim() -match "^https://github\.com/$([regex]::Escape($repo))/issues/\d+$")) { $url = $Matches[0] }
                     else {
-                        $url = ("" + (Gh issue create -R $repo --title $pub["issue title"] --body $pub["issue body"] @la)).Trim()
+                        $url = ("" + (Gh issue create -R $repo --title $pub["issue title"] --body-file (New-BodyFile $pub["issue body"]) @la)).Trim()
                         Say $n "Public issue for this report: $url"   # recorded before anything else can fail
                     }
                     $num = $url.Split('/')[-1]
@@ -462,8 +462,12 @@ try {
                     $under = if ($route.area) { " in $($route.area)" } else { " with no area yet" }
                     try {
                         $node = Gh api "repos/$repo/issues/$num" --jq ".node_id"
-                        $item = (Gh api graphql -f "query=mutation{addProjectV2ItemById(input:{projectId:`"$($areas.board.project)`",contentId:`"$node`"}){item{id}}}" | ConvertFrom-Json).data.addProjectV2ItemById.item.id
-                        Gh api graphql -f "query=mutation{updateProjectV2ItemFieldValue(input:{projectId:`"$($areas.board.project)`",itemId:`"$item`",fieldId:`"$($areas.board.whenField)`",value:{singleSelectOptionId:`"$($areas.board.later)`"}}){projectV2Item{id}}}" | Out-Null
+                        # The queries go through files and the ids as variables, so no double quote reaches a native argument
+                        # (Windows PowerShell 5.1 mangles them; see New-BodyFile).
+                        $addQ = New-BodyFile 'mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}'
+                        $item = (Gh api graphql -F "query=@$addQ" -f "p=$($areas.board.project)" -f "c=$node" | ConvertFrom-Json).data.addProjectV2ItemById.item.id
+                        $setQ = New-BodyFile 'mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}'
+                        Gh api graphql -F "query=@$setQ" -f "p=$($areas.board.project)" -f "i=$item" -f "f=$($areas.board.whenField)" -f "o=$($areas.board.later)" | Out-Null
                         $under += ", in Later on the board"
                     }
                     catch { $under += ". Putting it in Later on the board failed, so set When by hand" }
@@ -639,7 +643,7 @@ try {
     if (-not @($changes | Where-Object { ($_ -split "`t")[-1] -like "changes/*.md" }).Count) { $prArgs += @("--label", "no-notes") }
     if ($draft) { $prArgs += "--draft" }
     if ($routed -and $routed.route -eq "auto-fix") { $prArgs += @("--label", "factory:auto-fix") }   # counted for the daily cap
-    $url = Gh pr create -R $repo --base main --head $branch --title $prTitle --body $prBody @prArgs
+    $url = Gh pr create -R $repo --base main --head $branch --title $prTitle --body-file (New-BodyFile $prBody) @prArgs
     $pr = ($url -split '/')[-1]
     if ($tamperDraft) {
         Say $n "Opened the draft PR $url instead of merging, because $($draftWhy -join ', and '). Review it. Merging it is the one step left."

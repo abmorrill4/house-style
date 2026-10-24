@@ -1,4 +1,4 @@
-# The code factory: every 30 minutes, take one tester report from the private reports repo. A new report is triaged
+# The code factory: every 30 minutes, work through the waiting tester reports in the private reports repo, one at a time. A new report is triaged
 # and routed (scripts/factory/README.md). A clear-cut bug, or a report the owner marked decision:fix, is fixed (test,
 # fix, retest in Flare, second-agent review, PR, merge). The FACTORY_MODE variable is the kill switch: off, unset or
 # anything else means no run at all, shadow posts routes on the private report only, live acts on them.
@@ -38,7 +38,7 @@ jobs:
         shell: powershell
         run: .\scripts\factory\Test-FactoryReady.ps1   # exits 1 with the reason when the VM can't drive Flare
 
-      - name: Work on one report
+      - name: Work through the queue
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
@@ -52,7 +52,19 @@ jobs:
         run: |
           git config user.name "House Style factory"
           git config user.email "factory@gethousestyle.com"
-          $a = @{}
-          if ($env:ISSUE) { $a.Issue = [int]$env:ISSUE }
-          if ($env:DRY_RUN -eq 'true') { $a.DryRun = $true }
-          & .\scripts\factory\Invoke-Factory.ps1 @a
+          $a = @()
+          if ($env:ISSUE) { $a += @("-Issue", [int]$env:ISSUE) }
+          if ($env:DRY_RUN -eq 'true') { $a += "-DryRun" }
+          # Drain the queue: one report per pass, each pass in its own process, until nothing is left. A single report
+          # (issue input) or a dry run is one pass. The job timeout and the daily agent-run cap bound the rest; a pass
+          # that fails has already marked its report (failed or stuck), so the next pass moves on to another one.
+          $passes = if ($env:ISSUE -or $env:DRY_RUN -eq 'true') { 1 } else { 12 }
+          $failed = 0
+          $ErrorActionPreference = 'Continue'   # a pass's stderr lines are output here, not errors; exit codes decide
+          for ($i = 1; $i -le $passes; $i++) {
+            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\factory\Invoke-Factory.ps1 @a 2>&1 | ForEach-Object { "$_" }
+            $out | Write-Host
+            if ($LASTEXITCODE) { $failed++ }
+            if ($out -match 'Nothing to triage and no fix approved|waits for tomorrow') { break }
+          }
+          if ($failed) { throw "$failed of the passes failed. The reasons are on the reports, in the private reports repo." }
