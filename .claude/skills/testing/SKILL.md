@@ -39,7 +39,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-chann
 
 - `-Channel full` runs the whole Release suite, as CI does. Run it before you push.
 - It runs the test with every secret removed from the environment (no API key, no tokens), one run at a time. The
-  hs-* agents run tests only this way; their Bash guard blocks a bare `dotnet test`.
+  hs-* agents run tests only this way, and only from the repository root.
 - `-Filter` is a `FullyQualifiedName~` match for the .NET channels. `-Scenario` names one e2e scenario. AI scenarios
   (`ai-*`) never run here because they need a key.
 - `e2e` needs real Flare and an unlocked desktop, so it runs on the factory VM. A reproduction there is two batches,
@@ -58,4 +58,5 @@ behavior. If the bug is a crash, catch it in the test (`var ex = Record.Exceptio
 - Never put report text, names or private paths in a test. Write your own minimal example; the repo is public.
 - Never call the live API, the live Worker or GitHub from a test. Use `ScriptedLlmClient`, `MockLlmServer`,
   `MockFeedbackServer` or `MockReleaseServer`.
-- Run the narrowest filter while you work, and `dotnet test FlareAI.sln -c Release` before you push.
+- Run the narrowest channel and filter while you work, and `scripts/agent/test-channel.ps1 -Channel full` before you
+  push.

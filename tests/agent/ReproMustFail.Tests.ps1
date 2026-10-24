@@ -77,6 +77,11 @@ Describe 'Find-TestInDiff' {
         $diff = @('+++ b/src/A.cs', '+ // IgnoreSticks', '+++ b/tests/X/ATests.cs', '@@ -1 +1,2 @@', '+    public void IgnoreSticks() {', ' context IgnoreSticks')
         Find-TestInDiff -DiffLines $diff -Name 'IgnoreSticks' | Should Be 'tests/X/ATests.cs'
     }
+    It 'for Pester, finds only an It block with that name' {
+        $diff = @('+++ b/tests/A.Tests.ps1', '+Describe "adds two" {', '+  # adds two', '+  It "something else" { }')
+        @(Find-TestInDiff -DiffLines $diff -Name 'adds two' -Pester).Count | Should Be 0
+        Find-TestInDiff -DiffLines ($diff + '+  It ''adds two'' { 1 | Should Be 1 }') -Name 'adds two' -Pester | Should Be 'tests/A.Tests.ps1'
+    }
     It 'finds nothing when the name is only on context or removed lines' {
         @(Find-TestInDiff -DiffLines @('+++ b/tests/A.cs', ' IgnoreSticks', '-IgnoreSticks') -Name 'IgnoreSticks').Count | Should Be 0
     }

@@ -12,7 +12,9 @@ hooks:
     - matcher: "Bash|PowerShell"
       hooks:
         - type: command
-          command: "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/bash-guard.ps1"
+          shell: bash
+          onFailure: block
+          command: 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PROJECT_DIR}/scripts/agent/bash-guard.ps1" -Role reviewer || exit 2'
 ---
 
 # Review lens: security

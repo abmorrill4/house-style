@@ -51,6 +51,6 @@ The `testing` skill says which of these to use first.
 - `styleguide/Company/` holds team rule rows. `styleguide/Google/` is generated, never edited by hand.
 - `changes/<name>.md` holds one note per writer-visible change (`changes/README.md`).
 - `scripts/factory/` runs the factory on the VM. `scripts/agent/` holds the agent check scripts. `rules/` holds the
-  routing rules. These, `.claude/agents/`, `.claude/skills/`, `.claude/workflows/` and `tests/factory/` are
-  owner-only: a change there is a draft PR for the owner.
+  routing rules. `.claude/agents/`, `.claude/skills/` and `.claude/workflows/` hold the agents, skills and review
+  workflow. Fix agents never change any of these.
 - `docs/api-dump.txt` is the real Flare API and `docs/flare-api-notes.md` the verified Flare behavior.

@@ -3,15 +3,9 @@ name: hs-review-goals
 description: Use as the goals lens of a House Style spec review (the work-loop-review workflow). Checks scope against the intent, who asked, and the owner's decisions. Returns findings JSON.
 model: sonnet
 effort: medium
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob
 skills:
   - findings
-hooks:
-  PreToolUse:
-    - matcher: "Bash|PowerShell"
-      hooks:
-        - type: command
-          command: "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/bash-guard.ps1"
 ---
 
 # Review lens: goals

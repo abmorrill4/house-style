@@ -107,13 +107,16 @@ function Get-ReproVerdict {
 }
 
 function Find-TestInDiff {
-    # Files under tests/ whose added lines in the unified diff name the test.
-    param([string[]]$DiffLines, [Parameter(Mandatory)][string]$Name)
+    # Files under tests/ whose added lines in the unified diff name the test. For Pester the name must be an It
+    # block's name (It "name" or It 'name'), not a Describe or text that happens to contain it.
+    param([string[]]$DiffLines, [Parameter(Mandatory)][string]$Name, [switch]$Pester)
     $files = New-Object System.Collections.Generic.List[string]
     $current = $null
+    $itRx = '(?i)(^|[\s;{])It\s+(-Name\s+)?["'']' + [regex]::Escape($Name) + '["'']'
     foreach ($l in $DiffLines) {
         if ($l -match '^\+\+\+ b/(.+)$') { $current = $Matches[1]; continue }
-        if ($current -and $current -like 'tests/*' -and $l.StartsWith('+') -and -not $l.StartsWith('+++') -and $l.Contains($Name)) {
+        $named = if ($Pester) { $l -match $itRx } else { $l.Contains($Name) }
+        if ($current -and $current -like 'tests/*' -and $l.StartsWith('+') -and -not $l.StartsWith('+++') -and $named) {
             if (-not $files.Contains($current)) { $files.Add($current) }
         }
     }

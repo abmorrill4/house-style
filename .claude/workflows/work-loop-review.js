@@ -18,8 +18,12 @@ const intent = (args && args.intent) || '(Read the Intent section of the spec or
 
 // Optional, for the eval: review a PR as it was at one commit (args.base and args.head, commit ids already in this
 // repository) instead of its current head.
-const pinned = stage === 'build' && args && args.base && args.head ? { base: String(args.base), head: String(args.head) } : null
-if (pinned && !(/^[0-9a-f]{7,40}$/.test(pinned.base) && /^[0-9a-f]{7,40}$/.test(pinned.head))) {
+const hasBase = !!(args && args.base)
+const hasHead = !!(args && args.head)
+if (hasBase !== hasHead) throw new Error('args.base and args.head go together: pass both commit ids, or neither')
+if (hasBase && stage !== 'build') throw new Error('args.base and args.head are for a build review only')
+const pinned = hasBase ? { base: String(args.base), head: String(args.head) } : null
+if (pinned &&!(/^[0-9a-f]{7,40}$/.test(pinned.base) && /^[0-9a-f]{7,40}$/.test(pinned.head))) {
   throw new Error('args.base and args.head must be commit ids')
 }
 const atCommits = refs => `pull request #${target} in abmorrill4/house-style, which is the change from commit ${refs.base} to commit ${refs.head} in this repository. Read it with \`git diff ${refs.base} ${refs.head}\`, \`git log ${refs.base}..${refs.head}\` and \`git show ${refs.head}:<path>\``
@@ -93,7 +97,17 @@ const HS_LENS = {
   goals: 'hs-review-goals',
 }
 const OPUS_LENSES = ['adversarial', 'security']
-const skepticFor = key => (OPUS_LENSES.includes(key) ? 'hs-skeptic-opus' : 'hs-skeptic')
+// Never weaker than the finder: any finding from an Opus lens, and any security finding from any lens (blocking or
+// note), goes to the Opus skeptic. Those notes are verified too; other notes are not, as on the live path.
+const SECURITY_WORDS = /\b(security|secret|token|api key|credential|inject|exploit|vulnerab|untrusted|trust boundary|signature|unc path|path traversal|advisory)/i
+const needsOpus = (f, key) => OPUS_LENSES.includes(key) || SECURITY_WORDS.test(`${f.title} ${f.detail}`)
+const skepticFor = (f, key) => (needsOpus(f, key) ? 'hs-skeptic-opus' : 'hs-skeptic')
+
+const ROOT = {
+  type: 'object',
+  properties: { prefix: { type: 'string' }, agentsTracked: { type: 'boolean' } },
+  required: ['prefix', 'agentsTracked'],
+}
 
 const VERDICT_EVIDENCE = {
   type: 'object',
@@ -108,6 +122,12 @@ const REFS = {
 }
 
 async function runShadow() {
+  // The hs-* agents and their hooks come from this checkout, so the shadow runs only from the repository root.
+  const root = await agent('Run exactly these two commands in the current folder and nothing else: `git rev-parse --show-prefix` and `git ls-files --error-unmatch .claude/agents/hs-review-security.md`. Return prefix as the first command\'s output with surrounding whitespace removed (an empty string when it prints nothing, or "not a repository" when it fails), and agentsTracked as true only when the second command succeeded.',
+    { label: 'shadow:root', phase: 'Shadow', schema: ROOT, effort: 'low' })
+  if (!root || root.prefix !== '' || root.agentsTracked !== true) {
+    return { error: 'The shadow review runs only from the root of the house-style repository, with the hs-* agent files checked in. It did not run.' }
+  }
   // The hs-* lenses have no gh, so a build review gets the PR as local refs first.
   let shadowWhat = what
   if (stage === 'build' && !pinned) {
@@ -126,18 +146,18 @@ Return your findings as your instructions and the findings skill describe.`
     lenses,
     l => agent(shadowCommon, { label: `shadow:${l.key}`, phase: 'Shadow', schema: FINDINGS, agentType: HS_LENS[l.key] }),
     (review, l) => parallel(((review && review.findings) || []).map(f => () =>
-      f.severity !== 'blocking'
+      f.severity !== 'blocking' && !needsOpus(f, l.key)
         ? Promise.resolve({ ...f, lens: l.key, confirmed: false })
-        : agent(`Try to refute this blocking finding from the ${l.key} review of ${shadowWhat}.
+        : agent(`Try to refute this ${f.severity} finding from the ${l.key} review of ${shadowWhat}.
 Finding: ${f.title}
 Where: ${f.where}
 Detail: ${f.detail}`,
-          { label: `shadow-verify:${l.key}`, phase: 'Shadow', schema: VERDICT_EVIDENCE, agentType: skepticFor(l.key) })
-          .then(v => ({ ...f, lens: l.key, confirmed: !v || !v.refuted, checked: !!v, skeptic: v ? v.reason : 'no verdict: unchecked, kept as blocking', evidence: v ? v.evidence : '' })))),
+          { label: `shadow-verify:${l.key}`, phase: 'Shadow', schema: VERDICT_EVIDENCE, agentType: skepticFor(f, l.key) })
+          .then(v => ({ ...f, lens: l.key, skepticAgent: skepticFor(f, l.key), confirmed: !v || !v.refuted, checked: !!v, skeptic: v ? v.reason : 'no verdict: unchecked, kept', evidence: v ? v.evidence : '' })))),
   )
   const found = rows.filter(Boolean).flat().filter(Boolean)
   return {
-    agents: Object.fromEntries(lenses.map(l => [l.key, { lens: HS_LENS[l.key], skeptic: skepticFor(l.key) }])),
+    agents: Object.fromEntries(lenses.map(l => [l.key, HS_LENS[l.key]])),
     blocking: found.filter(f => f.severity === 'blocking' && f.confirmed),
     refuted: found.filter(f => f.severity === 'blocking' && !f.confirmed),
     notes: found.filter(f => f.severity === 'note'),

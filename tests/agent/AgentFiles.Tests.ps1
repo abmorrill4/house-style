@@ -35,6 +35,13 @@ $tierPairs = @{
     'hs-repro-opus' = 'hs-repro'; 'hs-spec-opus' = 'hs-spec'; 'hs-skeptic-opus' = 'hs-skeptic'; 'hs-fix-opus' = 'hs-fix'
 }
 $allowedTools = @('Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash')
+# Agents with Bash, and the guard's allow list each gets: worker commits and runs every agent script, tester runs
+# tests, reviewer only reads. Every other agent has no Bash at all.
+$bashRoles = @{
+    'hs-repro' = 'worker'; 'hs-repro-opus' = 'worker'; 'hs-fix' = 'worker'; 'hs-fix-opus' = 'worker'; 'hs-rules' = 'worker'
+    'hs-review-correctness' = 'tester'; 'hs-skeptic' = 'tester'; 'hs-skeptic-opus' = 'tester'
+    'hs-review-adversarial' = 'reviewer'; 'hs-review-consistency' = 'reviewer'; 'hs-review-security' = 'reviewer'
+}
 
 function Read-AgentFile([string]$Path) {
     $text = [IO.File]::ReadAllText($Path)
@@ -59,6 +66,14 @@ Describe 'hs-* agent files' {
 
     It 'has exactly the agents in the spec table' {
         ($files | ForEach-Object BaseName | Sort-Object) -join ',' | Should Be (($expected.Keys | Sort-Object) -join ',')
+    }
+
+    It 'every hs-* file names model, effort, tools and skills (spec verification plan)' {
+        foreach ($f in $files) {
+            $fields = (Read-AgentFile $f.FullName).Fields
+            foreach ($k in 'model', 'effort', 'tools') { "$($f.BaseName) $k=$($fields[$k])" | Should Match "$k=\S" }
+            "$($f.BaseName) skills=$(@($fields['skills']).Count)" | Should Match 'skills=[1-9]'
+        }
     }
 
     foreach ($f in $files) {
@@ -88,9 +103,15 @@ Describe 'hs-* agent files' {
             $a.Body | Should Match '(?m)^## Boundaries'
         }
 
-        if (($a.Fields['tools'] -split ',\s*') -contains 'Bash') {
-            It "$name runs every Bash and PowerShell command through the guard" {
-                $a.Front | Should Match '(?s)PreToolUse:\s+- matcher: "Bash\|PowerShell"\s+hooks:\s+- type: command\s+command: "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent/bash-guard\.ps1"'
+        $hasBash = ($a.Fields['tools'] -split ',\s*') -contains 'Bash'
+        It "$name has Bash only if its role needs it" {
+            $hasBash | Should Be ($bashRoles.ContainsKey($name))
+        }
+        if ($hasBash) {
+            It "$name runs every Bash and PowerShell command through the guard, by absolute path, failing closed, as a $($bashRoles[$name])" {
+                $rx = '(?s)PreToolUse:\s+- matcher: "Bash\|PowerShell"\s+hooks:\s+- type: command\s+shell: bash\s+onFailure: block\s+' +
+                    [regex]::Escape("command: 'powershell -NoProfile -ExecutionPolicy Bypass -File `"`${CLAUDE_PROJECT_DIR}/scripts/agent/bash-guard.ps1`" -Role $($bashRoles[$name]) || exit 2'")
+                $a.Front | Should Match $rx
             }
         }
 
@@ -106,7 +127,8 @@ Describe 'hs-* agent files' {
 
     It 'gives the fix agents the Stop hook that runs the fast checks' {
         foreach ($n in 'hs-fix', 'hs-fix-opus') {
-            (Read-AgentFile (Join-Path $agentsDir "$n.md")).Front | Should Match '(?s)Stop:.*scripts/agent/stop-check\.ps1'
+            (Read-AgentFile (Join-Path $agentsDir "$n.md")).Front |
+                Should Match ('(?s)Stop:\s+- hooks:\s+- type: command\s+shell: bash\s+onFailure: block\s+' + [regex]::Escape("command: 'powershell -NoProfile -ExecutionPolicy Bypass -File `"`${CLAUDE_PROJECT_DIR}/scripts/agent/stop-check.ps1`" || exit 2'"))
         }
     }
 }

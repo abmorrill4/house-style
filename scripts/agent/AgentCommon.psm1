@@ -160,35 +160,57 @@ function Get-ChannelCommand {
     }
 }
 
+
 # --- Commands an agent may run through Bash or PowerShell -----------------------------------------------------------
 
-# Tests and builds run only through the scripts, which remove secrets from the child environment. A bare
-# `dotnet test` would run code from the diff with this agent's environment, so it isn't on the list.
-$script:AllowedCommand = @(
-    '^git (diff|log|show|status|rev-parse|ls-files|grep|blame|merge-base|add|commit)( |$)'
-    '^(powershell|pwsh)(\.exe)? ((-NoProfile|-NonInteractive|-ExecutionPolicy Bypass) )*-File (\.[\\/])?scripts[\\/]agent[\\/](test-channel|repro-must-fail|findings-lint)\.ps1( |$)'
-    '^(& ?)?(\.[\\/])?scripts[\\/]agent[\\/](test-channel|repro-must-fail|findings-lint)\.ps1( |$)'
-    '^(ls|dir|cat|head|tail|wc|grep|Get-ChildItem|Get-Content|Select-String|Test-Path|pwd|Get-Location)( |$)'
-)
+# Tests and builds run only through scripts/agent/test-channel.ps1, which removes secrets from the child environment.
+# A bare `dotnet test` would run code from the diff with this agent's environment, so it isn't on any list.
+# Roles: worker (hs-repro, hs-fix, hs-rules) may commit and run every agent script; tester (hs-review-correctness,
+# hs-skeptic) may run test-channel and findings-lint; reviewer (the other review lenses) only reads.
+$script:Token = '[\w./\\:=,~^+%#*\-]+'
+$script:ReadGit = '^git (diff|log|show|status|rev-parse|ls-files|grep|blame|merge-base)( TOKEN)*$'
+$script:WriteGit = '^git (add|commit)( TOKEN)*$'
+$script:Listing = '^(ls|dir|cat|head|tail|wc|grep|Get-ChildItem|Get-Content|Select-String|Test-Path|pwd|Get-Location)( TOKEN)*$'
+$script:ScriptCall = '^((powershell|pwsh)(\.exe)? ((-NoProfile|-NonInteractive|-ExecutionPolicy Bypass) )*-File )?(\.[\\/])?scripts[\\/]agent[\\/](NAMES)\.ps1( TOKEN)*$'
+$script:RoleScripts = @{
+    worker   = 'test-channel|repro-must-fail|findings-lint'
+    tester   = 'test-channel|findings-lint'
+    reviewer = 'findings-lint'
+}
+
+function Get-RoleAllowList([string]$Role) {
+    if (-not $script:RoleScripts.ContainsKey($Role)) { throw "Unknown agent role '$Role'." }
+    $list = @($script:ReadGit, $script:Listing, ($script:ScriptCall -replace 'NAMES', $script:RoleScripts[$Role]))
+    if ($Role -eq 'worker') { $list += $script:WriteGit }
+    return @($list | ForEach-Object { $_ -replace 'TOKEN', $script:Token })
+}
 
 function Test-InvokesAgentScript([string]$Command) { return [bool]($Command -match '(?i)scripts[\\/]agent[\\/]') }
 
-function Test-AgentCommand([string]$Command) {
-    # Returns $null when every part of the command is allowed, otherwise the reason it isn't. Deny by default.
+function Test-AgentCommand {
+    # Returns $null when every part of the command is allowed for the role, otherwise the reason it isn't. Deny by
+    # default: each part must match one allow pattern from start to end, with plain arguments only.
+    param([string]$Command, [ValidateSet('worker', 'tester', 'reviewer')][string]$Role = 'reviewer')
     if ([string]::IsNullOrWhiteSpace($Command)) { return "The command is empty." }
     $c = $Command -replace '\s+2>&1', ''
     if ($c -match '`|\$\(|\$\{|<\(|>|<') { return "Command substitution and redirection aren't allowed here." }
     if ($c -match '\$') { return "Variables aren't allowed in commands here." }
     if ($c -match '(?i)(^|[\\/\s])\.env\b|\.dev\.vars|env:|printenv') { return "Reading the environment or .env files isn't allowed." }
-    if ($c -match '(?i)--output|--open-files-in-pager|\s-O\S*|--ext-diff|--textconv|-c\s') { return "Git options that write files or run programs aren't allowed." }
-    foreach ($part in ($c -split '&&|\|\||;|\||\r?\n')) {
-        $p = $part.Trim()
+    if ($c -match '(?i)--output|--open-files-in-pager|\s-O\S*|--ext-diff|--textconv|\s-c\s') { return "Git options that write files or run programs aren't allowed." }
+    if ($c -match '(?i)-(RepoRoot|WorkRoot|LockPath|ResultsDir)\b') { return "The agent scripts run on this repository only, with their own folders." }
+    # Quoted literals become one plain token; anything still holding ( ) { } @ or a quote is refused.
+    $c = $c -replace '"[^"]*"', 'Q' -replace "'[^']*'", 'Q'
+    if ($c -match '[(){}@"'']') { return "Parentheses, braces, @ and unbalanced quotes aren't allowed in commands here." }
+    $allow = Get-RoleAllowList $Role
+    # A lone & runs a second command (and is PowerShell's call operator), so it splits like && and ;.
+    foreach ($part in ($c -split '&&|\|\||;|\||&|\r?\n')) {
+        $p = ($part.Trim() -replace '\s+', ' ')
         if (-not $p) { continue }
         $ok = $false
-        foreach ($rx in $script:AllowedCommand) { if ($p -match "(?i)$rx") { $ok = $true; break } }
+        foreach ($rx in $allow) { if ($p -match "(?i)$rx") { $ok = $true; break } }
         if (-not $ok) {
-            $first = ($p -split '\s+')[0]
-            return "'$first' isn't allowed for this agent. Use the test scripts in scripts/agent, dotnet test, or read-only git."
+            $first = ($p -split ' ')[0]
+            return "'$first' isn't allowed for this agent. Run tests with scripts/agent/test-channel.ps1 (-Channel full for the whole suite), or use read-only git."
         }
     }
     return $null
@@ -196,4 +218,4 @@ function Test-AgentCommand([string]$Command) {
 
 Export-ModuleMember -Function Test-SecretName, ConvertTo-ArgumentString, Invoke-ScrubbedProcess, Get-DefaultLockPath,
     Enter-RunLock, Get-TestChannel, Assert-SafeFilter, Assert-SafeTestPath, Get-ChannelCommand, Test-AgentCommand,
-    Test-InvokesAgentScript
+    Test-InvokesAgentScript, Get-RoleAllowList

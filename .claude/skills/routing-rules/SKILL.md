@@ -32,6 +32,6 @@ files disagree, the files win.
 
 ## What an agent never does
 - Pick or argue for a route in free text.
-- Edit `rules/`, `scripts/factory/` or `tests/factory/` outside an owner-requested rule proposal. Those paths are
-  owner-only, so any change there is a draft PR.
+- Edit `rules/`, `scripts/factory/` or `tests/factory/` outside an owner-requested rule proposal, which the owner
+  merges or not.
 - Copy report text into a rule, a replay case or a commit.

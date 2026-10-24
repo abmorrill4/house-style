@@ -67,7 +67,7 @@ try {
 } catch { Stop-Refused $_.Exception.Message }
 
 $short = Get-TestShortName $Test $Channel
-$where = @(Find-TestInDiff -DiffLines $diff -Name $short)
+$where = @(Find-TestInDiff -DiffLines $diff -Name $short -Pester:($Channel -eq 'pester'))
 if (-not $where.Count) { Stop-Refused "$Test isn't added or changed under tests/ between base and head." }
 $pesterPath = $null
 if ($Channel -eq 'pester') { $pesterPath = $where[0] }
