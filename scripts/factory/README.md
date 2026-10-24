@@ -87,13 +87,23 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | # | Route | When | Live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
-| 2 | evidence | `same` or `part-of` an **open** public issue labeled `from:*`, or `kind: duplicate` and `same` as another open report | A comment on that issue in our words with its evidence count, the report closed. Checked again right before posting |
+| 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*` and written by the owner or the factory, apart from questions the docs answer riding along, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
 | 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
 | 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
-| 5 | fix-for-review | a bug, reproduced, and any check fails | A **draft** PR with the reasons. `waiting:merge` |
+| 5 | fix-for-review | a bug, reproduced, and any check fails; or an ask the brief wants fixed now (`fix_now`: a small change to existing behavior, never a bug or a feature) | A **draft** PR with the reasons. `waiting:merge` |
 | 6 | brief-only | a bug, not reproduced (or a duplicate of nothing open) | No code. `waiting:decide` |
-| 7 | plan | `feature` or `friction` | A public `from:tester` + `loop:auto` issue in our words, with its `area:*` label, in Later on the board |
+| 7 | plan | a `feature` or `friction` ask no open issue covers | A public `from:tester` + `loop:auto` issue in our words, listing only the uncovered asks, with its `area:*` label, in Later on the board |
 | 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue, with its `area:*` label, in Later on the board |
+
+**Split reports.** The brief splits a report into its asks (one to four), and routing works per ask. Which open
+issue covers each ask, and how much, is decided by the coverage judge (`.github/factory/cover-prompt.md`): Sonnet with
+no tools, shown every open curated issue, three runs and a majority. Each ask's three runs count as one run against the daily cap and one ledger entry. Asks an open
+issue covers become evidence whatever the route, and the asks left over pick the row: a report with one covered ask
+and one bug adds the evidence and goes to the bug rows. A bug never becomes evidence, and a part-of or related match
+alone never does either (owner decision 2026-10-24).
+Uncovered feature and friction asks get one new planned issue whatever the route, listing only them. A question riding
+along with covered asks goes with them, unless the docs don't answer it (`docs_gap`): then it gets a docs-gap issue,
+or a place in the new planned issue. A second fix-now ask, or one beside a bug, is planned. An ask the judges split on sends the report to the owner (brief-only).
 
 The `area:*` label of a plan or docs-gap issue is the brief's `area` when `rules/areas.json` lists it, otherwise the
 area of the first open public issue the brief lines up with, otherwise none (the roadmap shows it under No area yet).

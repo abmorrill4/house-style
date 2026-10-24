@@ -12,10 +12,29 @@ the rows in `rules/routing.json`, first match wins. No agent picks a route, and 
 ## The contract
 - **Input record** (what `Get-Route` reads, and what the decision log stores in full): the brief's `kind`, `security`,
   `confidence`, whether it was `reproduced` and its `repro_test`, the best `match` (issue or report, its relation
-  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label), the brief's
+  `same`, `part-of`, `related` or `conflicts`, open or closed, curated or not, and its `area:*` label; curated means
+  open, labeled `from:*` and written by the owner or the factory's account), the brief's
+  **asks** (each distinct thing the tester wants: its kind, whether the brief wants it fixed now, how much the closest
+  open issue `covers` it, `full`, `partial` or `none`, and that issue, resolved like a match), the brief's
   `area` when `rules/areas.json` lists it, the **diff facts** (changed lines and files, owner-only paths, behavior
-  paths), the our-words check, and the cap state. Curated means open and labeled `from:*`.
-- **Output**: one route and the reason. A plan or docs-gap route also carries the `area:*` label for the new public
+  paths), the our-words check, and the cap state.
+- **Split reports.** Routing works per ask. An ask an open curated issue covers fully or partly becomes evidence on
+  that issue, and for `partial` the comment carries what the issue lacks, so closing the report loses nothing. A bug
+  ask never becomes evidence. A `fix_now` ask that an issue covers is planned work, so it is evidence too; only an
+  uncovered `fix_now` ask goes to fix for review as a draft PR, one per report: another fix-now ask, or one beside a
+  bug (the fix is for the bug), is planned instead. Uncovered feature and friction asks get one new planned
+  issue, listing only them. Evidence and that planned issue are posted whatever the route, a fix route included, and
+  never for a hold at triage (a fix that turns into a hold later doesn't take back evidence already posted). The asks
+  left over decide the route. A question that rides along with covered asks is answered by the issue they go to. A
+  question the docs don't answer that comes with other asks still to route goes in the new planned issue. An
+  ask the judges split on (covered, but no one issue has a majority, or one vote each way) sends the report to the
+  owner. A report takes the bug rows when one of its asks is a bug. Noise goes to the pile with nothing posted, and a
+  duplicate of an open report adds nothing (that report routes its own asks). A report with evidence asks and other asks gets both:
+  the evidence comments, and the route of the rest. A part-of or related match alone never makes evidence. An older
+  record with no asks gets one ask from its kind and its first `same` match (owner decision 2026-10-24, from the
+  shadow review in `planning/work/shadow-review/`).
+- **Output**: one route and the reason, plus `evidence` (the issues that get an evidence comment, each with the asks
+  it covers) and `plan` (the asks that get one new planned issue, on any route). A plan or docs-gap route also carries the `area:*` label for the new public
   issue: the brief's, otherwise the first open matched issue's, otherwise none. The factory adds that label and puts
   the issue in Later on the board. Nothing attaches issues to themes any more (owner decision 2026-10-24).
 - The diff facts and the our-words check are `Get-Route`'s own helpers. Don't compute them a second way.
@@ -28,7 +47,16 @@ files disagree, the files win.
 ## What an agent does
 - `hs-intake` fills the brief's fields from the report, as the schema asks, with the enums exactly as written.
 - `hs-security-screen` answers whether the report or diff describes a vulnerability. That answer feeds `security`.
-- `hs-match` fills `match`, citing only issues and reports that exist in the context it was given.
+- `hs-match` fills `match`, citing only issues and reports that exist in the context it was given. It doesn't judge
+  `covers`.
+- **The coverage judge** (`.github/factory/cover-prompt.md`, run by `Set-AskCovers` in `Invoke-Factory.ps1`) decides
+  each ask's `ref`, `covers` and `missing`, replacing the brief's own: Sonnet with no tools, shown the report, the ask
+  and every open curated issue, three runs, majority by `Get-CoverVote` (covered at all by majority, then the issue
+  more than half the votes named, else the ask is uncertain). Fewer than two usable answers fails the triage, to be
+  retried, rather than read as none. Each ask's three runs are one run against the daily cap and one ledger entry. The
+  brief proposes the asks, their kind and `fix_now`. Chosen on 2026-10-24 by comparing designs on the 11 shadow
+  reports and 16 held-out ones (`planning/work/shadow-review/eval/`): 25 of 27 right, against 21 for the brief alone.
+  Haiku was no good as a judge; Opus was no better than Sonnet.
 - `hs-rules` reads the owner's decision log (`planning/work/routing-log.jsonl`, private) once a week and drafts rule
   changes where the owner keeps deciding the same way, with the replay cases passing. Every change, widening or
   narrowing, is the owner's call. Nothing changes a rule on its own.

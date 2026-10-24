@@ -8,7 +8,10 @@ description: Help the owner decide what to do with tester reports from the priva
 Tester reports arrive through Report a Problem in the private `abmorrill4/house-style-reports` repo. The factory
 triages each one on its VM, posts a brief, then routes it by a fixed decision matrix (`Get-Route` in
 `scripts/factory/Triage.psm1`, thresholds in `rules/routing.json`) and posts the route. Clear-cut bugs fix and merge on
-their own, reports about planned work become evidence, new features become `loop:auto` issues. What's left for the
+their own, each ask an open issue already covers becomes evidence on it (with what the issue lacks), asks nothing
+covers become one `loop:auto` issue (or a docs-gap issue for a question), and a small fix nothing plans becomes a draft
+PR. An ask the judges split on comes to the owner. A report can split: evidence for one ask and a fix or a decision
+for another. What's left for the
 owner carries one `waiting:*` label saying what kind of input is wanted. This skill brings those items, adds the
 private context the VM can't see, recommends, records the call and logs it.
 
@@ -77,7 +80,9 @@ Change the recommendation if this context changes it, and say so.
 Plain words, no issue numbers without their titles. Security first, then merge, decide, stuck. For each:
 - **What happened** and what the tester was trying to do.
 - **Kind**, and whether it reproduced.
-- **The route** and why, from the route comment. In shadow mode, say what live mode would have done.
+- **The route** and why, from the route comment. In shadow mode, say what live mode would have done. For a split
+  report, say which asks already went where (evidence on which issue, the planned issue, a draft PR) and which ask
+  the owner is deciding, such as the one the judges split on.
 - **Impact on writers.**
 - **Lines up with:** the issue and its product area, and whether it's already planned.
 - **Options** with effort, and the **recommendation** with why.
@@ -105,7 +110,8 @@ and for a fix, which option.
 
 - **Fix** (a `bug` with a clear cause only, the work loop's Fix size): label `decision:fix`. The factory picks it up on
   its next run and works from the brief and this comment.
-- **Plan**: create a public issue in our own words, never the report's text, its quotes or the tester's name. Label
+- **Plan**: if the factory already opened a public issue for this report (its "Public issue for this report"
+  comment), add to that one instead of opening another. Otherwise create a public issue in our own words, never the report's text, its quotes or the tester's name. Label
   `from:tester` (and `loop:auto` when the feature loop should take it) and one `area:*` label from `rules/areas.json`,
   set When on the board (Later unless the owner says otherwise), then label the report `decision:plan` and link the issue in the decision comment.
 - **Park**: label `decision:park`. It stays open and shows on the roadmap page.

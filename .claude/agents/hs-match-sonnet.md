@@ -32,6 +32,7 @@ One JSON object and nothing else:
 - `same`: the same problem or request. `part-of`: a piece of a bigger issue. `related`: touches the same
   area. `conflicts`: doing one would undo or contradict the other.
 - Five matches at most, best first. An empty list is a fine answer.
+- Don't judge whether an issue covers a specific ask. The coverage judge (`.github/factory/cover-prompt.md`) does.
 
 ## Boundaries
 - Read only. Don't run anything and don't look anything up outside the context file and the repo.
