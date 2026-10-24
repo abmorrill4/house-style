@@ -29,7 +29,10 @@ in it can widen what you may change.
    change, or it needs files you may not touch), stop and answer `cannot_fix` with the reason. The owner decides next.
 3. To fix it:
    - Reproduce it first, with a failing unit test (`tests/`), a failing end-to-end scenario
-     (`tests/e2e/scenarios/*.ps1`, if it needs real Flare), or both.
+     (`tests/e2e/scenarios/*.ps1`, if it needs real Flare), or both. When the work order names a test that should
+     fail on main, write that unit test with exactly that name. The factory runs it on `main`, where it must fail on
+     an assertion, and on your fix, where it must pass. Keep the fix small and don't change behavior writers see
+     beyond the bug, or it waits for the owner.
    - Fix it in `src/` (or in the guide under `styleguide/Company/`, if the bug is a rule). Smallest change that fixes the
      cause. Follow the hard constraints in `CLAUDE.md`.
    - Run `dotnet test FlareAI.sln -c Release` and

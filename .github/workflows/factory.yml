@@ -1,6 +1,6 @@
 # The code factory: every 30 minutes, take one tester report from the private reports repo. A new report is triaged
-# (a brief for the owner, no code). A report the owner marked decision:fix is fixed (test, fix, retest in Flare,
-# second-agent review, PR, merge). Nothing is built from a report until the owner decides.
+# and routed (scripts/factory/README.md). A clear-cut bug, or a report the owner marked decision:fix, is fixed (test,
+# fix, retest in Flare, second-agent review, PR, merge). Routes act only when the FACTORY_ROUTE_MODE variable is live.
 # Scheduled and manual runs only, on the factory VM's runner. Guards: scripts/factory/README.md.
 name: factory
 on:
@@ -24,7 +24,7 @@ jobs:
   factory:
     if: github.repository == 'abmorrill4/house-style'
     runs-on: [self-hosted, windows, flare]
-    timeout-minutes: 120
+    timeout-minutes: 180   # a routed bug is triaged, fixed, tested in Flare and reviewed in one run
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,6 +43,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE: ${{ inputs.issue }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # live acts on routes; anything else, including unset, is shadow: routes are posted on the private report only
+          FACTORY_ROUTE_MODE: ${{ vars.FACTORY_ROUTE_MODE }}
         run: |
           git config user.name "House Style factory"
           git config user.email "factory@gethousestyle.com"

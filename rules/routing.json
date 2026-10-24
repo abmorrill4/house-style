@@ -1,0 +1,23 @@
+{
+  "_about": "Thresholds for the factory's routing (Get-Route in scripts/factory/Triage.psm1). The factory reads this file from main before any agent runs. Changes are the owner's call and come with updated replay cases in tests/factory/routing-cases.json.",
+  "autoFix": {
+    "maxChangedLines": 150,
+    "maxChangedFiles": 5,
+    "dailyCap": 3,
+    "confidence": "high"
+  },
+  "behaviorPaths": [
+    "^styleguide/",
+    "^docs/user-guide/",
+    "(^|/)Commands\\.cs$",
+    "\\.resx$",
+    "(^|/)Settings/",
+    "(^|/)[^/]*Settings[^/]*\\.cs$"
+  ],
+  "uiStringPaths": [
+    "^src/FlareAI\\.Flare/UI/"
+  ],
+  "ourWords": {
+    "runLength": 8
+  }
+}

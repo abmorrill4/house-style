@@ -11,7 +11,7 @@ function New-Brief {
         options = @([pscustomobject]@{ option = "Fix now"; effort = "S"; risk = "Low"; for_writers = "Ignore sticks." },
                     [pscustomobject]@{ option = "Park"; effort = "S"; risk = "None"; for_writers = "Nothing changes." })
         recommendation = [pscustomobject]@{ option = "Fix now"; why = "Small and clear." }
-        questions = @("Should Ignore apply to the whole project?"); confidence = "high"
+        questions = @("Should Ignore apply to the whole project?"); confidence = "high"; security = $false
     }
 }
 
