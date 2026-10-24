@@ -1,0 +1,1056 @@
+{
+ "_about": "Replay cases for Get-Route (scripts/factory/Triage.psm1): routing input records and the route each must get. No report text. tests/factory/Routing.Tests.ps1 replays them, and a change to rules/routing.json updates them.",
+ "cases": [
+  {
+   "name": "security bug holds",
+   "input": {
+    "kind": "bug",
+    "security": true,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold",
+    "waiting": "security",
+    "build": false
+   }
+  },
+  {
+   "name": "security and a duplicate of an open report holds",
+   "input": {
+    "kind": "duplicate",
+    "security": true,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "report",
+      "number": 9,
+      "state": "open",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold"
+   }
+  },
+  {
+   "name": "security beats evidence on a curated issue",
+   "input": {
+    "kind": "bug",
+    "security": true,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 120,
+      "state": "open",
+      "curated": true,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold"
+   }
+  },
+  {
+   "name": "fix touching owner-only code holds",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [
+      "src/FlareAI.Core/Settings/PluginSettings.cs"
+     ],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold",
+    "waiting": "security"
+   }
+  },
+  {
+   "name": "public text that fails our words holds",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": false,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold"
+   }
+  },
+  {
+   "name": "fix that fails our words holds",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": false,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold"
+   }
+  },
+  {
+   "name": "bug the same as an open curated issue is evidence",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 120,
+      "state": "open",
+      "curated": true,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 120
+    }
+   }
+  },
+  {
+   "name": "feature part of a theme is evidence",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "part-of",
+      "target": "issue",
+      "number": 44,
+      "state": "open",
+      "curated": true,
+      "theme": true
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 44
+    }
+   }
+  },
+  {
+   "name": "same beats part-of for the evidence target",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "part-of",
+      "target": "issue",
+      "number": 44,
+      "state": "open",
+      "curated": true,
+      "theme": true
+     },
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 7,
+      "state": "open",
+      "curated": true,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "issue",
+     "number": 7
+    }
+   }
+  },
+  {
+   "name": "same as an open issue we don't curate is not evidence",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 130,
+      "state": "open",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix",
+    "build": true
+   }
+  },
+  {
+   "name": "related to a curated issue is not evidence",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "related",
+      "target": "issue",
+      "number": 120,
+      "state": "open",
+      "curated": true,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix",
+    "build": true
+   }
+  },
+  {
+   "name": "duplicate of an open report is evidence on that report",
+   "input": {
+    "kind": "duplicate",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "report",
+      "number": 9,
+      "state": "open",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence",
+    "target": {
+     "type": "report",
+     "number": 9
+    }
+   }
+  },
+  {
+   "name": "duplicate of a report that isn't open goes to the owner",
+   "input": {
+    "kind": "duplicate",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "report",
+      "number": 9,
+      "state": "missing",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only",
+    "waiting": "decide"
+   }
+  },
+  {
+   "name": "duplicate that is only related to a report goes to the owner",
+   "input": {
+    "kind": "duplicate",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "related",
+      "target": "report",
+      "number": 9,
+      "state": "open",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only"
+   }
+  },
+  {
+   "name": "same as a closed issue is a regression, built as a bug",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 130,
+      "state": "closed",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix",
+    "regression": 130,
+    "build": true
+   }
+  },
+  {
+   "name": "regression of a question kind is still handled as a bug",
+   "input": {
+    "kind": "question",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 130,
+      "state": "closed",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only",
+    "regression": 130
+   }
+  },
+  {
+   "name": "part of a closed issue is not a regression",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "part-of",
+      "target": "issue",
+      "number": 130,
+      "state": "closed",
+      "curated": false,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only",
+    "regression": null
+   }
+  },
+  {
+   "name": "open curated match beats a closed same match",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 130,
+      "state": "closed",
+      "curated": false,
+      "theme": false
+     },
+     {
+      "relation": "same",
+      "target": "issue",
+      "number": 120,
+      "state": "open",
+      "curated": true,
+      "theme": false
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "evidence"
+   }
+  },
+  {
+   "name": "reproduced high-confidence bug is built for auto-fix",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix",
+    "build": true,
+    "queued": false
+   }
+  },
+  {
+   "name": "medium confidence is built for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "medium",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "build": true
+   }
+  },
+  {
+   "name": "no named test is built for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "build": true
+   }
+  },
+  {
+   "name": "fix passing every check auto-merges",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix",
+    "build": false,
+    "queued": false
+   }
+  },
+  {
+   "name": "forged report, the test passes on base",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "the test passes on the base commit, so it doesn't show the bug",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge",
+    "build": false
+   }
+  },
+  {
+   "name": "forged report, the diff touches styleguide",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [
+      "styleguide/Company/Rules.flsnp"
+     ],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "fix that changes UI text is for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [
+      "src/FlareAI.Flare/UI/AskForm.cs (UI text)"
+     ],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review"
+   }
+  },
+  {
+   "name": "150 changed lines is still small",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 150,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix"
+   }
+  },
+  {
+   "name": "151 changed lines is for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 151,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review"
+   }
+  },
+  {
+   "name": "5 files is still small",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 5,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix"
+   }
+  },
+  {
+   "name": "6 files is for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 6,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review"
+   }
+  },
+  {
+   "name": "fix overlapping another factory PR is for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [
+      231
+     ]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review"
+   }
+  },
+  {
+   "name": "over the cap before building waits for tomorrow",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 0
+   },
+   "expect": {
+    "route": "auto-fix",
+    "queued": true,
+    "build": false
+   }
+  },
+  {
+   "name": "over the cap after building waits for tomorrow",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 0
+   },
+   "expect": {
+    "route": "auto-fix",
+    "queued": true,
+    "build": false
+   }
+  },
+  {
+   "name": "over the cap but failing a check is for review, not queued",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": {
+     "repro": "pass",
+     "lines": 400,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 0
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "queued": false
+   }
+  },
+  {
+   "name": "bug not reproduced is brief only",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "no",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only",
+    "waiting": "decide",
+    "build": false
+   }
+  },
+  {
+   "name": "bug not tried is brief only",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "not-tried",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "brief-only"
+   }
+  },
+  {
+   "name": "feature is planned",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "plan",
+    "theme": null
+   }
+  },
+  {
+   "name": "feature related to a theme is planned under it",
+   "input": {
+    "kind": "feature",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [
+     {
+      "relation": "related",
+      "target": "issue",
+      "number": 44,
+      "state": "open",
+      "curated": true,
+      "theme": true
+     }
+    ],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "plan",
+    "theme": 44
+   }
+  },
+  {
+   "name": "friction is planned",
+   "input": {
+    "kind": "friction",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "plan"
+   }
+  },
+  {
+   "name": "question with a docs gap",
+   "input": {
+    "kind": "question",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": true,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "docs-gap"
+   }
+  },
+  {
+   "name": "question with no gap goes to the pile",
+   "input": {
+    "kind": "question",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "pile"
+   }
+  },
+  {
+   "name": "noise goes to the pile",
+   "input": {
+    "kind": "noise",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "pile",
+    "waiting": null
+   }
+  },
+  {
+   "name": "noise claiming security still holds",
+   "input": {
+    "kind": "noise",
+    "security": true,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": null,
+    "fix": null,
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "hold"
+   }
+  }
+ ]
+}

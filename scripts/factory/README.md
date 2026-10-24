@@ -65,19 +65,66 @@ tests\e2e\Get-E2EHistory.ps1 -Runs 50         # how each scenario has done latel
 
 ## The factory (`Invoke-Factory.ps1`)
 
-It takes one open report per run, in two steps. **Nothing is built from a report until the owner decides.**
+It takes one open report per run: triage, then a route, then a fix when the route calls for one.
 
 1. **Triage** (any new report, `problem` or automatic `error`). An agent reads the report, tries to reproduce a bug
    with a scratch test, compares it with the open issues and themes, and writes a brief: what happened, the kind
-   (bug, friction, feature, question, duplicate, noise), whether it reproduces, what it lines up with, 2 to 4 options
-   with effort and risk, a recommendation and its impact on writers. The brief goes on the private report as a
-   comment, labeled `triage:ready` or `triage:noise`. No branch, commit, PR or public issue. A failed triage gets
+   (bug, friction, feature, question, duplicate, noise), whether it reproduces and the test that should fail on main
+   (`repro_test`), whether it describes a vulnerability (`security`), what it lines up with, 2 to 4 options with
+   effort and risk, a recommendation and its impact on writers. The brief goes on the private report as a comment,
+   labeled `triage:ready` or `triage:noise`. No branch, commit, PR or public issue. A failed triage gets
    `triage:failed` and is retried, three times at most.
-2. **Fix** (only `decision:fix`, alone and added last). The owner decides with `decision:fix`, `decision:plan`,
-   `decision:park` or `decision:decline`, by hand or through the `triage` skill. The fix agent gets the brief and the
-   decision as its work order and carries it out; if it can't, the report goes back to the owner
-   (`factory:needs-decision`), never `factory:done`. The factory refuses to set any `decision:*` label itself, and the
-   feedback service only sets its fixed labels, so only the owner can approve a fix.
+2. **Route.** The brief only proposes. `Get-Route` (`Triage.psm1`) takes the first row that matches, from facts the
+   script checks itself. The route goes on the private report as a comment with its routing record (the input, no
+   report text), labeled `route:<route>` and, when the owner is needed, `waiting:<reason>`.
+3. **Fix**, only for a fix route computed in the same run, or the owner's `decision:fix` (alone and added last). No
+   label carries trust between runs, and `route:*` labels grant nothing. The fix agent gets the brief (and the
+   owner's decision, if any) as its work order. If it can't fix it, the report goes back to the owner
+   (`factory:needs-decision`), never `factory:done`. The factory refuses to set any `decision:*` label itself.
+
+### The routing matrix
+
+| # | Route | When | Live mode |
+|---|---|---|---|
+| 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
+| 2 | evidence | `same` or `part-of` an **open** public issue labeled `theme` or `from:*`, or `kind: duplicate` and `same` as another open report | A comment on that issue in our words with its evidence count, the report closed. Checked again right before posting |
+| 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
+| 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
+| 5 | fix-for-review | a bug, reproduced, and any check fails | A **draft** PR with the reasons. `waiting:merge` |
+| 6 | brief-only | a bug, not reproduced (or a duplicate of nothing open) | No code. `waiting:decide` |
+| 7 | plan | `feature` or `friction` | A public `from:tester` + `loop:auto` issue in our words, under the best related theme |
+| 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` issue |
+| 9 | pile | `noise`, or a question the docs answer | `triage:noise`, open |
+
+Matches in the brief count only once the script finds them in the issue lists it fetched itself. The auto-fix checks,
+all run by the script with thresholds from `rules/routing.json` (read from main before any agent runs):
+
+1. The named `repro_test` is added by the fix, **fails on the base commit with an assertion** (the fix's test files on
+   top of main) and **passes on the fix**. Both runs are `dotnet test --filter`, with no secrets, results read from
+   TRX. A test that doesn't build on main, passes there, or fails without an assertion fails the check.
+2. `confidence: high`.
+3. At most 150 changed lines and 5 files, not counting the test files that add the named test.
+4. No behavior paths: `styleguide/`, `docs/user-guide/`, `Commands.cs`, `*.resx`, settings classes, or changed string
+   literals in `src/FlareAI.Flare/UI/`.
+5. No owner-only path (a hold).
+6. Our words: the added lines (with the `changes/` note), commit messages and PR text share no run of 8 words with the
+   report, and hold no email address, UNC path or user-profile path (a hold). The evidence comment and plan or docs
+   issue are checked the same way before they're posted.
+7. At most 3 auto-merged fixes per UTC day (merged PRs labeled `factory:auto-fix`). Over the cap, the report gets
+   `factory:queued` and is triaged and routed again once the next day has room. A fix that changes a file another
+   open factory PR changes goes for review.
+
+**Shadow mode** is the default (`FACTORY_ROUTE_MODE` unset or anything but `live`, a repository variable passed in by
+`factory.yml`). The factory triages, routes and, for a fix route, builds, tests and reviews the fix on the VM as in
+live mode, but only posts the route on the private report. It pushes, merges and posts nothing public for a route, and
+the owner still decides every report the old way (`waiting:decide`). A fix the owner approved with `decision:fix`
+ships as before in both modes. To go live: `gh variable set FACTORY_ROUTE_MODE -R abmorrill4/house-style --body live`.
+Reports routed in shadow mode keep their labels when it goes live; a `**Retry triage**` routes one again.
+
+Waiting reasons, one `waiting:*` label per item: `security`, `merge`, `decide`, `stuck`, and, for later pieces,
+`want`, `plan-input`, `plan-review` and `rule-change`. The `triage` skill logs every owner decision on a routed report
+in the private `planning/work/routing-log.jsonl`. Replay cases for `Get-Route` are in
+`tests/factory/routing-cases.json` (input records and expected routes only).
 
 Guards against report text steering the agent:
 
@@ -100,6 +147,8 @@ Guards against report text steering the agent:
 - A second agent reviews the diff only, never the report.
 - A fix merges only after every required check on that exact commit has passed.
 - The public PR says only "Fix tester report n". What the tester wrote stays in the private reports repo.
+- Routing rules come from `main` (`rules/routing.json`), read before any agent runs, and the fix agent can't change
+  `rules/`, so no fix sets the bar it's judged by.
 - The e2e workflow runs on pushes to this repo's branches, never on `pull_request`. For a PR, GitHub runs the
   workflow file from the PR itself, so a fork could rewrite any guard in it.
 - A fix that touches owner-reviewed code goes back to the owner (`factory:needs-decision`): `src/FlareAI.Core/Update/`, `Settings/`, `Llm/` or `src/FlareAI.Flare/E2EHook.cs`.
