@@ -105,11 +105,45 @@ if (-not $claude) { throw "Claude Code isn't installed for this account (no clau
 # Each run is checked against the day's run cap first and recorded on the ledger after, whatever happened. A run that
 # hits the wall-clock limit or the turn cap is a cap stop: the report goes to the owner as stuck, with the reason.
 # --output-format json puts the run's numbers on stdout, which stays on the VM with the agent's notes (stderr).
-$script:capStop = $false
+$script:capStop = $false; $script:runCapStop = $false
+
+# The agents' test channel: scripts/agent and the e2e harness, copied from the base commit to a folder outside the
+# checkout before each agent, so the script that runs with the agent's sign-in (and strips it from the tests) is never
+# one the agent could edit. Afterwards the checkout's copies must still match the base commit, and the copy itself
+# must be unchanged. test-channel.ps1 runs the tests in the checkout named by HOUSESTYLE_TEST_REPO.
+$toolsDir = Join-Path $tmp "factory-tools"
+$testChannel = ($toolsDir -replace '\\', '/').TrimEnd('/') + "/scripts/agent/test-channel.ps1"
+$env:HOUSESTYLE_TEST_REPO = $here
+function Save-AgentTools {
+    Remove-Item $toolsDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $toolsDir | Out-Null
+    $tar = Join-Path $tmp "factory-tools.tar"
+    git archive -o $tar $base @AgentToolPaths
+    if ($LASTEXITCODE) { throw "Couldn't copy the agent scripts from the base commit." }
+    & tar.exe -xf $tar -C $toolsDir
+    if ($LASTEXITCODE) { throw "Couldn't unpack the agent scripts." }
+    Remove-Item $tar -ErrorAction SilentlyContinue
+    $script:toolsHashes = Get-TreeHashes $toolsDir
+}
+function Assert-AgentTools($who) {
+    Assert-GitConfig $who   # first: git status could run a program an agent configured
+    $changed = @(git status --porcelain --untracked-files=all -- @AgentToolPaths) + @(git diff --name-only $base -- @AgentToolPaths)
+    if (@($changed | Where-Object { $_ }).Count) { throw "$who changed the agent scripts or the e2e harness, which the factory doesn't allow." }
+    if (-not (Test-SameHashes $script:toolsHashes (Get-TreeHashes $toolsDir))) { throw "$who changed the factory's copy of the agent scripts." }
+}
+# Before each agent: nothing an earlier step left in the scratch folders, holdout scenarios above all.
+function Clear-Scratch {
+    foreach ($p in "holdout-*", "e2e-*", "repro-*") { Get-ChildItem $tmp -Filter $p -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($env:RUNNER_TEMP) { Get-ChildItem ([IO.Path]::GetTempPath()) -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }   # the account's own temp folder
+}
+
 function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
+    $map = @{} + $map; $map["TEST_CHANNEL"] = $testChannel
     foreach ($k in $map.Keys) { $prompt = $prompt.Replace("{{$k}}", $map[$k]) }
     $over = Test-RunBudget $script:runsUsed $runLimit
-    if ($over) { $script:capStop = $true; throw "Stopped by a cap before the $step agent started, because $over." }
+    if ($over) { $script:runCapStop = $true; throw "Stopped before the $step agent started, because $over." }
+    Clear-Scratch
+    Save-AgentTools
     $log = Join-Path $logs $log
     $outFile = [IO.Path]::ChangeExtension($log, ".json")
     $promptFile = Join-Path $tmp "prompt-$step.txt"
@@ -123,6 +157,7 @@ function Agent([string]$prompt, $map, $tools, [string]$log, [string]$step) {
     $stop = Get-AgentStop $proc $out $agentMinutes $maxTurns
     Write-Ledger (New-LedgerEntry $step $n $proc $out $apiKeyAgent $routeMode ([bool]$DryRun) $stop)
     Write-Host "Agent output: $log and $outFile on the factory VM"
+    Assert-AgentTools "The $step agent"
     if ($stop) { $script:capStop = $true; throw "Stopped by a cap, because $stop." }
     if ($proc.exit) { throw "claude exited $($proc.exit)" }
 }
@@ -320,8 +355,8 @@ try {
         foreach ($o in $all | Where-Object number -ne $n) { $ctx += "- report #$($o.number): $((@($o.labels.name | Where-Object { $_ -like 'triage:*' -or $_ -like 'decision:*' })) -join ', ')" }
         Set-Content $contextPath ($ctx -join "`n") -Encoding UTF8
         $briefPath = Join-Path $tmp "triage-$n.json"; Remove-Item $briefPath -ErrorAction SilentlyContinue
-        # Tests only through test-channel.ps1, which runs them with no secrets ($TriageTools in Controls.psm1).
-        Agent $triagePrompt @{ REPORT_PATH = $reportPath; CONTEXT_PATH = $contextPath; RESULT_PATH = $briefPath } $TriageTools "report-$n-triage.log" "triage"
+        # Tests only through the copied test-channel.ps1, which runs them with no secrets (Get-TriageTools in Controls.psm1).
+        Agent $triagePrompt @{ REPORT_PATH = $reportPath; CONTEXT_PATH = $contextPath; RESULT_PATH = $briefPath } (Get-TriageTools $testChannel) "report-$n-triage.log" "triage"
         # Scratch tests are thrown away: triage never leaves code behind, and may not commit. The git config is checked
         # before any git call, and the reset runs without secrets, since the agent could have set keys that run programs.
         Assert-GitConfig "The triage agent"
@@ -459,7 +494,7 @@ try {
         $decision = @($comments | Where-Object { $_.body.StartsWith("**Decision:**") }) | Select-Object -Last 1
         $orderText = $(if ($briefComment) { $briefComment.body } else { "(no triage brief)" }) + "`n`n" + $(if ($decision) { $decision.body } else { "(no decision comment)" })
     }
-    $tools = $FixTools   # builds, tests and e2e only through test-channel.ps1, with no secrets (Controls.psm1)
+    $tools = Get-FixTools $testChannel   # builds, tests and e2e only through the copied test-channel.ps1, with no secrets (Controls.psm1)
     $orderPath = Join-Path $tmp "order-$n.md"
     Set-Content $orderPath ("<workorder>`n" + $orderText + "`n</workorder>") -Encoding UTF8
     Agent $fixPrompt @{ REPORT_PATH = $reportPath; ORDER_PATH = $orderPath; RESULT_PATH = $resultPath } $tools "report-$n-fix.log" "fix"
@@ -555,7 +590,7 @@ try {
                 $failed = @((Get-Content (Join-Path $e2eOut "results.json") -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json) | Where-Object { -not $_.passed })
                 if ($failed.Count -and -not ($failed | Where-Object kind -ne "vm")) { throw "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the factory VM rather than the fix; rerun the report once the VM is healthy." }
                 if (-not (Test-Path (Join-Path $e2eOut "results.json"))) { throw "The end-to-end run stopped before any scenario ran (setup, install or the FlaUI restore). See report-$n-e2e.log on the factory VM." }
-                if (-not ($failed | Where-Object { ("" + $_.scenario) -notlike "holdout-*" })) { throw "A holdout scenario fails on the fix." }
+                if ($failed.Count -and -not ($failed | Where-Object { ("" + $_.scenario) -notlike "holdout-*" })) { throw "A holdout scenario fails on the fix." }
                 throw "End-to-end checks fail on the fix."
             }
             $script:retried = @((Get-Content (Join-Path $e2eOut "results.json") -Raw | ConvertFrom-Json) | Where-Object { $_.passed -and $_.firstTry -and ("" + $_.scenario) -notlike "holdout-*" } | ForEach-Object scenario)
@@ -635,13 +670,21 @@ try {
     Gh issue close $n -R $reports | Out-Null
 }
 catch {
+    if ($script:runCapStop) {
+        # The day's agent runs ran out before the next agent: the report waits as factory:queued and is picked again
+        # once a new day has room. Nothing for the owner.
+        try { Say $n "$($_.Exception.Message) It starts again once the day's agent runs reset."; Label $n "factory:queued" @("factory:working", "triage:failed") }
+        catch { Write-Host "Couldn't mark report #$n as queued on GitHub." }
+        Write-Host "Report #$n waits for tomorrow's agent runs."
+        exit 0
+    }
     if ($mode -eq "triage" -and -not $script:capStop) {
         # A failed triage stays visible and is retried; the third failure goes to the owner (see the pick step).
         try { Say $n "Triage failed (attempt $($failures + 1) of 3): $($_.Exception.Message)"; Label $n "triage:failed" "factory:working" }
         catch { Write-Host "Couldn't mark report #$n as failed on GitHub." }
         throw "Triage of report #$n failed. The reason is on the report, in the private reports repo."
     }
-    # A cap stop (run cap, wall-clock limit, turns) lands here too, in triage as well: the reason goes on the report and
+    # A cap stop (wall-clock limit, turns) lands here too, in triage as well: the reason goes on the report and
     # the command center shows it as stuck. blocked:<cause> says why, until the report is picked again.
     $why = $_.Exception.Message
     try { Say $n "I couldn't finish this one: $why"; Label $n @("factory:stuck", "waiting:stuck", "blocked:$(Get-BlockedCause $why)") @("factory:working", "triage:failed") }

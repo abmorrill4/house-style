@@ -28,7 +28,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AgentCommon.psm1') -Force
-if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
+# The scripts' own repo root, which also holds the e2e harness. The factory runs a copy of these scripts from the base
+# commit outside the checkout and names the checkout in HOUSESTYLE_TEST_REPO, so the tests run there and the harness
+# and secret scrubbing come from the copy.
+$harnessRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if (-not $RepoRoot) { $RepoRoot = if ($env:HOUSESTYLE_TEST_REPO) { $env:HOUSESTYLE_TEST_REPO } else { $harnessRoot } }
 
 if ($List) {
     Get-TestChannel | Format-Table Order, Name, Where, Proves -AutoSize | Out-String -Width 160 | Write-Host
@@ -37,7 +41,7 @@ if ($List) {
 if (-not $Channel) { Write-Host "Name a channel with -Channel. Run with -List to see them."; exit 2 }
 
 try {
-    $cmd = Get-ChannelCommand -Channel $Channel -RepoRoot $RepoRoot -Filter $Filter -Path $Path -Scenario $Scenario -ResultsDir $ResultsDir
+    $cmd = Get-ChannelCommand -Channel $Channel -RepoRoot $RepoRoot -Filter $Filter -Path $Path -Scenario $Scenario -ResultsDir $ResultsDir -HarnessRoot $harnessRoot
 } catch {
     Write-Host $_.Exception.Message
     exit 2

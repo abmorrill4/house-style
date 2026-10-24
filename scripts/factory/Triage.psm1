@@ -101,7 +101,8 @@ function Select-Report($all, [string]$owner, [int]$issue = 0, [int]$capLeft = 0,
         $l = Get-Labels $r
         $decisions = @($l | Where-Object { $_ -like "decision:*" })
         # decision:fix alone: a report with a second decision label waits for the owner and never blocks the queue.
-        if ($decisions.Count -eq 1 -and $decisions[0] -eq "decision:fix" -and -not ($l | Where-Object { $_ -like "factory:*" -and $_ -ne "factory:wip-limit" })) { return @{ Report = $r; Mode = "fix" } }
+        # factory:wip-limit and factory:queued (the day's agent runs ran out) only mean it waited.
+        if ($decisions.Count -eq 1 -and $decisions[0] -eq "decision:fix" -and -not ($l | Where-Object { $_ -like "factory:*" -and @("factory:wip-limit", "factory:queued") -notcontains $_ })) { return @{ Report = $r; Mode = "fix" } }
     }
     $null
 }
@@ -410,12 +411,28 @@ function Get-CodeOnly([string]$line, [string]$lang) {
     else { $line -replace '"(`.|[^"`])*"', '""' -replace "'([^']|'')*'", "''" -replace '#.*$', '' }
 }
 
+# True for an added line the brace count can't see through: in C# a preprocessor directive (#if, #endif, ...), a block
+# comment left open, or a verbatim or raw string left open; in Pester a block comment mark (<# or #>) or a here-string
+# opener. Such a line could hide code over several lines, so a hunk holding one goes for review.
+function Test-OpaqueLine([string]$line, [string]$lang) {
+    if ($lang -eq "cs") {
+        if ($line -match '^\s*#') { return $true }
+        if ($line.Contains('"""')) { return $true }
+        $s = $line -replace '@"([^"]|"")*"', '""' -replace '"(\\.|[^"\\])*"', '""' -replace "'(\\.|[^'\\])+'", "''" -replace '/\*.*?\*/', ''
+        $s = $s -replace '//.*$', ''
+        return ($s.Contains('/*') -or $s.Contains('*/') -or $s.Contains('@"'))
+    }
+    $line.Contains('<#') -or $line.Contains('#>') -or ($line -match '@["'']\s*$') -or ($line -match '^\s*["'']@')
+}
+
 # True when the added lines of one hunk are nothing but complete new tests: in C#, members that start with test
 # attributes ([Fact], [Theory], [InlineData] and the like, never a Skip) and end with their balanced closing brace; in
 # Pester, complete It, Describe or Context blocks with no -Skip or -Pending. Blank and comment lines between them are fine.
 function Test-WholeTests($lines, [string]$lang) {
     if (@("cs", "pester") -notcontains $lang) { return $false }
     $lines = @($lines); $i = 0; $n = $lines.Count; $members = 0
+    # Lines that could hide code across lines are never whole tests: they could switch existing tests off.
+    if (@($lines | Where-Object { Test-OpaqueLine ("" + $_) $lang }).Count) { return $false }
     if ($lang -eq "pester" -and @($lines | Where-Object { $_ -match '(?i)\s-(Skip|Pending)\b|Set-ItResult' }).Count) { return $false }
     while ($i -lt $n) {
         $t = ("" + $lines[$i]).Trim()

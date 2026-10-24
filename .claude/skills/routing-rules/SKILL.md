@@ -35,3 +35,22 @@ files disagree, the files win.
 - Edit `rules/`, `scripts/factory/` or `tests/factory/` outside an owner-requested rule proposal, which the owner
   merges or not.
 - Copy report text into a rule, a replay case or a commit.
+
+## Suspended areas and `area:*` labels
+`suspended` in `rules/routing.json` (and the areas the factory suspends after a reverted auto-fix) names the folder
+under `src/FlareAI.Core/` or `src/FlareAI.Flare/` a fix changed most. A file directly in a project folder counts as
+`Core` or `Flare`. This is how those names line up with the `area:*` labels, for the weekly rule proposal and the
+command center:
+
+| Area (folder) | Project | `area:*` label |
+|---|---|---|
+| `Style` | Core | `area:rules` |
+| `Actions`, `Editing`, `Llm`, `Output`, `Prompts`, `Feedback`, `Core` (files at the root) | Core | `area:core` |
+| `Settings` | Core | `area:settings` |
+| `Update` | Core | `area:install` |
+| `UI` | Flare | `area:pane` |
+| `Icons`, `Flare` (files at the root, such as `Plugin.cs` and `Commands.cs`) | Flare | `area:ribbon` |
+| `Samples` | Flare | `area:guide` |
+
+Several of these (`Update`, `Settings`, `Llm`, `Editing`, `Feedback`) are owner-only, so a fix there is held and never
+auto-fixed in the first place.

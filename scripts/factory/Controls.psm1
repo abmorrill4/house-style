@@ -14,11 +14,41 @@ function Get-FactoryMode($value) {
 # The agent's own commands run as children of claude, which holds its Anthropic sign-in. So agents never run dotnet or
 # the e2e harness directly: builds and tests go through scripts/agent/test-channel.ps1, which removes every secret from
 # the child environment first. The script's own reruns of the tests run with no secrets too (Invoke-Factory.ps1).
-$TestChannelTool = "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-channel.ps1:*)"
-$TriageTools = "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),$TestChannelTool"
-$FixTools = "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),$TestChannelTool"
+# The test channel the agents run is a copy taken from the base commit into a folder outside the checkout
+# (Save-AgentTools), so an agent can't edit the script that runs with its sign-in. $testChannel: that copy's
+# test-channel.ps1, with forward slashes (the agents' shell is bash).
+function Get-TestChannelTool([string]$testChannel) {
+    if (-not $testChannel -or $testChannel -match '\s' -or $testChannel -notmatch '^[A-Za-z]:/') { throw "The test channel copy needs an absolute path with no spaces." }
+    "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File $($testChannel):*)"
+}
+function Get-TriageTools([string]$testChannel) { "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),$(Get-TestChannelTool $testChannel)" }
+function Get-FixTools([string]$testChannel) { "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),$(Get-TestChannelTool $testChannel)" }
 $ReviewTools = "Read,Grep,Glob,Write"
-$DisallowedTools = "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)"
+# Paths agents may not edit, as permission rules relative to the checkout: the agent scripts and the e2e harness.
+$ProtectedEdits = "scripts/**", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/**"
+$DisallowedTools = "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)," + (@($ProtectedEdits | ForEach-Object { "Edit(./$_),Write(./$_)" }) -join ",")
+
+# The files the agents' test runs depend on, which the factory copies from the base commit before each agent and
+# checks again afterwards: the agent scripts (test-channel.ps1 and the secret scrubbing in AgentCommon.psm1) and the
+# e2e harness.
+$AgentToolPaths = "scripts/agent", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui"
+
+# Hashes of every file under $dir, path -> SHA-256, to check a copy wasn't changed. Build output (bin, obj: the e2e
+# harness restores FlaUI there) doesn't count.
+function Get-TreeHashes([string]$dir) {
+    $h = @{}
+    foreach ($f in @(Get-ChildItem $dir -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        $rel = $f.FullName.Substring($dir.Length)
+        if ($rel -match '[\\/](bin|obj)[\\/]') { continue }
+        $h[$rel] = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+    }
+    $h
+}
+function Test-SameHashes($a, $b) {
+    if ($a.Count -ne $b.Count) { return $false }
+    foreach ($k in $a.Keys) { if (-not $b.ContainsKey($k) -or $b[$k] -ne $a[$k]) { return $false } }
+    $true
+}
 
 # ==== The agent process ===============================================================================================
 # One command line from separate arguments, quoted the way Windows programs read them back.
@@ -136,7 +166,12 @@ function Save-Holdout([scriptblock]$list, [scriptblock]$get, [string]$dest) {
     if ($null -eq $entries) { return @() }
     New-Item -ItemType Directory -Force $dest | Out-Null
     $saved = @()
-    foreach ($e in @($entries | Where-Object { $_ -and $_.type -eq "file" -and ("" + $_.name) -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.ps1$' })) {
+    $usable = @($entries | Where-Object { $_ -and $_.type -eq "file" -and ("" + $_.name) -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.ps1$' })
+    # AI scenarios need an API key, and the factory's e2e run has none (-NoAi). The holdout- prefix would hide them
+    # from that filter, so they're skipped here.
+    $ai = @($usable | Where-Object { ("" + $_.name) -like "ai-*" })
+    if ($ai.Count) { Write-Host "Skipped $($ai.Count) AI holdout scenarios, since the factory's e2e run has no API key." }
+    foreach ($e in @($usable | Where-Object { ("" + $_.name) -notlike "ai-*" })) {
         $text = (@(& $get $e.name) -join "`n")
         $name = "holdout-" + $e.name
         Set-Content (Join-Path $dest $name) $text -Encoding UTF8   # with a BOM, so Windows PowerShell reads non-ASCII text right
@@ -161,8 +196,8 @@ function Get-OwnerWaits($lines, [datetime]$since, [datetime]$until) {
             if ($at -gt $since -and $s -lt $until) { $waits += ($at - $s).TotalHours }
         }
     }
-    $sorted = @($waits | Sort-Object)
-    [pscustomobject]@{ hours = [Math]::Round(($waits | Measure-Object -Sum).Sum, 1); median = $(if ($sorted.Count) { [Math]::Round($sorted[[int][Math]::Floor(($sorted.Count - 1) / 2)], 1) } else { $null }); count = $waits.Count }
+    $median = Get-Median $waits
+    [pscustomobject]@{ hours = [Math]::Round(($waits | Measure-Object -Sum).Sum, 1); median = $(if ($null -ne $median) { [Math]::Round($median, 1) } else { $null }); count = $waits.Count }
 }
 
 function Get-Median($values) {
@@ -256,5 +291,5 @@ function Format-Scorecard($s) {
 
 Export-ModuleMember -Function Get-FactoryMode, Join-ProcessArguments, Invoke-AgentProcess, ConvertFrom-AgentOutput, Get-AgentStop, New-LedgerEntry,
     Format-LedgerComment, ConvertFrom-LedgerComment, Get-RunsToday, Test-RunBudget, Get-OpenFactoryPrCount, Test-WipFull, Get-BlockedCause,
-    Save-Holdout, Get-OwnerWaits, Get-Median, Get-Scorecard, Format-Scorecard -Variable FactoryModes, LedgerMarker, TestChannelTool, TriageTools,
-    FixTools, ReviewTools, DisallowedTools
+    Save-Holdout, Get-OwnerWaits, Get-Median, Get-Scorecard, Format-Scorecard, Get-TestChannelTool, Get-TriageTools, Get-FixTools, Get-TreeHashes,
+    Test-SameHashes -Variable FactoryModes, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths

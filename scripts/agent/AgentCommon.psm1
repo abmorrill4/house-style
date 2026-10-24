@@ -103,8 +103,10 @@ function Get-ChannelCommand {
         [string]$Filter,
         [string]$Path,
         [string]$Scenario,
-        [string]$ResultsDir
+        [string]$ResultsDir,
+        [string]$HarnessRoot   # where the e2e harness comes from; the factory passes its copy from the base commit
     )
+    if (-not $HarnessRoot) { $HarnessRoot = $RepoRoot }
     $c = $script:Channels | Where-Object Name -eq $Channel
     if (-not $c) { throw "Unknown channel '$Channel'. Run test-channel.ps1 -List for the channels." }
     if ($Filter) { Assert-SafeFilter $Filter }
@@ -153,7 +155,9 @@ function Get-ChannelCommand {
             if ($Scenario -notmatch '^[a-z0-9][a-z0-9-]{0,60}$') { throw "A scenario name uses lowercase letters, digits and hyphens." }
             if ($Scenario -like 'ai-*') { throw "AI scenarios need an API key, so they never run here. They run nightly on main." }
             if (-not (Test-Path (Join-Path $RepoRoot "tests/e2e/scenarios/$Scenario.ps1"))) { throw "There's no scenario tests/e2e/scenarios/$Scenario.ps1." }
-            $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'tests/e2e/Run-FlareE2E.ps1', '-Install', '-NoAi', '-Scenario', $Scenario)
+            $harness = if ($HarnessRoot -eq $RepoRoot) { 'tests/e2e/Run-FlareE2E.ps1' } else { Join-Path $HarnessRoot 'tests\e2e\Run-FlareE2E.ps1' }
+            $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $harness, '-Install', '-NoAi', '-Scenario', $Scenario)
+            if ($HarnessRoot -ne $RepoRoot) { $a += @('-RepoRoot', $RepoRoot) }
             if ($ResultsDir) { $a += @('-OutDir', $ResultsDir) }
             return [pscustomobject]@{ FilePath = $ps; ArgumentList = $a; WorkingDirectory = $RepoRoot }
         }

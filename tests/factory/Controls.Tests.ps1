@@ -89,31 +89,99 @@ Describe 'FACTORY_MODE (the kill switch)' {
 }
 
 Describe 'The agents run no build, test or e2e command of their own' {
+    $tc = "C:/actions-runner/_work/_temp/factory-tools/scripts/agent/test-channel.ps1"
+    $triage = Get-TriageTools $tc; $fix = Get-FixTools $tc
     It 'their tool lists hold no dotnet or e2e harness entry' {
-        foreach ($t in $TriageTools, $FixTools, $ReviewTools) {
+        foreach ($t in $triage, $fix, $ReviewTools) {
             $t | Should Not Match '(?i)dotnet'
             $t | Should Not Match '(?i)Run-FlareE2E|tests/e2e'
         }
     }
-    It 'triage and fix test only through test-channel.ps1, which runs with no secrets' {
-        $TriageTools | Should Match 'scripts/agent/test-channel\.ps1'
-        $FixTools | Should Match 'scripts/agent/test-channel\.ps1'
+    It 'triage and fix test only through the copied test channel, by its absolute path' {
+        $triage | Should Match ([regex]::Escape("Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File $($tc):*)"))
+        $fix | Should Match ([regex]::Escape("Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File $($tc):*)"))
+        $triage | Should Not Match 'File scripts/agent'
         $ReviewTools | Should Not Match 'Bash'
+    }
+    It 'refuses a relative copy path or one with spaces' {
+        { Get-TestChannelTool "scripts/agent/test-channel.ps1" } | Should Throw
+        { Get-TestChannelTool "C:/Program Files/x/test-channel.ps1" } | Should Throw
     }
     It 'Invoke-Factory.ps1 uses those lists and names no dotnet tool itself' {
         $factoryScript | Should Not Match 'Bash\(dotnet'
         $factoryScript | Should Not Match 'Bash\(powershell\.exe[^)]*Run-FlareE2E'
-        $factoryScript | Should Match '\$TriageTools "report-\$n-triage\.log"'
-        $factoryScript | Should Match '\$tools = \$FixTools'
+        $factoryScript | Should Match '\(Get-TriageTools \$testChannel\) "report-\$n-triage\.log"'
+        $factoryScript | Should Match '\$tools = Get-FixTools \$testChannel'
         $factoryScript | Should Match '\$ReviewTools "report-\$n-review\.log"'
     }
-    It 'web tools, gh, curl and git push stay off' { $DisallowedTools | Should Be "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)" }
-    It 'the prompts say to test through test-channel.ps1' {
+    It 'web tools, gh, curl and git push stay off, and agents may not edit scripts or the harness' {
+        $DisallowedTools | Should Match '^WebFetch,WebSearch,Bash\(gh:\*\),Bash\(curl:\*\),Bash\(git push:\*\),'
+        foreach ($p in "scripts/**", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/**") {
+            $DisallowedTools | Should Match ([regex]::Escape("Edit(./$p)"))
+            $DisallowedTools | Should Match ([regex]::Escape("Write(./$p)"))
+        }
+    }
+    It 'the prompts name the copied test channel' {
         foreach ($p in 'triage-prompt.md', 'fix-prompt.md') {
             $t = Get-Content (Join-Path $root ".github\factory\$p") -Raw
-            $t | Should Match 'scripts/agent/test-channel\.ps1'
+            $t | Should Match '-File \{\{TEST_CHANNEL\}\} -Channel core'
+            $t | Should Not Match '-File scripts/agent/test-channel'
             $t | Should Not Match '(?m)^- `dotnet build` and `dotnet test`'
         }
+    }
+    It 'each agent gets a fresh copy from the base commit first and is checked against it after' {
+        $agentFn = $factoryScript.Substring($factoryScript.IndexOf('function Agent('))
+        $agentFn.IndexOf('Clear-Scratch') | Should BeLessThan $agentFn.IndexOf('Invoke-AgentProcess')
+        $agentFn.IndexOf('Save-AgentTools') | Should BeLessThan $agentFn.IndexOf('Invoke-AgentProcess')
+        $agentFn.IndexOf('Assert-AgentTools') | Should BeGreaterThan $agentFn.IndexOf('Invoke-AgentProcess')
+        $factoryScript | Should Match 'git archive -o \$tar \$base @AgentToolPaths'
+        $factoryScript | Should Match 'git diff --name-only \$base -- @AgentToolPaths'
+        $factoryScript | Should Match 'Test-SameHashes \$script:toolsHashes \(Get-TreeHashes \$toolsDir\)'
+        $factoryScript | Should Match '\$env:HOUSESTYLE_TEST_REPO = \$here'
+        @($AgentToolPaths) -join ',' | Should Be "scripts/agent,tests/e2e/Run-FlareE2E.ps1,tests/e2e/FlareE2E.psm1,tests/e2e/flaui"
+    }
+    It 'a changed copy is caught, build output aside' {
+        $d = Join-Path $TestDrive 'copy'; New-Item -ItemType Directory -Force (Join-Path $d 'scripts\agent'), (Join-Path $d 'flaui\bin') | Out-Null
+        Set-Content (Join-Path $d 'scripts\agent\test-channel.ps1') 'one'
+        $before = Get-TreeHashes $d
+        Set-Content (Join-Path $d 'flaui\bin\x.dll') 'built'
+        Test-SameHashes $before (Get-TreeHashes $d) | Should Be $true
+        Set-Content (Join-Path $d 'scripts\agent\test-channel.ps1') 'two'
+        Test-SameHashes $before (Get-TreeHashes $d) | Should Be $false
+        Set-Content (Join-Path $d 'scripts\agent\test-channel.ps1') 'one'; Set-Content (Join-Path $d 'scripts\agent\extra.psm1') 'x'
+        Test-SameHashes $before (Get-TreeHashes $d) | Should Be $false
+    }
+    It 'the copy runs tests in the checkout and the e2e harness from itself' {
+        $copy = Join-Path $TestDrive 'tools'; New-Item -ItemType Directory -Force $copy | Out-Null
+        $tar = Join-Path $TestDrive 'tools.tar'
+        Push-Location $root
+        try { git archive -o $tar HEAD scripts/agent tests/e2e/Run-FlareE2E.ps1 tests/e2e/FlareE2E.psm1 tests/e2e/flaui } finally { Pop-Location }
+        & tar.exe -xf $tar -C $copy
+        $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $env:HOUSESTYLE_TEST_REPO = "$root"
+        try { $line = & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'scripts\agent\test-channel.ps1') -Channel e2e -Scenario reopen-issues -DryRun }
+        finally { Remove-Item Env:HOUSESTYLE_TEST_REPO }
+        ($line -join ' ') | Should Match ([regex]::Escape((Join-Path $copy 'tests\e2e\Run-FlareE2E.ps1')))
+        ($line -join ' ') | Should Match ([regex]::Escape("-RepoRoot $root"))
+    }
+}
+
+Describe 'nightly.yml waits for its own build' {
+    $y = Get-Content (Join-Path $root '.github\workflows\nightly.yml') -Raw
+    It 'takes the run id from the dispatch, else only runs created after it, never the newest run of the tag' {
+        $y | Should Not Match '-L 1 --json databaseId'
+        $y | Should Match "grep -oE 'actions/runs/\[0-9\]\+'"
+        $y | Should Match 'select\(\.createdAt >= \\"\$since\\"\)'
+        $y.IndexOf('since=$(date -u') | Should BeLessThan $y.IndexOf('gh workflow run build.yml')
+    }
+    It 'a good release ends the step with success, and stuck is set in the step itself' {
+        $y | Should Match '(?m)^\s+stuck="\$last"'
+        $y | Should Match '(?m)^\s+exit 0   # a false test above'
+    }
+    It 'the failure report reuses the open Nightly release issue' {
+        $y | Should Match 'creator=app%2Fgithub-actions'
+        $y | Should Match 'select\(\.title == "Nightly release" and \.user\.login == "github-actions\[bot\]"\)'
+        $y | Should Not Match 'gh issue list -R "\$REPO" --state open --author'
     }
 }
 
@@ -190,11 +258,20 @@ Describe 'The run ledger' {
         Test-RunBudget 20 20 | Should Match "today's 20 agent runs are used up"
     }
     It 'the cap is checked before every agent run, and a cap stop is posted on the report as stuck' {
-        $factoryScript | Should Match '\$over = Test-RunBudget \$script:runsUsed \$runLimit\s+if \(\$over\) \{ \$script:capStop = \$true; throw'
+        $factoryScript | Should Match '\$over = Test-RunBudget \$script:runsUsed \$runLimit\s+if \(\$over\) \{ \$script:runCapStop = \$true; throw'
         $factoryScript | Should Match 'if \(\$mode -eq "triage" -and -not \$script:capStop\)'
         $factoryScript | Should Match 'Label \$n @\("factory:stuck", "waiting:stuck", "blocked:\$\(Get-BlockedCause \$why\)"\)'
         $factoryScript | Should Match 'Write-Ledger \(New-LedgerEntry'
         $factoryScript | Should Match '"--output-format", "json"'
+    }
+    It 'running out of the day''s agent runs queues the report for tomorrow instead of marking it stuck' {
+        $catch = $factoryScript.Substring([regex]::Match($factoryScript, '(?m)^catch \{').Index)   # the run's own catch
+        $catch | Should Match 'if \(\$script:runCapStop\) \{'
+        $catch | Should Match 'Label \$n "factory:queued" @\("factory:working", "triage:failed"\)'
+        $catch.IndexOf('$script:runCapStop') | Should BeLessThan $catch.IndexOf('"factory:stuck"')
+        # A queued report is picked again: a routed one is triaged again, an approved fix is fixed.
+        (Select-Report @((New-Rep 8 "problem", "triage:ready", "route:auto-fix", "factory:queued")) "abmorrill4" 0 1).Mode | Should Be "triage"
+        (Select-Report @((New-Rep 6 "problem", "decision:fix", "factory:queued")) "abmorrill4" 0 0).Mode | Should Be "fix"
     }
     It 'rules/routing.json sets the limits' {
         $rules.limits.agentRunsPerDay | Should Be 20
@@ -253,6 +330,15 @@ Describe 'blocked:<cause> labels' {
 
 Describe 'Holdout scenarios' {
     It 'no holdout folder is fine' { @(Save-Holdout { $null } { throw "never" } (Join-Path $TestDrive 'h0')).Count | Should Be 0 }
+    It 'skips AI holdout scenarios, which the holdout- prefix would hide from -NoAi' {
+        $list = { @([pscustomobject]@{ name = "ai-rewrite.ps1"; type = "file" }, [pscustomobject]@{ name = "lint-table.ps1"; type = "file" }) }
+        $saved = @(Save-Holdout $list { param($n) "# $n" } (Join-Path $TestDrive 'h2'))
+        $saved -join ',' | Should Be "holdout-lint-table.ps1"
+        Test-Path (Join-Path $TestDrive 'h2\holdout-ai-rewrite.ps1') | Should Be $false
+    }
+    It 'a holdout failure is reported only when something failed' {
+        $factoryScript | Should Match 'if \(\$failed\.Count -and -not \(\$failed \| Where-Object \{ \(\"\" \+ \$_\.scenario\) -notlike "holdout-\*" \}\)\)'
+    }
     It 'saves only top-level .ps1 files with safe names, outside the checkout' {
         $list = { @([pscustomobject]@{ name = "ignore-sticks.ps1"; type = "file" }, [pscustomobject]@{ name = "README.md"; type = "file" },
                     [pscustomobject]@{ name = "sub"; type = "dir" }, [pscustomobject]@{ name = "..\evil.ps1"; type = "file" }) }
@@ -288,7 +374,7 @@ Describe 'Holdout scenarios' {
     It 'the fix prompt and the agent tools never mention it' {
         Get-Content (Join-Path $root '.github\factory\fix-prompt.md') -Raw | Should Not Match '(?i)holdout'
         Get-Content (Join-Path $root '.github\factory\triage-prompt.md') -Raw | Should Not Match '(?i)holdout'
-        $FixTools | Should Not Match '(?i)holdout|gh'
+        Get-FixTools "C:/t/factory-tools/scripts/agent/test-channel.ps1" | Should Not Match '(?i)holdout|gh'
     }
     It 'Run-FlareE2E.ps1 takes extra scenario folders' {
         Get-Content (Join-Path $root 'tests\e2e\Run-FlareE2E.ps1') -Raw | Should Match '\[string\[\]\]\$ScenarioDir'
@@ -350,7 +436,7 @@ Describe 'Weekly scorecard' {
                    '{"session":"b","event":"Notification","at":"2026-10-25T10:00:00Z"}', '{"session":"b","event":"Stop","at":"2026-10-25T11:00:00Z"}',
                    '{"session":"c","event":"UserPromptSubmit","at":"2026-10-25T11:00:00Z"}')
         $w = Get-OwnerWaits $lines ([datetime]"2026-10-19T00:00:00Z") $now
-        $w.count | Should Be 2; $w.hours | Should Be 3; $w.median | Should Be 1
+        $w.count | Should Be 2; $w.hours | Should Be 3; $w.median | Should Be 1.5   # Get-Median: the mean of the middle two
     }
     It 'runs on Mondays with a dry-run mode' {
         $y = Get-Content (Join-Path $root '.github\workflows\scorecard.yml') -Raw

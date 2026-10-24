@@ -108,7 +108,8 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
     `off` stops the factory and the nightly release (`scripts/factory/README.md`). Only the owner changes it.
   - **Notes:** every PR writers would notice adds `changes/<name>.md` (see `changes/README.md`); CI fails one that
     doesn't, unless it has the `no-notes` label. A hand-written `docs/release-notes/x.y.z.md` goes first when present.
-  - **To release now:** run the `nightly` workflow by hand (`gh workflow run nightly`). Never push a tag yourself.
+  - **To release now:** run the `nightly` workflow by hand (`gh workflow run nightly`). It and its dry run need
+    `FACTORY_MODE` set to `shadow` or `live`. Never push a tag yourself.
   - **A failed night** is reported on the "Nightly release" issue; a tag with no published release is rebuilt the next
     night.
   - Then publish any advisories the release fixes.

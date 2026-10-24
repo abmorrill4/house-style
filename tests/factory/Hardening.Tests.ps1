@@ -120,6 +120,29 @@ Describe 'The test-tamper guard (spec section 4.2)' {
         $d = New-RealDiff { param($r) Set-File $r "tests/agent/Ignore.Tests.ps1" ($PesterBase.Replace("    It 'sticks' {`n", "    It 'sticks' {`n        return`n")) }
         @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
     }
+    # Hunks that each look like whole new tests but switch off the existing tests between them.
+    It 'refuses new [Fact]s that wrap existing tests in #if NEVER ... #endif' {
+        $first = @("        [Fact]", "        public void A()", "        {", "        }", "#if NEVER")
+        $second = @("#endif", "        [Fact]", "        public void B()", "        {", "        }")
+        Test-WholeTests $first "cs" | Should Be $false
+        Test-WholeTests $second "cs" | Should Be $false
+        $d = New-RealDiff { param($r) Set-File $r "tests/FlareAI.Core.Tests/IgnoreTests.cs" ($CsBase.Replace("        [Fact]`n        public void IgnoreSticks()", (($first -join "`n") + "`n        [Fact]`n        public void IgnoreSticks()")).Replace("        }`n    }`n}", "        }`n" + ($second -join "`n") + "`n    }`n}")) }
+        @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1
+    }
+    It 'refuses Pester blocks that open a block comment over existing tests' {
+        Test-WholeTests @("    It 'a' {", "        1 | Should Be 1", "    } <#") "pester" | Should Be $false
+        Test-WholeTests @("    It 'b' { #>", "        1 | Should Be 1", "    }") "pester" | Should Be $false
+    }
+    It 'refuses a new [Fact] that ends by opening a block comment' {
+        Test-WholeTests @("        [Fact]", "        public void C()", "        {", "        } /*") "cs" | Should Be $false
+        Test-WholeTests @("        [Fact]", "        public void C()", "        {", "        } /* closed */") "cs" | Should Be $true
+    }
+    It 'refuses an open verbatim or raw string, and a Pester here-string' {
+        Test-WholeTests @("        [Fact]", "        public void D()", "        {", "            var s = @`"", "        }") "cs" | Should Be $false
+        Test-WholeTests @("        [Fact]", "        public void D()", "        {", "            var s = `"`"`"", "        }") "cs" | Should Be $false
+        Test-WholeTests @("        [Fact]", "        public void D()", "        {", "            var s = @`"a { b`";", "        }") "cs" | Should Be $true
+        Test-WholeTests @("    It 'e' {", "        `$s = @'", "    }") "pester" | Should Be $false
+    }
     It 'any added line in an existing test file that is not C# or Pester goes to review' {
         $d = New-RealDiff { param($r) Add-Content (Join-Path $r "tests/FlareAI.Core.Tests/OldTests.cs") "public void X() { }" -NoNewline }
         @(Get-TestTamper (Split-Diff $d.diff)).Count | Should Be 1

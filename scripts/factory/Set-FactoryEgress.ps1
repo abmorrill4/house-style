@@ -3,7 +3,7 @@
 .DESCRIPTION An owner step, run elevated inside the factory VM (for example over PowerShell Direct), never by the
 factory. It sets Windows Firewall's default outbound action to Block on every profile and adds allow rules, each
 named "House Style egress ...":
-- DNS (port 53) for every account, so names still resolve.
+- DNS (port 53) for every account, only to the DNS servers the VM is configured with, so names still resolve.
 - For the factory account only (-User): TCP 443 to the Anthropic API's published range, GitHub's published ranges
   (api.github.com/meta: web, api, git, actions), and the current addresses of NuGet and the other hosts in -Hosts.
 Windows Firewall matches addresses, not names, and CDN addresses change, so run it again after a NuGet or GitHub
@@ -47,9 +47,12 @@ $resolved = @(foreach ($h in $Hosts) {
     catch { Write-Warning "Couldn't resolve $h, so it gets no rule." }
 }) | Sort-Object -Unique
 
+# DNS only to the resolvers the VM is configured with, so port 53 can't reach anywhere else.
+$resolvers = @(Get-DnsClientServerAddress -AddressFamily IPv4 | ForEach-Object { $_.ServerAddresses } | Where-Object { $_ } | Sort-Object -Unique)
+if (-not $resolvers.Count) { throw "The VM has no DNS servers configured, so there's nothing to allow DNS to." }
 $rules = @(
-    @{ Name = "$prefix DNS (UDP)"; Protocol = "UDP"; RemotePort = 53; RemoteAddress = "Any"; Owner = $null },
-    @{ Name = "$prefix DNS (TCP)"; Protocol = "TCP"; RemotePort = 53; RemoteAddress = "Any"; Owner = $null },
+    @{ Name = "$prefix DNS (UDP)"; Protocol = "UDP"; RemotePort = 53; RemoteAddress = $resolvers; Owner = $null },
+    @{ Name = "$prefix DNS (TCP)"; Protocol = "TCP"; RemotePort = 53; RemoteAddress = $resolvers; Owner = $null },
     @{ Name = "$prefix Anthropic"; Protocol = "TCP"; RemotePort = 443; RemoteAddress = $anthropic; Owner = $sddl },
     @{ Name = "$prefix GitHub"; Protocol = "TCP"; RemotePort = 443; RemoteAddress = $github; Owner = $sddl },
     @{ Name = "$prefix hosts"; Protocol = "TCP"; RemotePort = 443; RemoteAddress = $resolved; Owner = $sddl }

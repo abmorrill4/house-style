@@ -122,7 +122,9 @@ all run by the script with thresholds from `rules/routing.json` (read from main 
    New test files are fine, and so is a hunk in an existing test file that only adds whole new tests: C# members
    that start with a test attribute (`[Fact]`, `[Theory]`, `[InlineData]` and the like, never a Skip) and end with
    their balanced closing brace, or complete Pester `It`, `Describe` or `Context` blocks with no `-Skip` or
-   `-Pending`. That's how a reproduction test is written. Any other added line in an existing test file (inside an
+   `-Pending`. That's how a reproduction test is written. A hunk with a line that could hide code over several
+   lines goes for review whatever else it holds: a C# preprocessor directive (`#if`, `#endif`), a block comment or
+   verbatim or raw string left open, or a Pester block comment mark (`<#`, `#>`) or here-string. Any other added line in an existing test file (inside an
    existing test, a `using`, a helper, another attribute) goes for review. `$TestProtected`, `Get-TestTamper` and
    `Test-WholeTests` in `Triage.psm1`. The same check applies to a fix the owner approved with `decision:fix`: a
    tampering diff there opens a draft PR with the reason instead of merging.
@@ -143,7 +145,8 @@ One repository variable, read by `factory.yml` (triage and fix) and `nightly.yml
   `decision:fix` ships as before in shadow and live.
 - **`live`**: routes act.
 
-Turning the factory on is setting it to shadow: `gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`.
+Manual runs need shadow or live too, dry runs included: a `factory` or `nightly` run with `dry_run` stops at the
+switch like any other while the mode is off. Turning the factory on is setting it to shadow: `gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`.
 To go live, `--body live`; to stop everything, `--body off`. Only the owner changes it. Reports routed in shadow mode
 keep their labels when it goes live; a `**Retry triage**` routes one again.
 
@@ -154,9 +157,11 @@ Limits live in `rules/routing.json` (`limits`), read at the start of each run.
 - **Per agent:** at most 200 turns and `agentMinutes` (45) of wall-clock time. A run past the limit is stopped with
   its whole process tree.
 - **Per day:** at most `agentRunsPerDay` (20) agent runs a UTC day, counted from the run ledger. At the cap no report
-  is picked.
-- A run stopped by a cap posts the reason on the report and labels it `factory:stuck`, `waiting:stuck` and
-  `blocked:owner`, so the command center shows it as stuck.
+  is picked. A report whose next agent would go over the cap gets the reason and `factory:queued`, and is picked
+  again once a new day has room.
+- A run stopped by the wall-clock limit or the turn cap posts the reason on the report and labels it
+  `factory:stuck`, `waiting:stuck` and `blocked:owner`, so the command center shows it as stuck.
+- `featureLoop` (1) and `vmBatch` (1) are placeholders the command center shows as limits. Nothing enforces them yet.
 - **Open factory PRs:** at `openFactoryPrs` (5) open `factory/*` PRs, no new fix starts. A fix route waits as
   `factory:wip-limit` and is routed again once a PR closes; an approved `decision:fix` waits with the same label.
 - **The run ledger.** Every agent run is `claude -p --output-format json`. The script appends its tokens, turns and time
@@ -196,7 +201,7 @@ or numbers. Owner touch time needs the waiting log on the owner's PC: `Post-Scor
 
 ### Network egress (owner step)
 
-`Set-FactoryEgress.ps1`, run elevated inside the VM, sets Windows Firewall to block outbound traffic except DNS and
+`Set-FactoryEgress.ps1`, run elevated inside the VM, sets Windows Firewall to block outbound traffic except DNS to the VM's own resolvers and
 HTTPS from the `factory` account to the Anthropic API, GitHub and NuGet. Run `-DryRun` first to see the rules, and
 again monthly with `Reset-FactoryVM.ps1 -Refresh`, since CDN addresses change. `-Remove` undoes it. The factory never
 runs it.
@@ -212,8 +217,14 @@ Guards against report text steering the agent:
 - The report reaches the agent as a file, framed as untrusted data, never inside the prompt.
 - No GitHub token while an agent runs or while agent-written code runs (the unit tests and e2e run with no secrets at
   all). The token is used only to push, open the PR and merge. The checkout keeps no credential.
-- The agents never run `dotnet` or the e2e harness themselves. Their only test command is
+- The agents never run `dotnet` or the e2e harness themselves. Their only test command is a copy of
   `scripts/agent/test-channel.ps1`, which removes every secret, their own sign-in included, from the child process.
+  Before each agent, the factory copies `scripts/agent` and the e2e harness from the base commit to a folder outside
+  the checkout and allows only that copy, so an agent can't edit the script that runs with its sign-in. After each
+  agent, those files in the checkout must still match the base commit and the copy must be unchanged, or the run
+  stops. The agents also can't edit `scripts/` or the harness (`--disallowedTools`).
+- Before each agent, the scratch folders are cleared of anything an earlier step left (holdout scenarios, e2e and
+  reproduction output, and the factory account's temp folder).
 - `decision:fix` counts only when the owner's account added it last.
 - Text the factory would publish is held if it holds something shaped like a key or token (the same shapes the
   feedback worker redacts).

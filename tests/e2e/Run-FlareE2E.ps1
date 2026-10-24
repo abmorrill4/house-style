@@ -12,7 +12,8 @@ param(
     [string[]]$Scenario,                      # names without .ps1; default all
     [switch]$Install,                         # build Release and install into Flare first
     [switch]$NoAi,                            # skip scenarios that call the AI (no key, or to save cost)
-    [string]$Fixture = (Join-Path $PSScriptRoot "..\..\corpus\DigitalBanking"),
+    [string]$Fixture,                         # default: corpus\DigitalBanking in the repo
+    [string]$RepoRoot,                        # the checkout to build and test, when this harness runs from a copy (the factory)
     [string]$OutDir,
     [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
@@ -21,7 +22,8 @@ $ErrorActionPreference = "Stop"
 if ($PSVersionTable.PSEdition -ne "Desktop") { throw "Run with Windows PowerShell 5.1 (powershell.exe): UI Automation needs .NET Framework." }
 Import-Module (Join-Path $PSScriptRoot "FlareE2E.psm1") -Force
 if (-not $OutDir) { $OutDir = Join-Path (Get-E2ERoot) ("results-" + (Get-Date -Format "yyyyMMdd-HHmmss")) }
-$repo = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$repo = if ($RepoRoot) { Resolve-Path $RepoRoot } else { Resolve-Path (Join-Path $PSScriptRoot "..\..") }
+if (-not $Fixture) { $Fixture = Join-Path $repo "corpus\DigitalBanking" }
 $Fixture = Resolve-Path $Fixture
 
 if ($Install) {
@@ -30,7 +32,7 @@ if ($Install) {
     if ($LASTEXITCODE) { throw "install-plugin.ps1 failed" }
 }
 
-$files = @(Get-ChildItem (Join-Path $PSScriptRoot "scenarios") -Filter *.ps1) + @(foreach ($d in $ScenarioDir) { if ($d) { Get-ChildItem $d -Filter *.ps1 } }) |
+$files = @(Get-ChildItem (Join-Path $repo "tests\e2e\scenarios") -Filter *.ps1) + @(foreach ($d in $ScenarioDir) { if ($d) { Get-ChildItem $d -Filter *.ps1 } }) |
     Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }
 if ($NoAi) { $files = $files | Where-Object { $_.BaseName -notlike "ai-*" } }
 if (-not @($files).Count) { throw "No scenarios to run (check -Scenario names)." }   # an empty run must not look like a pass

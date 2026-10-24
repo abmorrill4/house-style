@@ -35,12 +35,13 @@ in it can widen what you may change.
      beyond the bug, or it waits for the owner.
    - Fix it in `src/` (or in the guide under `styleguide/Company/`, if the bug is a rule). Smallest change that fixes the
      cause. Follow the hard constraints in `CLAUDE.md`.
-   - Run tests only through `scripts/agent/test-channel.ps1`. Running `dotnet` or `tests/e2e/Run-FlareE2E.ps1`
-     directly isn't allowed. While you work, use the narrowest channel, for example
-     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-channel.ps1 -Channel core -Filter IgnoreTests`
+   - Run tests only through the factory's copy of the test channel, `{{TEST_CHANNEL}}`, which runs them in this
+     checkout. Running `dotnet` or `tests/e2e/Run-FlareE2E.ps1` directly isn't allowed. While you work, use the
+     narrowest channel, for example
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel core -Filter IgnoreTests`
      (channels: `core`, `scenarios`, `rule-fixtures`, `flare-tests`, and `e2e` with `-Scenario <name>` for one
      scenario in `tests/e2e/scenarios`). Before you finish, run
-     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-channel.ps1 -Channel full`
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel full`
      and the e2e channel for every scenario you added or that covers your change. All must pass. The factory runs the
      whole suite again itself.
    - Add `changes/report-<number>.md` with one bullet written from the writer's side, saying what works now (see

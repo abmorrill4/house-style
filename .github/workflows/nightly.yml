@@ -70,10 +70,17 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then echo "Dry run: no tag."; exit 0; fi
             gh api "repos/$REPO/git/refs" -f ref="refs/tags/$release" -f sha="$sha" >/dev/null
           elif [ "$DRY_RUN" = "true" ]; then echo "Dry run: would build $release again."; exit 0; fi
-          gh workflow run build.yml -R "$REPO" --ref "$release" -f nightly_run="$RUN_ID"
-          # Wait for that build and fail with it, so the failure is reported below.
+          # Wait for this build, never an earlier one of the same tag (a rebuilt tag has a failed run already), and fail
+          # with it, so the failure is reported below. The run id comes from gh's own output when it prints the run's
+          # URL; otherwise from the first build of this tag created after the dispatch.
+          since=$(date -u -d '-2 seconds' +%Y-%m-%dT%H:%M:%SZ)
+          out=$(gh workflow run build.yml -R "$REPO" --ref "$release" -f nightly_run="$RUN_ID" 2>&1)
+          echo "$out"
+          id=$(printf '%s\n' "$out" | grep -oE 'actions/runs/[0-9]+' | head -1 | cut -d/ -f3 || true)
           for i in $(seq 1 30); do
-            id=$(gh run list -R "$REPO" -w build.yml -b "$release" -e workflow_dispatch -L 1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$id" ] && break
+            id=$(gh run list -R "$REPO" -w build.yml -b "$release" -e workflow_dispatch -L 20 --json databaseId,createdAt \
+                   --jq "[.[] | select(.createdAt >= \"$since\")] | sort_by(.createdAt) | .[0].databaseId // empty")
             [ -n "$id" ] && break; sleep 10
           done
           [ -n "$id" ] || { echo "The build for $release never started."; exit 1; }
