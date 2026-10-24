@@ -22,7 +22,11 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · House Style User Guide</title>
 <meta name="color-scheme" content="light dark">
+<link rel="icon" href="../favicon.ico" sizes="48x48">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:image" content="https://gethousestyle.com/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="../style.css">
 <script>document.documentElement.classList.add('js')</script>
 </head>
@@ -30,9 +34,9 @@ PAGE = """<!doctype html>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-head">
   <div class="wrap">
-    <a class="wordmark" href="../" aria-label="House Style home"><img src="../favicon.svg" width="26" height="26" alt="">House Style</a>
+    <a class="wordmark" href="../" aria-label="House Style home"><svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><path fill-rule="evenodd" d="M32 5 59 28v31H5V28zM19 35a3 3 0 0 0 0 6h26a3 3 0 0 0 0-6zM19 45a3 3 0 0 0 0 6h14a3 3 0 0 0 0-6z"/></svg>House Style</a>
     <nav class="site-nav" aria-label="Main">
-      <a href="./" aria-current="page">User guide</a>
+      <a class="hide-sm" href="./" aria-current="page">User guide</a>
       <a href="../install.html">Install</a>
       <a class="hide-sm" href="../privacy.html">Privacy</a>
       <a class="hide-sm" href="https://github.com/abmorrill4/house-style">GitHub</a>

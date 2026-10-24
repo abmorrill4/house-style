@@ -141,8 +141,8 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-siz
 /* ---- header --------------------------------------------------------------------------------------------------- */
 .site-head { padding-block: 20px; }
 .site-head .wrap { display: flex; align-items: center; gap: 28px; }
-.wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; font-size: 1.0625rem; text-decoration: none; letter-spacing: -0.02em; }
-.wordmark svg { width: 26px; height: 26px; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; flex-shrink: 0; font-weight: 500; font-size: 1.0625rem; text-decoration: none; letter-spacing: -0.02em; }
+.wordmark svg { width: 26px; height: 26px; fill: var(--accent); }
 .site-nav { display: flex; gap: 24px; margin-left: auto; align-items: center; font-size: var(--step-small); }
 .site-nav a { text-decoration: none; padding-block: 8px; }
 .site-nav a:hover, .site-nav a[aria-current="page"] { text-decoration: underline; }
