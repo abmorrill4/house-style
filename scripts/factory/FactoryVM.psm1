@@ -137,7 +137,9 @@ function Test-HostStateAcl {
     # vm and vm\bin, the scripts in bin (a rewrite could keep an ACE an older file had), and flare-pending, whose held
     # writes the reset delivers as host-written.
     $bin = Join-Path $root "bin"
-    $more = @(@(Get-ChildItem -LiteralPath $bin -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName) + @(Join-Path $root "flare-pending" | Where-Object { Test-Path -LiteralPath $_ }))
+    # vm\agent too: Controls.psm1 loads ..\agent\AgentCommon.psm1 into the elevated tasks.
+    $agent = Join-Path $root "agent"
+    $more = @(@(Get-ChildItem -LiteralPath $bin, $agent -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName) + @($agent, (Join-Path $root "flare-pending") | Where-Object { Test-Path -LiteralPath $_ }))
     foreach ($p in @($root, $bin) + $more) {
         if (-not (Test-Path -LiteralPath $p)) { $problems += "$p is missing"; continue }
         $item = Get-Item -LiteralPath $p -Force
@@ -381,6 +383,7 @@ function Send-HeldWrites([switch]$AsReset) {
     foreach ($h in (Get-HeldWrites)) {
         $bytes = [Convert]::FromBase64String($h.item.data)
         $r = Write-AgentsVM $h.item.path $bytes $h.checkId -AsReset:$AsReset -NoHold
+        if ($r -ne "written") { break }   # oldest first, always: a held result never goes in ahead of the trial.json before it
         if ($r -eq "written") { $l = if ($AsReset) { $null } else { Enter-AgentsWriteLock }; try { Remove-Item -LiteralPath $h.file -Force -ErrorAction SilentlyContinue } finally { if ($l) { Exit-AgentsWriteLock $l } } }
     }
     foreach ($d in @(Get-ChildItem -LiteralPath (Get-HostPath "flare-pending") -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $GuidPattern })) {
@@ -430,6 +433,10 @@ function Invoke-ClaimLocked {
                 return (& $no "not confirmed")
             }
         }
+        # The claim landed: the check lock names it now, still inside the write lock, so a tick that dies from here on
+        # leaves a stale lock with this id, which recovery answers as interrupted.
+        $cl = Get-CheckLock
+        if ($cl -and $cl.check -eq "claiming") { $cl.check = $id; Write-HostJson (Get-HostPath $script:LockFile) $cl }
         # The first progress: held like any progress write when it fails, and the claim goes on.
         Set-ProgressMirror $id 1
         $bytes = [Text.Encoding]::UTF8.GetBytes(([pscustomobject]@{ check = $id; step = 1; at = (Get-Date).ToUniversalTime().ToString("o") } | ConvertTo-Json -Compress))

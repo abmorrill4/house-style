@@ -29,7 +29,10 @@ $launchStart = Get-Date   # the job's limit runs from here, as the script's dead
 $Kinds = "triage", "cover", "fix", "review", "test", "restore"
 $AgentKinds = "triage", "cover", "fix", "review"
 $jobs = Join-Path $Root "agent-jobs"; $work = Join-Path $Root "agent-work"
-function Stop-Launch([string]$why, [int]$code = 2) { [Console]::Error.WriteLine("The job stopped: $why"); exit $code }
+# The exit code that means the launcher stopped before it ran anything (step 7). Only Stop-Launch exits with it: a
+# child that exits with it is reported as 1, so the script side can trust it as a launch failure.
+$LaunchFailedCode = 18515
+function Stop-Launch([string]$why) { [Console]::Error.WriteLine("The job stopped: $why"); exit $LaunchFailedCode }
 # cmd's rmdir and del never follow a link; their exit codes aren't trusted, only whether the path is gone.
 function Remove-Quietly([string]$path, [bool]$dir) {
     $ErrorActionPreference = "Continue"
@@ -68,6 +71,20 @@ if ($isAgent) {
     if (-not $token) { Stop-Launch "signin.txt is empty" }
 }
 
+function Join-Args([string[]]$a) {
+    # Quoted the way Windows programs read them back (Join-ProcessArguments in Controls.psm1).
+    @(foreach ($x in $a) {
+        if ($x -ne "" -and $x -notmatch '[\s"]') { $x; continue }
+        $s = '"'; $slashes = 0
+        foreach ($ch in $x.ToCharArray()) {
+            if ($ch -eq '\') { $slashes++; continue }
+            if ($ch -eq '"') { $s += ('\' * ($slashes * 2 + 1)) + '"' } else { $s += ('\' * $slashes) + $ch }
+            $slashes = 0
+        }
+        $s + ('\' * ($slashes * 2)) + '"'
+    }) -join " "
+}
+
 # ---- 4. repo\ from the base bundle ----------------------------------------------------------------------------------
 $me = Join-Path $work $id
 $repo = Join-Path $me "repo"; $home_ = Join-Path $me "home"; $out = Join-Path $me "out"
@@ -77,7 +94,14 @@ $gitSafety = @("-c", "core.hooksPath=$hooks", "-c", "core.fsmonitor=false")
 $env:GIT_NO_REPLACE_OBJECTS = "1"
 # The run's bundle, which holds main's history and so every saved fix's base; the checkout is the job's base.
 $bundle = Join-Path $Root "agent-in\base-$($job.bundle).bundle"
-function Invoke-Git([string[]]$a) { & $Git @gitSafety @a 2>&1 | Out-Null; if ($LASTEXITCODE) { Stop-Launch "git $($a[0]) failed" } }
+# git with a time limit, so a hung clone or apply can't run past the job's own limit.
+function Invoke-Git([string[]]$a, [int]$seconds = 600) {
+    $g = New-Object Diagnostics.ProcessStartInfo $Git
+    $g.Arguments = Join-Args (@($gitSafety) + $a); $g.UseShellExecute = $false; $g.CreateNoWindow = $true; $g.RedirectStandardOutput = $true; $g.RedirectStandardError = $true
+    $p = [Diagnostics.Process]::Start($g); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit($seconds * 1000)) { try { $p.Kill() } catch { }; Stop-Launch "git $($a[0]) took over $seconds seconds" }
+    if ($p.ExitCode) { Stop-Launch "git $($a[0]) failed" }
+}
 Invoke-Git @("clone", "--quiet", "--no-checkout", $bundle, $repo)
 Invoke-Git @("-C", $repo, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", $job.base)
 if (@("test", "review") -contains $job.kind -and $job.patch) {
@@ -166,19 +190,6 @@ if ($isAgent) {
 $token = $null
 
 # ---- 7. One program, with an argument array --------------------------------------------------------------------------
-function Join-Args([string[]]$a) {
-    # Quoted the way Windows programs read them back (Join-ProcessArguments in Controls.psm1).
-    @(foreach ($x in $a) {
-        if ($x -ne "" -and $x -notmatch '[\s"]') { $x; continue }
-        $s = '"'; $slashes = 0
-        foreach ($ch in $x.ToCharArray()) {
-            if ($ch -eq '\') { $slashes++; continue }
-            if ($ch -eq '"') { $s += ('\' * ($slashes * 2 + 1)) + '"' } else { $s += ('\' * $slashes) + $ch }
-            $slashes = 0
-        }
-        $s + ('\' * ($slashes * 2)) + '"'
-    }) -join " "
-}
 $stdinFile = $null
 switch ($job.kind) {
     { $AgentKinds -contains $_ } {
@@ -231,7 +242,7 @@ function Save-GitOutput([string[]]$a, [string]$file) {
     $g.EnvironmentVariables["GIT_NO_REPLACE_OBJECTS"] = "1"
     $p = [Diagnostics.Process]::Start($g)
     $f = [IO.File]::Open($file, "CreateNew", "Write", "Read")
-    try { $t = $p.StandardOutput.BaseStream.CopyToAsync($f); $e = $p.StandardError.ReadToEndAsync(); $p.WaitForExit(); [void]$t.Wait(60000) } finally { $f.Dispose() }
+    try { $t = $p.StandardOutput.BaseStream.CopyToAsync($f); $e = $p.StandardError.ReadToEndAsync(); if (-not $p.WaitForExit(120000)) { try { $p.Kill() } catch { }; return -1 }; [void]$t.Wait(60000) } finally { $f.Dispose() }
     $p.ExitCode
 }
 $gitCodes = @{}
@@ -244,4 +255,5 @@ $facts = [ordered]@{ id = $id; kind = "" + $job.kind; exit = $code; timedOut = $
 [IO.File]::WriteAllText((Join-Path $out "launcher.json"), ($facts | ConvertTo-Json -Compress))
 
 # ---- 10. The child's code, or 259 on a timeout ----------------------------------------------------------------------
+if (-not $timedOut -and $code -eq $LaunchFailedCode) { $code = 1 }   # only Stop-Launch says the launch failed
 exit $code

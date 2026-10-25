@@ -537,6 +537,8 @@ $JobFiles = @{
 }
 # A test job's TRX files: one per test project, any name, under out\results. Folders that are links aren't entered.
 $TrxCap = 32
+# Start-AgentJob.ps1's exit code when it stopped before it ran anything; it never passes a child's on as this.
+$LaunchFailedCode = 18515
 function Get-JobTrxPaths([string]$dir, [int]$depth = 0) {
     if ($depth -gt 3 -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return }
     foreach ($i in @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
@@ -546,30 +548,31 @@ function Get-JobTrxPaths([string]$dir, [int]$depth = 0) {
 }
 # Reads the job's fixed files through Read-GuardedFile, and refuses any that holds the token. Returns files (name ->
 # text, by leaf name), trx (every TRX's text, for a test job, at most $TrxCap) and refused (why, or $null).
-# missing: the launcher left no launcher.json, so it stopped before it ran anything (an agents VM failure).
+# missing: there's no launcher.json. Whatever else is there is still read and scanned for the token; Invoke-AgentJob
+# decides from the task's exit code whether that was a launch failure, a timeout or a refused read.
 function Read-JobOutput($ctx, [string]$id, [string]$kind) {
     $out = Join-Path $ctx.work "$id\out"
     $files = @{}; $trx = New-Object System.Collections.ArrayList
-    if (-not (Test-Path -LiteralPath (Join-Path $out "launcher.json"))) { return [pscustomobject]@{ files = $files; trx = @(); refused = $null; missing = $true } }
+    $missing = -not (Test-Path -LiteralPath (Join-Path $out "launcher.json"))
     foreach ($f in @($JobFiles.common) + @($JobFiles[$kind])) {
         $p = Join-Path $out $f.name
-        if (-not $f.required -and -not (Test-Path -LiteralPath $p)) { continue }
+        if ((-not $f.required -or $missing) -and -not (Test-Path -LiteralPath $p)) { continue }
         $r = Read-GuardedFile $p $ctx.work $ctx.agentSid $f.max
-        if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $false } }
-        if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "$($f.name) holds the sign-in token"; missing = $false } }
+        if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $missing } }
+        if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "$($f.name) holds the sign-in token"; missing = $missing } }
         $files[(Split-Path $f.name -Leaf)] = $r.text
     }
     if ($kind -eq "test") {
         $paths = @(Get-JobTrxPaths (Join-Path $out "results"))
-        if ($paths.Count -gt $TrxCap) { return [pscustomobject]@{ files = $files; trx = @(); refused = "the test job left more than $TrxCap TRX files"; missing = $false } }
+        if ($paths.Count -gt $TrxCap) { return [pscustomobject]@{ files = $files; trx = @(); refused = "the test job left more than $TrxCap TRX files"; missing = $missing } }
         foreach ($p in $paths) {
             $r = Read-GuardedFile $p $ctx.work $ctx.agentSid 8MB
-            if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $false } }
-            if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "a TRX file holds the sign-in token"; missing = $false } }
+            if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $missing } }
+            if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "a TRX file holds the sign-in token"; missing = $missing } }
             [void]$trx.Add($r.text)
         }
     }
-    [pscustomobject]@{ files = $files; trx = $trx.ToArray(); refused = $null; missing = $false }
+    [pscustomobject]@{ files = $files; trx = $trx.ToArray(); refused = $null; missing = $missing }
 }
 
 # ---- One job --------------------------------------------------------------------------------------------------------
@@ -598,7 +601,13 @@ function Invoke-AgentJob($ctx, [hashtable]$spec) {
     $read = Read-JobOutput $ctx $r.id $spec.kind
     $r.files = $read.files; $r.trx = $read.trx; $r.refused = $read.refused
     # No launcher.json: the launcher stopped before it ran anything (a bad job, the sign-in, the clone or the Job Object).
-    if ($read.missing) { $r.stuck = "LaunchFailed"; return $r }
+    if ($read.missing -and -not $r.refused) {
+        # No launcher.json. Only the launcher's own launch-failed exit code makes it an agents VM failure; a job the
+        # script stopped at its deadline is a timeout; anything else (agent code can stop that last write) is refused.
+        if ($wait.timedOut) { return $r }
+        if ($r.exit -eq $LaunchFailedCode) { $r.stuck = "LaunchFailed"; return $r }
+        $r.refused = "launcher.json is missing"
+    }
     # The launcher's own record of the child's exit code, when the task's events didn't give one.
     if ($null -eq $r.exit -and $read.files["launcher.json"]) { try { $r.exit = [int](($read.files["launcher.json"] | ConvertFrom-Json).exit) } catch { } }
     $r

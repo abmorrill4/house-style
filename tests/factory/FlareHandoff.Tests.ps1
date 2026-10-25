@@ -314,6 +314,27 @@ Describe 'The Flare check host task (P16)' {
         @($global:Guest.writes | Where-Object { $_ -like "*result.json" }).Count | Should Be 0
         Get-CheckLock | Should BeNullOrEmpty
     }
+    It 'the claim writes its id into the check lock once the rename lands, so a tick that dies then is answered as interrupted' {
+        Reset-World 'claimdies' | Out-Null; Use-AgentsGuest
+        $id = Add-Request
+        Enter-CheckLock "claiming" | Should Be $true
+        (Write-AgentsVM -Claim).id | Should Be $id
+        (Get-CheckLock).check | Should Be $id
+        # The tick dies here: its process is gone.
+        $l = Get-CheckLock; $l.pid = 999999; Write-HostJson (Get-HostPath "flare-check.lock") $l
+        Invoke-HandoffTick | Should Be "recovered"
+        (Get-GuestResult $id).vmKind | Should Be "interrupted"
+    }
+    It 'held writes stop at the first one that doesn''t go in, so a held result never lands before its trial.json' {
+        Reset-World 'heldstop' | Out-Null; Use-AgentsGuest
+        $id = [guid]::NewGuid().ToString()
+        Save-HeldWrite "flare-inbox\trial.json" ([byte[]](1)) | Out-Null
+        Save-HeldWrite "flare-inbox\$id\result.json" ([byte[]](2)) $id | Out-Null
+        Mock -ModuleName FactoryVM Invoke-VMCall { [pscustomobject]@{ ok = $false; timedOut = $true; output = @(); error = "slow"; errorId = "Timeout"; stopped = $true } }
+        Send-HeldWrites
+        @(Get-HeldWrites).Count | Should Be 2
+        $global:Guest.writes.Count | Should Be 0
+    }
     It 'delivers trial.json before result.json, and holds the result too when trial.json can''t go in' {
         Reset-World 'trialorder' | Out-Null; Use-AgentsGuest
         $id = Add-Request
@@ -484,11 +505,14 @@ Describe 'The copy rules and the host state folders (P16)' {
         (Copy-FlareResults @(1..201 | ForEach-Object { F "f$_.txt" }) (Join-Path $TestDrive "many")).ok | Should Be $false
     }
     It 'checks the host state folders: a writable vm or vm\bin, and runner-vault or scratch open to anyone else, are wrong' {
-        $v = Join-Path $TestDrive "aclroot"; New-Item -ItemType Directory -Force (Join-Path $v "bin"), (Join-Path $v "runner-vault"), (Join-Path $v "scratch") | Out-Null
+        $v = Join-Path $TestDrive "aclroot"; New-Item -ItemType Directory -Force (Join-Path $v "bin"), (Join-Path $v "runner-vault"), (Join-Path $v "scratch"), (Join-Path $v "agent") | Out-Null
+        Set-Content (Join-Path $v "agent\AgentCommon.psm1") "#"
         Set-FactoryVMRoot $v
         $p = @(Test-HostStateAcl)
         ($p -join ' ') | Should Match "isn't owned by Administrators|lets .* write|inherits its ACL"
         ($p -join ' ') | Should Match "runner-vault isn't Administrators only|scratch isn't Administrators only"
+        ($p -join ' ') | Should Match ([regex]::Escape("agent\AgentCommon.psm1"))
+        (Get-Content (Join-Path $repoRoot 'scripts\factory\Install-HostTasks.ps1') -Raw) | Should Match 'Remove-Item -LiteralPath \(Join-Path \$agentDir "AgentCommon\.psm1"\)'
         (Get-Content (Join-Path $repoRoot 'scripts\factory\FactoryVM.psm1') -Raw) | Should Match '\$AdminOnlyNames = "runner-vault", "scratch"'
     }
 }

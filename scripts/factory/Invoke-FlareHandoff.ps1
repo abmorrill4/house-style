@@ -315,8 +315,9 @@ function Invoke-HandoffTick {
     if ($lock -and (Test-CheckLockStale $lock (Get-HostNow))) {
         $start = Get-ProcessStartTime ([int]$lock.pid)
         if ($start -and $start -eq $lock.start) { Stop-Process -Id ([int]$lock.pid) -Force -ErrorAction SilentlyContinue }
-        # A lock still marked "claiming" (or a scratch check's) never touched the Flare VM and has no check to answer:
-        # it's released, with no reset and nothing delivered.
+        # A lock still marked "claiming" has no claimed request: the claim writes the id into the lock, inside the write
+        # lock, as soon as its rename lands. Neither it nor a scratch check's touched the Flare VM, so it's released with no
+        # reset and nothing delivered. A lock with a claimed id gets step 9 and an interrupted result below.
         if (@("claiming", "scratch") -contains $lock.check) { Exit-CheckLock; Write-HostLog "A Flare check stopped before it started, so its lock was released."; return "recovered" }
         if ($lock.check -eq "re-read") { Invoke-CheckReset "re-read" | Out-Null; return "recovered" }
         if ([int]$lock.step -lt 9) { if (Invoke-CheckReset $lock.check) { Send-CheckResult $lock.check ([pscustomobject]@{ check = $lock.check; outcome = "vm"; vmKind = "interrupted" }) $false } }

@@ -11,7 +11,7 @@
   In a factory job, HOUSESTYLE_AGENT_CHANNELS lists the channels the agents may run, and is checked first: e2e,
   conformance and vitest aren't on it. Without it, e2e runs only on a machine with Flare (the Flare VM).
   -Path is the Pester folder or file under tests/. -Scenario is one e2e scenario; AI scenarios never run here.
-  -ResultsDir also writes a result file there (results.trx, or pester.json).
+  -ResultsDir also writes results there (a TRX file per test project, or pester.json).
   Exits with the test run's exit code.
 
 .EXAMPLE

@@ -21,9 +21,11 @@ write into the agents VM goes through `Write-AgentsVM` (`FactoryVM.psm1`).
 scripts\factory\New-FactoryVM.ps1 -Role agents -Iso E:\HouseStyle\vm\win11-ltsc-eval.iso   # HSAGENTS; -Role flare for HSFACTORY
 scripts\factory\Install-FactoryTools.ps1 -Name HSAGENTS -NoFlare    # Git, gh, .NET 8, Claude Code, the hsagent user, the write scan
 scripts\factory\Install-FactoryTools.ps1 -Name HSFACTORY            # Flare (trial), Git, gh, .NET 8
-scripts\factory\Set-FactoryEgress.ps1 -Role agents                  # and -Role flare for the Flare VM
 scripts\factory\Test-FactoryIsolation.ps1                           # the agents VM's isolation probes
 ```
+
+`Set-FactoryEgress.ps1` runs elevated inside each VM, not on the host. Run `-Role agents` in the agents VM and `-Role
+flare` in the Flare VM (see Network egress below).
 
 - Windows 11 Enterprise LTSC evaluation, activated for 90 days. Rebuild from a newer evaluation ISO when it runs out.
 - Each VM's admin password is in `E:\HouseStyle\vm\<Name>-credential.xml`, which only the owner's Windows account can
@@ -208,7 +210,7 @@ Limits live in `rules/routing.json` (`limits`), read at the start of each run.
 - **Open factory PRs:** at `openFactoryPrs` (5) open `factory/*` PRs, no new fix starts. A fix route waits as
   `factory:wip-limit` and is routed again once a PR closes; an approved `decision:fix` waits with the same label.
 - **The run ledger.** Every agent run is `claude -p --output-format json`. The script appends its tokens, turns and time
-  (and dollars, only when `ANTHROPIC_API_KEY` paid for it) as a comment on the pinned "Factory ledger" issue in the
+  as a comment on the pinned "Factory ledger" issue in the
   private reports repo, which it creates when missing. Numbers only, never report text. Dry runs are recorded too,
   because they spend tokens. The daily cap reads this ledger, never a file on the VM that agent code could write. A
   ledger the script can't read or write stops the run.
@@ -218,11 +220,11 @@ Limits live in `rules/routing.json` (`limits`), read at the start of each run.
 
 ### Holdout scenarios
 
-A few e2e scenarios live in the private reports repo under `holdout/*.ps1`. The script fetches them only after the fix
-agent has finished, into a folder outside the checkout, runs them on the VM with the public suite
-(`Run-FlareE2E.ps1 -ScenarioDir`), and deletes them before the review agent starts. The agent never holds a token, so
-it can't fetch them, and the fix prompt doesn't change. No holdout folder is fine; the run logs it. A holdout failure
-is reported as "A holdout scenario fails on the fix", in the private report only.
+A few e2e scenarios live in the private reports repo under `holdout/*.ps1`. The host's Flare check fetches them with
+the owner's gh sign-in, after the fix's patch is staged, and runs them on the Flare VM with the public suite
+(`Run-FlareE2E.ps1 -ScenarioDir`). The agents VM never sees them, and no agent holds a token that could fetch them. No
+holdout folder is fine; the check logs it. A holdout failure is reported as "A holdout scenario fails on the fix", in
+the private report only.
 
 ### Lane suspension
 
@@ -244,10 +246,16 @@ or numbers. Owner touch time needs the waiting log on the owner's PC: `Post-Scor
 
 ### Network egress (owner step)
 
-`Set-FactoryEgress.ps1`, run elevated inside the VM, sets Windows Firewall to block outbound traffic except DNS to the VM's own resolvers and
-HTTPS from the `factory` account to the Anthropic API, GitHub and NuGet. Run `-DryRun` first to see the rules, and
-again monthly with `Reset-FactoryVM.ps1 -Refresh`, since CDN addresses change. `-Remove` undoes it. The factory never
-runs it.
+`Set-FactoryEgress.ps1`, run elevated inside each VM, blocks outbound traffic by default and allows DNS to the VM's own
+resolvers.
+- **The agents VM (`-Role agents`):** `hsagent` gets HTTPS to Anthropic's API range only. NuGet opens only for the
+  package-restore job, between two sweeps. The script user (`factory`) gets HTTPS to GitHub. Windows' own outbound allow
+  rules are turned off, all but DHCP's, and the agents VM's ready check fails if any come back on.
+- **The Flare VM (`-Role flare`):** `factory` gets HTTPS to Anthropic, GitHub and the hosts Flare and its setup need.
+  The host also cuts the Flare VM's network while a fix's code builds and runs.
+
+Run `-DryRun` first to see the rules, and again monthly with `Reset-FactoryVM.ps1 -Refresh`, since CDN addresses
+change. `-Remove` undoes it, and turns Windows' own rules back on. The factory never runs it.
 
 Waiting reasons, one `waiting:*` label per item: `security`, `merge`, `decide`, `stuck`, and, for later pieces,
 `want`, `plan-input`, `plan-review` and `rule-change`. The `triage` skill logs every owner decision on a routed report
@@ -260,19 +268,17 @@ Guards against report text steering the agent:
 - The report reaches the agent as a file, framed as untrusted data, never inside the prompt.
 - No GitHub token while an agent runs or while agent-written code runs (the unit tests and e2e run with no secrets at
   all). The token is used only to push, open the PR and merge. The checkout keeps no credential.
-- The agents never run `dotnet` or the e2e harness themselves. Their only test command is a copy of
-  `scripts/agent/test-channel.ps1`, which removes every secret, their own sign-in included, from the child process.
-  Before each agent, the factory copies `scripts/agent` and the e2e harness from the base commit to a folder outside
-  the checkout and allows only that copy, so an agent can't edit the script that runs with its sign-in. After each
-  agent, those files in the checkout must still match the base commit and the copy must be unchanged, or the run
-  stops. The agents also can't edit `scripts/` or the harness (`--disallowedTools`).
-- Before each agent, the scratch folders are cleared of anything an earlier step left (holdout scenarios, e2e and
-  reproduction output, and the factory account's temp folder).
+- The agents never run `dotnet` themselves, and they have no e2e channel. Flare checks run only on the Flare VM. Their
+  only test command is the base commit's copy of `scripts/agent/test-channel.ps1` in `agent-tools`, which `hsagent`
+  can read but not change, and which removes every secret, their own sign-in included, from the child process. The
+  agents also can't edit `scripts/` or the harness (`--disallowedTools`).
+- Before and after each job, the sweep stops every `hsagent` process, removes its tasks and BITS jobs, deletes the
+  job folders and restores `hsagent`'s profile from its template.
 - `decision:fix` counts only when the owner's account added it last.
 - Text the factory would publish is held if it holds something shaped like a key or token (the same shapes the
   feedback worker redacts).
-- The agents sign in with the owner's subscription (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`) when that
-  secret is set, else with `ANTHROPIC_API_KEY`.
+- The agents sign in only with the owner's Claude Max plan (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
+  never an API key. Without that secret the run stops.
 - None of the run's git calls use hooks (`core.hooksPath` points at an empty folder), so a hook planted in `.git/hooks`
   never runs with the token.
 - The agents get no web tools and only a short list of commands. That's a speed bump, so the real checks happen

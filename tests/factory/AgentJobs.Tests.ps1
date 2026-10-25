@@ -189,15 +189,22 @@ Describe 'The launcher, Start-AgentJob.ps1 (P3)' {
     }
     It 'stops at its checks: no next.txt, a bad job.json, a missing signin.txt' {
         $r = New-Root 'p3c'; $sha = New-Base $r
-        (Invoke-Launcher $r).exit | Should Be 2
+        (Invoke-Launcher $r).exit | Should Be 18515   # the launch-failed code
         $id = Set-Job $r @{ kind = "triage"; base = $sha; prompt = "p" }
         Remove-Item (Join-Path $r "agent-jobs\$id\signin.txt")
         $x = Invoke-Launcher $r (Join-Path $r "none.cmd")
-        $x.exit | Should Be 2; $x.text | Should Match "signin.txt can't be read"
+        $x.exit | Should Be 18515; $x.text | Should Match "signin.txt can't be read"
         $id = Set-Job $r @{ kind = "test"; base = $sha; channel = "core" }
         $j = Get-Content (Join-Path $r "agent-jobs\$id\job.json") -Raw | ConvertFrom-Json; $j.kind = "deploy"
         $j | ConvertTo-Json | Set-Content (Join-Path $r "agent-jobs\$id\job.json")
         (Invoke-Launcher $r).text | Should Match "kind isn't one the factory runs"
+    }
+    It 'a child that exits with the launch-failed code is reported as 1, so only the launcher can say the launch failed' {
+        $r = New-Root 'p3g'; $sha = New-Base $r
+        Set-FakeChannel $r $sha 'exit 18515'
+        $id = Set-Job $r @{ kind = "test"; base = $sha; channel = "core" }
+        (Invoke-Launcher $r).exit | Should Be 1
+        (Get-Content (Join-Path $r "agent-work\$id\out\launcher.json") -Raw | ConvertFrom-Json).exit | Should Be 18515
     }
     It 'a failed delete of another folder under agent-work stops the job' {
         $r = New-Root 'p3d'; $sha = New-Base $r
@@ -207,7 +214,7 @@ Describe 'The launcher, Start-AgentJob.ps1 (P3)' {
         try {
             $id = Set-Job $r @{ kind = "test"; base = $sha; channel = "core" }
             $x = Invoke-Launcher $r
-            $x.exit | Should Be 2
+            $x.exit | Should Be 18515
             $x.text | Should Match "couldn't be deleted"
             Test-Path (Join-Path $r "agent-work\$id") | Should Be $false
         }
@@ -290,11 +297,18 @@ Describe 'Invoke-AgentJob: one job''s order (P4)' {
         Mock -ModuleName Controls Wait-AgentTask { [pscustomobject]@{ exit = 259; timedOut = $true; instance = $null; stopFailed = $true } }
         (Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }).stuck | Should Be "TaskDidntStop"
     }
-    It 'a launcher that stopped before it ran anything (no launcher.json) is an agents VM failure, not a refused read' {
+    It 'no launcher.json: the launch-failed exit code is an agents VM failure, a deadline stop is a timeout, anything else is refused' {
         Mock -ModuleName Controls Read-JobOutput { [pscustomobject]@{ files = @{}; trx = @(); refused = $null; missing = $true } }
+        Mock -ModuleName Controls Wait-AgentTask { [pscustomobject]@{ exit = 18515; timedOut = $false; instance = "{1}"; stopFailed = $false } }
         $j = Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }
         $j.stuck | Should Be "LaunchFailed"
         $j.refused | Should BeNullOrEmpty
+        Mock -ModuleName Controls Wait-AgentTask { [pscustomobject]@{ exit = 259; timedOut = $true; instance = "{1}"; stopFailed = $false } }
+        $j = Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }
+        $j.timedOut | Should Be $true; $j.stuck | Should BeNullOrEmpty; $j.refused | Should BeNullOrEmpty
+        Mock -ModuleName Controls Wait-AgentTask { [pscustomobject]@{ exit = 0; timedOut = $false; instance = "{1}"; stopFailed = $false } }
+        $j = Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }
+        $j.stuck | Should BeNullOrEmpty; $j.refused | Should Match 'launcher\.json is missing'
         & (Get-Module Controls) { $FactoryCopy["LaunchFailed"] } | Should Match 'rather than the fix'
     }
 }
@@ -407,10 +421,13 @@ Describe 'Reading what a job wrote (P5)' {
         $x.files["result.json"] | Should Match 'bug'
     }
     It 'refuses a missing required file' { New-Out "a2" | Out-Null; (Read-JobOutput $ctx "a2" "fix").refused | Should Match 'missing' }
-    It 'a job with no launcher.json reads as a launch failure' {
+    It 'a job with no launcher.json reads as missing, and what is there is still scanned for the token' {
         $o = Join-Path $r "agent-work\a2b\out"; New-Item -ItemType Directory -Force $o | Out-Null
         $x = Read-JobOutput $ctx "a2b" "test"
         $x.missing | Should Be $true; $x.refused | Should BeNullOrEmpty
+        Set-Content (Join-Path $o "stdout.txt") "leaked $token" -Encoding ASCII
+        $x = Read-JobOutput $ctx "a2b" "test"
+        $x.missing | Should Be $true; $x.refused | Should Match 'token'
     }
     It (Get-FixtureTitle 'reads every TRX under out\results, and the repro check finds its test in one of the eight' @('trx')) -Skip:(Test-FixturesMissing @('trx')) {
         $f = Get-Fixture 'trx'
@@ -458,6 +475,10 @@ Describe 'Reading what a job wrote (P5)' {
     It 'parses TRX with DTDs refused' {
         { ConvertFrom-TrxText '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e SYSTEM "file:///c:/windows/win.ini">]><x>&e;</x>' } | Should Throw
         (ConvertFrom-TrxText '<TestRun><Results /></TestRun>').TestRun | Should Not BeNullOrEmpty
+        # The repro check reads TRX the same way: one with a DTD is skipped, so its test didn't run.
+        $dtd = '<?xml version="1.0"?><!DOCTYPE TestRun [<!ENTITY e "x">]><TestRun><Results><UnitTestResult testName="A.B.C" outcome="Passed" /></Results></TestRun>'
+        Test-ReproResult @($dtd) "A.B.C" "pass" | Should Match "didn't run"
+        Test-ReproResult @('<TestRun><Results><UnitTestResult testName="A.B.C" outcome="Passed" /></Results></TestRun>') "A.B.C" "pass" | Should BeNullOrEmpty
     }
     It (Get-FixtureTitle 'reads the captured TRX for each outcome' @('trx')) -Skip:(Test-FixturesMissing @('trx')) {
         $f = Get-Fixture 'trx'

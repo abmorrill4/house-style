@@ -59,7 +59,7 @@ function Install-HostTasks {
     }
     $agentDir = Join-Path (Split-Path $bin) "agent"   # Controls.psm1 loads ..\agent\AgentCommon.psm1
     New-Item -ItemType Directory -Force $agentDir | Out-Null
-    if (-not $DryRun) { [IO.File]::WriteAllText((Join-Path $agentDir "AgentCommon.psm1"), ((& git.exe -C $Checkout show "origin/main:scripts/agent/AgentCommon.psm1") -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding $true)) }
+    if (-not $DryRun) { Remove-Item -LiteralPath (Join-Path $agentDir "AgentCommon.psm1") -Force -ErrorAction SilentlyContinue; [IO.File]::WriteAllText((Join-Path $agentDir "AgentCommon.psm1"), ((& git.exe -C $Checkout show "origin/main:scripts/agent/AgentCommon.psm1") -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding $true)) }
     $bad = @(Test-HostStateAcl)
     if ($bad.Count) { throw "The host state folders' ACL didn't take: $($bad -join '; ')" }
     foreach ($t in $HostTasks) {

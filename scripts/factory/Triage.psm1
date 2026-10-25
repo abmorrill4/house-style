@@ -1,5 +1,7 @@
-﻿# Helpers for the factory's triage step: check the triage agent's brief, turn it into the comment on the private
+# Helpers for the factory's triage step: check the triage agent's brief, turn it into the comment on the private
 # report, and check who approved a fix. Kept out of Invoke-Factory.ps1 so tests/factory can test them without a VM.
+
+Import-Module (Join-Path $PSScriptRoot "Guards.psm1")   # ConvertFrom-TrxText
 
 $Kinds = "bug", "friction", "feature", "question", "duplicate", "noise"
 $AskKinds = "bug", "friction", "feature", "question"
@@ -781,7 +783,8 @@ function Get-RouteUncovered($fix, $rules) {
 function Test-ReproResult($trx, [string]$name, [string]$expect) {
     $where = if ($expect -eq "fail") { "the base commit" } else { "the fix" }
     $results = @(foreach ($t in @($trx | Where-Object { $_ })) {
-        $x = [xml]$t
+        $x = try { ConvertFrom-TrxText $t } catch { $null }   # agent-written: DTDs off, no resolver; one that won't parse is skipped
+        if (-not $x) { continue }
         @($x.TestRun.Results.UnitTestResult) | Where-Object { $_ -and (("" + $_.testName) -ceq $name -or ("" + $_.testName).StartsWith($name + "(", [StringComparison]::Ordinal)) }
     })
     if (-not $results.Count) { return "the test $name didn't run on $where (it may not build there)" }
