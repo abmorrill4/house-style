@@ -93,6 +93,14 @@ function Get-LabelActor($events, [string]$label) {
 
 function Get-Labels($r) { @($r.labels | ForEach-Object { $_.name }) }
 
+# Who added decision:fix last after $since (a saved fix's waiting time), from the report's events as the label-events
+# fixture shows them: "owner", "other", or $null when nobody did.
+function Get-DecisionFixSince($events, [datetime]$since, [string]$owner = "abmorrill4") {
+    $last = @($events | Where-Object { $_.event -eq "labeled" -and $_.label.name -eq "decision:fix" -and $_.created_at -and ([datetime]$_.created_at).ToUniversalTime() -gt $since.ToUniversalTime() }) | Select-Object -Last 1
+    if (-not $last) { return $null }
+    if (("" + $last.actor.login) -eq $owner) { "owner" } else { "other" }
+}
+
 # Which report this run works on, and in which step. Triage first (new reports, and failed triage up for a retry), then
 # one fix the owner approved. Only reports the feedback service filed ($owner, label problem or error) are considered.
 # A report queued because the day's auto-fix cap was full is triaged and routed again once $capLeft allows. route:* and
@@ -952,4 +960,4 @@ Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComme
     Test-TestName, Test-CuratedIssue, Set-CuratedAuthors, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, New-CoverInput, Get-CoverVote, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
     Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests,
-    Get-UncoveredPaths, Get-RouteUncovered, Test-NoteForAutoFix -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
+    Get-UncoveredPaths, Get-RouteUncovered, Test-NoteForAutoFix, Get-DecisionFixSince -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes

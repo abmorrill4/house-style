@@ -1,4 +1,4 @@
-﻿# Pester 3 tests for the factory's run controls (command center spec section 4):
+# Pester 3 tests for the factory's run controls (command center spec section 4):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Resolve-Path (Join-Path $here '..\..')
@@ -43,13 +43,13 @@ Describe 'FACTORY_MODE (the kill switch)' {
         foreach ($m in "shadow", "live") {
             $r = Invoke-WithMode $m
             $r.out | Should Not Match 'FACTORY_MODE is off'
-            $r.out | Should Match 'No CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY'
+            $r.out | Should Match ([regex]::Escape("CLAUDE_CODE_OAUTH_TOKEN isn't set, so the agents can't sign in."))
         }
     }
     It 'the switch comes before the script reads or writes anything' {
         $switch = $factoryScript.IndexOf('if ($factoryMode -eq "off")')
         $switch | Should BeGreaterThan 0
-        foreach ($first in 'Gh issue', 'gh.exe label', 'Invoke-AgentProcess $claude', 'Get-LedgerIssue', 'New-Item') { $factoryScript.IndexOf($first) | Should BeGreaterThan $switch }
+        foreach ($first in 'Gh issue', 'gh.exe label', 'Invoke-AgentJob $Run.ctx', 'Get-LedgerIssue', 'New-Item -ItemType', 'Get-AgentSignIn') { $factoryScript.IndexOf($first) | Should BeGreaterThan $switch }
     }
     It 'factory.yml starts the job only in shadow or live and passes FACTORY_MODE' {
         $y = Get-Content (Join-Path $root '.github\workflows\factory.yml') -Raw
@@ -107,12 +107,12 @@ Describe 'The agents run no build, test or e2e command of their own' {
         { Get-TestChannelTool "scripts/agent/test-channel.ps1" } | Should Throw
         { Get-TestChannelTool "C:/Program Files/x/test-channel.ps1" } | Should Throw
     }
-    It 'Invoke-Factory.ps1 uses those lists and names no dotnet tool itself' {
+    It 'each job kind gets its fixed list from New-AgentJob, and Invoke-Factory.ps1 names no dotnet tool itself' {
         $factoryScript | Should Not Match 'Bash\(dotnet'
         $factoryScript | Should Not Match 'Bash\(powershell\.exe[^)]*Run-FlareE2E'
-        $factoryScript | Should Match '\(Get-TriageTools \$testChannel\) "report-\$n-triage\.log"'
-        $factoryScript | Should Match '\$tools = Get-FixTools \$testChannel'
-        $factoryScript | Should Match '\$ReviewTools "report-\$n-review\.log"'
+        $controls = Get-Content (Join-Path $root 'scripts\factory\Controls.psm1') -Raw
+        $controls | Should Match '\$tools = switch \(\$kind\) \{ "triage" \{ Get-TriageTools \$tc \} "fix" \{ Get-FixTools \$tc \} "review" \{ \$ReviewTools \} default \{ "" \} \}'
+        $factoryScript | Should Not Match 'Get-TriageTools|Get-FixTools|ReviewTools'
     }
     It 'web tools, gh, curl and git push stay off, and agents may not edit scripts or the harness' {
         $DisallowedTools | Should Match '^WebFetch,WebSearch,Bash\(gh:\*\),Bash\(curl:\*\),Bash\(git push:\*\),'
@@ -129,16 +129,22 @@ Describe 'The agents run no build, test or e2e command of their own' {
             $t | Should Not Match '(?m)^- `dotnet build` and `dotnet test`'
         }
     }
-    It 'each agent gets a fresh copy from the base commit first and is checked against it after' {
-        $agentFn = $factoryScript.Substring($factoryScript.IndexOf('function Agent('))
-        $agentFn.IndexOf('Clear-Scratch') | Should BeLessThan $agentFn.IndexOf('Invoke-AgentProcess')
-        $agentFn.IndexOf('Save-AgentTools') | Should BeLessThan $agentFn.IndexOf('Invoke-AgentProcess')
-        $agentFn.IndexOf('Assert-AgentTools') | Should BeGreaterThan $agentFn.IndexOf('Invoke-AgentProcess')
-        $factoryScript | Should Match 'git archive -o \$tar \$base @AgentToolPaths'
-        $factoryScript | Should Match 'git diff --name-only \$base -- @AgentToolPaths'
-        $factoryScript | Should Match 'Test-SameHashes \$script:toolsHashes \(Get-TreeHashes \$toolsDir\)'
-        $factoryScript | Should Match '\$env:HOUSESTYLE_TEST_REPO = \$here'
+    It 'each job''s test channel is the base''s copy in agent-tools, which the agent user can only read' {
+        $factoryScript | Should Match ([regex]::Escape('Invoke-Git $Run.checkout (@("archive", "-o", $tar, $base) + @($AgentToolPaths))'))
+        $factoryScript.IndexOf('Save-AgentTools $Run.base') | Should BeGreaterThan 0
+        (Get-Content (Join-Path $root 'scripts\factory\Controls.psm1') -Raw) | Should Match ([regex]::Escape('Join-Path $ctx.tools "$base\scripts\agent\test-channel.ps1"'))
+        (Get-Content (Join-Path $root 'scripts\factory\Start-AgentJob.ps1') -Raw) | Should Match ([regex]::Escape('$psi.EnvironmentVariables["HOUSESTYLE_TEST_REPO"] = $repo'))
         @($AgentToolPaths) -join ',' | Should Be "scripts/agent"   # the agents run no e2e (factory-runtime spec section 4)
+    }
+    It 'both prompts list the agents'' channels, the same set test-channel.ps1 lets them run' {
+        $want = @(Get-AgentChannels) -join ','
+        $want | Should Be "rule-fixtures,bench,core,scenarios,flare-tests,pester,full"
+        foreach ($p in 'triage-prompt.md', 'fix-prompt.md') {
+            $t = (Get-Content (Join-Path $root ".github\factory\$p") -Raw) -replace '\s+', ' '
+            $m = [regex]::Match($t, '\(channels: ([^)]*)\)')
+            (@([regex]::Matches($m.Groups[1].Value, '`([a-z-]+)`') | ForEach-Object { $_.Groups[1].Value }) -join ',') | Should Be $want
+            $t | Should Not Match '(?i)-Channel e2e'
+        }
     }
     It 'a changed copy is caught, build output aside' {
         $d = Join-Path $TestDrive 'copy'; New-Item -ItemType Directory -Force (Join-Path $d 'scripts\agent'), (Join-Path $d 'flaui\bin') | Out-Null
@@ -258,17 +264,18 @@ Describe 'The run ledger' {
         Test-RunBudget 20 20 | Should Match "today's 20 agent runs are used up"
     }
     It 'the cap is checked before every agent run, and a cap stop is posted on the report as stuck' {
-        $factoryScript | Should Match '\$over = Test-RunBudget \$script:runsUsed \$runLimit\s+if \(\$over\) \{ \$script:runCapStop = \$true; throw'
-        $factoryScript | Should Match 'if \(\$mode -eq "triage" -and -not \$script:capStop\)'
+        $factoryScript | Should Match '\$over = Test-RunBudget \$Run\.runsUsed \$Run\.runLimit\s+if \(\$over\) \{ \$Run\.runCapStop = \$true; throw'
+        $factoryScript | Should Match 'if \(\$mode -eq "triage" -and -not \$stop\)'
         $factoryScript | Should Match 'Label \$n @\("factory:stuck", "waiting:stuck", "blocked:\$\(Get-BlockedCause \$why\)"\)'
-        $factoryScript | Should Match 'Write-Ledger \(New-LedgerEntry'
-        $factoryScript | Should Match '"--output-format", "json"'
+        $factoryScript | Should Match '\$entry = New-LedgerEntry \$step \$n'
+        $factoryScript | Should Match 'Write-Ledger \$entry'
+        (Get-Content (Join-Path $root 'scripts\factory\Controls.psm1') -Raw) | Should Match '"--output-format", "json"'   # every agent job's claude arguments
     }
     It 'running out of the day''s agent runs queues the report for tomorrow instead of marking it stuck' {
-        $catch = $factoryScript.Substring([regex]::Match($factoryScript, '(?m)^catch \{').Index)   # the run's own catch
-        $catch | Should Match 'if \(\$script:runCapStop\) \{'
+        $catch = $factoryScript.Substring([regex]::Match($factoryScript, '(?m)^    catch \{\r?\n        \$stop = ').Index)   # the report pass's own catch
+        $catch | Should Match 'if \(\$stop -eq "run-cap"\) \{'
         $catch | Should Match 'Label \$n "factory:queued" @\("factory:working", "triage:failed"\)'
-        $catch.IndexOf('$script:runCapStop') | Should BeLessThan $catch.IndexOf('"factory:stuck"')
+        $catch.IndexOf('$stop -eq "run-cap"') | Should BeLessThan $catch.IndexOf('"factory:stuck"')
         # A queued report is picked again: a routed one is triaged again, an approved fix is fixed.
         (Select-Report @((New-Rep 8 "problem", "triage:ready", "route:auto-fix", "factory:queued")) "abmorrill4" 0 1).Mode | Should Be "triage"
         (Select-Report @((New-Rep 6 "problem", "decision:fix", "factory:queued")) "abmorrill4" 0 0).Mode | Should Be "fix"
@@ -303,7 +310,7 @@ Describe 'The open factory PR limit' {
         (Select-Report @((New-Rep 8 "problem", "triage:ready", "factory:queued")) "abmorrill4" 0 1 $false).Mode | Should Be "triage"
     }
     It 'Invoke-Factory.ps1 holds a fix route at the limit and labels it' {
-        $factoryScript | Should Match 'if \(\$route\.build -and \$wipFull\)'
+        $factoryScript | Should Match 'if \(\$route\.build -and \$Run\.wipFull\)'
         $factoryScript | Should Match '"factory:wip-limit"\) \$stale'
     }
 }
@@ -336,9 +343,6 @@ Describe 'Holdout scenarios' {
         $saved -join ',' | Should Be "holdout-lint-table.ps1"
         Test-Path (Join-Path $TestDrive 'h2\holdout-ai-rewrite.ps1') | Should Be $false
     }
-    It 'a holdout failure is reported only when something failed' {
-        $factoryScript | Should Match 'if \(\$failed\.Count -and -not \(\$failed \| Where-Object \{ \(\"\" \+ \$_\.scenario\) -notlike "holdout-\*" \}\)\)'
-    }
     It 'saves only top-level .ps1 files with safe names, outside the checkout' {
         $list = { @([pscustomobject]@{ name = "ignore-sticks.ps1"; type = "file" }, [pscustomobject]@{ name = "README.md"; type = "file" },
                     [pscustomobject]@{ name = "sub"; type = "dir" }, [pscustomobject]@{ name = "..\evil.ps1"; type = "file" }) }
@@ -347,29 +351,12 @@ Describe 'Holdout scenarios' {
         $saved | Should Be "holdout-ignore-sticks.ps1"
         Get-Content (Join-Path $dest "holdout-ignore-sticks.ps1") -Raw | Should Match 'scenario ignore-sticks'
     }
-    # The order in Invoke-Factory.ps1: the holdout is fetched only after the fix agent has finished, and is gone before
-    # the review agent starts. The agent never holds a token, so it can't fetch them itself.
-    $fixAgent = $factoryScript.IndexOf('Agent $fixPrompt')
-    $fetch = $factoryScript.IndexOf('Save-Holdout {')
-    $review = $factoryScript.IndexOf('Agent $reviewPrompt')
-    It 'is fetched after the fix agent step' {
-        $fixAgent | Should BeGreaterThan 0
-        $fetch | Should BeGreaterThan $fixAgent
-        $factoryScript.IndexOf('Assert-CleanTree "The fixing agent"') | Should BeLessThan $fetch
-    }
-    It 'is fetched in one place only, from the private reports repo' {
-        ([regex]::Matches($factoryScript, 'Save-Holdout ')).Count | Should Be 1
-        ([regex]::Matches($factoryScript, [regex]::Escape('repos/$reports/contents/holdout'))).Count | Should Be 2   # the list (Get-HoldoutList) and one file
-        ([regex]::Matches($factoryScript, 'Get-HoldoutList')).Count | Should Be 2   # its definition and the one call inside Save-Holdout
-        $factoryScript.IndexOf('function Get-HoldoutList') | Should BeLessThan $fixAgent   # defined early, called late
-    }
-    It 'lands outside the checkout, runs with the public suite, and is deleted before the review agent' {
-        $factoryScript | Should Match '\$holdoutDir = Join-Path \$tmp "holdout-\$n"'
-        $factoryScript | Should Match 'Run-FlareE2E\.ps1 -Install -NoAi -OutDir \$e2eOut @e2eExtra'
-        $factoryScript | Should Match '"-ScenarioDir", \$holdoutDir'
-        $delete = $factoryScript.IndexOf('finally { Remove-Item $holdoutDir')
-        $delete | Should BeGreaterThan $fetch
-        $delete | Should BeLessThan $review
+    # The holdouts moved to the Flare check (factory-runtime spec section 7): the owner's gh sign-in on the host reads
+    # them, and FACTORY_GH_TOKEN no longer does. The run on the agents VM never fetches or runs one.
+    It 'the run never reads the holdout folder or runs the e2e harness' {
+        $factoryScript | Should Not Match 'contents/holdout'
+        $factoryScript | Should Not Match 'Save-Holdout'
+        $factoryScript | Should Not Match 'Run-FlareE2E'
     }
     It 'the fix prompt and the agent tools never mention it' {
         Get-Content (Join-Path $root '.github\factory\fix-prompt.md') -Raw | Should Not Match '(?i)holdout'

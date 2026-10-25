@@ -190,10 +190,10 @@ function ConvertFrom-LedgerComment([string]$body) {
     try { $m.Groups[1].Value | ConvertFrom-Json } catch { $null }
 }
 
-# Agent runs started on the UTC day of $now.
+# Agent runs started on the UTC day of $now. Marked entries (the trial warning, the fix-path pause) aren't runs.
 function Get-RunsToday($entries, [datetime]$now = (Get-Date)) {
     $day = $now.ToUniversalTime().ToString("yyyy-MM-dd")
-    @($entries | Where-Object { $_ -and ("" + $_.at).StartsWith($day) }).Count
+    @($entries | Where-Object { $_ -and $_.marked -ne $true -and ("" + $_.at).StartsWith($day) }).Count
 }
 
 # Why another agent run may not start, or $null. $used: runs today from the ledger, plus this run's own.
@@ -383,11 +383,21 @@ function New-AgentJob($ctx, [hashtable]$spec) {
     $tc = Get-JobTestChannel $ctx $spec.base
     # Each kind's fixed tool list. cover keeps today's: no tools at all.
     $tools = switch ($kind) { "triage" { Get-TriageTools $tc } "fix" { Get-FixTools $tc } "review" { $ReviewTools } default { "" } }
+    $turns = $MaxTurns
+    if ($spec.capture) {
+        # The capture dispatch's canary prompts (section 12): a review job with only the Read tool, and for the
+        # max-turns and error canaries one turn or a model that doesn't exist.
+        if ($kind -ne "review" -or $spec.capture.tools -ne "Read") { throw "A capture job is a review job with only the Read tool." }
+        $tools = "Read"
+        if ($spec.capture.maxTurns) { $turns = [int]$spec.capture.maxTurns }
+        if ($spec.capture.model -and $spec.capture.model -notmatch '^[a-z0-9-]{1,60}$') { throw "A capture job's model name isn't usable." }
+    }
     $claudeArgs = switch ($kind) {
         "cover" { @("-p", "--output-format", "json", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--max-turns", "1", "--no-session-persistence", "--system-prompt-file", "{{JOB}}\system.txt") }
-        { @("triage", "fix", "review") -contains $_ } { @("-p", "--output-format", "json", "--setting-sources", "user", "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", $DisallowedTools, "--max-turns", "$MaxTurns") }
+        { @("triage", "fix", "review") -contains $_ } { @("-p", "--output-format", "json", "--setting-sources", "user", "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", $DisallowedTools, "--max-turns", "$turns") }
         default { @() }
     }
+    if ($spec.capture -and $spec.capture.model) { $claudeArgs += @("--model", $spec.capture.model) }
     if ($isAgent) { [IO.File]::WriteAllText((Join-Path $dir "prompt.txt"), (Fill ("" + $spec.prompt)), $utf8) }
     if ($kind -eq "cover") { [IO.File]::WriteAllText((Join-Path $dir "system.txt"), (Fill ("" + $spec.system)), $utf8) }
     foreach ($k in @(if ($spec.inputs) { $spec.inputs.Keys })) {
@@ -638,6 +648,159 @@ function Remove-OldCaches([string]$root, [string]$current, [string]$agentSid) {
     })
 }
 
+# ==== The Flare check's outcomes (factory-runtime spec section 5) ====================================================
+# A vm outcome's strike and cap. trial-expired and trial-unknown count toward neither: the fix waits for the fix path.
+# not-picked-up counts toward neither (the cap decision).
+$NotPickedUpCountsTowardCap = $false
+$StrikeKinds = "not-ready", "no-start", "no-scenarios", "timeout"
+$CapOnlyKinds = "in-use", "busy", "interrupted", "no-result", "unreadable"
+function Get-OutcomeCharge([string]$kind) {
+    [pscustomobject]@{
+        strike = $StrikeKinds -contains $kind
+        cap = ($StrikeKinds -contains $kind) -or ($CapOnlyKinds -contains $kind) -or ($kind -eq "not-picked-up" -and $NotPickedUpCountsTowardCap)
+        waitsForPath = @("trial-expired", "trial-unknown") -contains $kind
+    }
+}
+# The private report's string for a vm outcome.
+function Get-OutcomeCopyKey([string]$kind) {
+    switch ($kind) {
+        "in-use" { "InUse" } "busy" { "Busy" } { @("interrupted", "no-result") -contains $_ } { "Interrupted" } "unreadable" { "ResultUnreadable" }
+        "not-picked-up" { "NotPickedUp" } { $StrikeKinds -contains $_ } { "CheckCouldntRun" } default { $null }
+    }
+}
+# Adds one vm outcome to a saved fix's state: strikes, and the counted outcomes of this UTC day. True when the fix now
+# waits for the owner: the third strike, or the sixth counted outcome in a day.
+function Add-VmOutcome($state, [string]$kind, [datetime]$now) {
+    $c = Get-OutcomeCharge $kind
+    $day = $now.ToUniversalTime().ToString("yyyy-MM-dd")
+    if ($state.vmDay -ne $day) { $state.vmDay = $day; $state.vmToday = 0 }
+    if ($c.strike) { $state.strikes = [int]$state.strikes + 1 }
+    if ($c.cap) { $state.vmToday = [int]$state.vmToday + 1 }
+    ([int]$state.strikes -ge 3) -or ([int]$state.vmToday -ge 6)
+}
+
+# A time the factory stored as text (ISO 8601, "o"), as UTC, so it compares right with Get-Now's UTC times.
+function ConvertTo-UtcTime($v) {
+    if ($v -is [datetime]) { return $v.ToUniversalTime() }
+    [datetime]::Parse(("" + $v), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+}
+
+# ==== The fix path (factory-runtime spec section 5, "When Flare can't be checked") =================================
+# Off while trial.json is expired, unknown or missing, or while the host isn't picking up checks: the latest request
+# ended not-picked-up, and none has been claimed in the last 2 hours although one was waiting. Returns on and reason
+# (trial-expired, license-lapsed, trial-unknown or host).
+function Test-HostStall($states, [datetime]$now) {
+    $now = $now.ToUniversalTime()
+    $s = @($states | Where-Object { $_ })
+    if (-not $s.Count) { return $false }
+    $latest = @($s | Where-Object { $_.lastOutcomeAt } | Sort-Object { (ConvertTo-UtcTime $_.lastOutcomeAt) } | Select-Object -Last 1)
+    if (-not $latest.Count -or $latest[0].lastOutcome -ne "not-picked-up") { return $false }
+    $window = $now.AddHours(-2)
+    if (@($s | Where-Object { $_.lastClaimAt -and ((ConvertTo-UtcTime $_.lastClaimAt)) -gt $window }).Count) { return $false }
+    [bool]@($s | Where-Object { $_.pendingSince -and ((ConvertTo-UtcTime $_.pendingSince)) -le $window }).Count
+}
+function Get-FixPathState($trial, $states, [datetime]$now) {
+    $t = if ($trial) { $trial } else { [pscustomobject]@{ state = "unknown"; endDate = $null; wasLicensed = $false } }
+    switch ($t.state) {
+        "expired" { return [pscustomobject]@{ on = $false; reason = $(if ($t.wasLicensed) { "license-lapsed" } else { "trial-expired" }) } }
+        { @("active", "licensed") -notcontains $_ } { return [pscustomobject]@{ on = $false; reason = "trial-unknown" } }
+    }
+    if (Test-HostStall $states $now) { return [pscustomobject]@{ on = $false; reason = "host" } }
+    [pscustomobject]@{ on = $true; reason = $null }
+}
+$PausedCopy = @{ "trial-expired" = "PausedTrial"; "license-lapsed" = "PausedLicense"; "trial-unknown" = "PausedUnknown"; "host" = "PausedHost" }
+$WaitingCopy = @{ "trial-expired" = "WaitingTrialEnded"; "license-lapsed" = "WaitingLicenseLapsed"; "trial-unknown" = "WaitingStateUnknown"; "host" = "WaitingHost" }
+# trial.json in the inbox, as host data. A missing file reads as unknown.
+function Read-TrialState([string]$root) {
+    $p = Join-Path $root "flare-inbox\trial.json"
+    $text = $null
+    try { $fi = New-Object IO.FileInfo $p; if ($fi.Exists -and $fi.Length -le 4096) { $text = [IO.File]::ReadAllText($p) } } catch { }
+    ConvertFrom-TrialJson $text
+}
+# The license gate: live needs trial.json to say licensed, else the run behaves as shadow.
+function Get-EffectiveMode([string]$mode, $trial) { if ($mode -eq "live" -and (-not $trial -or $trial.state -ne "licensed")) { "shadow" } else { $mode } }
+
+# ==== Marked ledger entries ===========================================================================================
+# The trial warning and the fix-path pause go on the ledger as marked entries, read back so each is posted once: the
+# warning once per end date, the pause once per new reason.
+function New-MarkedEntry([string]$step, [string]$key, [datetime]$at = (Get-Date)) {
+    [ordered]@{ at = $at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); step = $step; marked = $true; key = $key }
+}
+function Test-MarkedPosted($entries, [string]$step, [string]$key) {
+    [bool]@($entries | Where-Object { $_ -and $_.marked -eq $true -and $_.step -eq $step -and ("" + $_.key) -eq $key }).Count
+}
+# The pause entry is posted when the path turns off for a reason the last pause entry didn't name.
+function Test-PauseIsNew($entries, [string]$reason) {
+    $last = @($entries | Where-Object { $_ -and $_.marked -eq $true -and @("fix-path-paused", "fix-path-resumed") -contains $_.step } | Sort-Object { (ConvertTo-UtcTime $_.at) } | Select-Object -Last 1)
+    -not $last.Count -or $last[0].step -ne "fix-path-paused" -or ("" + $last[0].key) -ne $reason
+}
+# A trial warning is due when the trial ends in seven days or less, once per end date.
+function Get-TrialWarning($trial, $entries, [datetime]$now) {
+    if (-not $trial -or $trial.state -ne "active" -or -not $trial.endDate) { return $null }
+    $end = [datetime]::ParseExact($trial.endDate, "yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
+    if (($end - $now.Date).TotalDays -gt 7 -or (Test-MarkedPosted $entries "trial-warning" $trial.endDate)) { return $null }
+    $trial.endDate
+}
+
+# ==== The usage limit (factory-runtime spec section 3) ===============================================================
+# is_error true plus a result that matches the CLI's fixed usage-limit message. Until a real hit is captured as
+# claude-usage-limit.json (Build plan 9), this pattern is interim: the CLI's usage-limit message as Claude Code
+# prints it in -p mode, "Claude AI usage limit reached|<reset time>". Every is_error result is saved to
+# factory-logs\cli-errors, so the first real hit becomes the fixture.
+$UsageLimitPattern = '^Claude AI usage limit reached'
+$UsageLimitPatternSource = "interim: Claude Code's -p usage-limit message, until claude-usage-limit.json is captured"
+function Test-UsageLimit([string]$claudeJson) {
+    $o = $null
+    try { if ($claudeJson) { $o = $claudeJson | ConvertFrom-Json } } catch { return $false }
+    if ($o -is [array]) { $o = @($o | Where-Object { $_.type -eq "result" }) | Select-Object -Last 1 }
+    [bool]($o -and $o.is_error -eq $true -and ("" + $o.result) -match $UsageLimitPattern)
+}
+function Test-CliError([string]$claudeJson) {
+    $o = $null
+    try { if ($claudeJson) { $o = $claudeJson | ConvertFrom-Json } } catch { return $false }
+    if ($o -is [array]) { $o = @($o | Where-Object { $_.type -eq "result" }) | Select-Object -Last 1 }
+    [bool]($o -and $o.is_error -eq $true)
+}
+# A usage-limit stop in the last 60 minutes pauses new work.
+function Test-UsagePause($entries, [datetime]$now) {
+    $now = $now.ToUniversalTime()
+    [bool]@($entries | Where-Object { $_ -and $_.stopped -eq "usage-limit" -and ((ConvertTo-UtcTime $_.at)) -gt $now.AddMinutes(-60) }).Count
+}
+
+# ==== The fork-PR approval setting (factory-runtime spec section 7) ==================================================
+# The API's answer, read as the fork-pr-approval fixture shows it. Returns $null for all_external_contributors, else
+# why the run stops: any other value, a missing or renamed field, or an answer that isn't JSON.
+function Test-ForkApproval([string]$json) {
+    $o = $null
+    try { $o = $json | ConvertFrom-Json } catch { return (Format-Copy ForkApprovalChanged) }
+    if (-not $o -or $o -isnot [pscustomobject] -or @($o.PSObject.Properties.Name) -notcontains "approval_policy" -or $o.approval_policy -ne "all_external_contributors") { return (Format-Copy ForkApprovalChanged) }
+    $null
+}
+
+# ==== The agents VM's ready check (Test-FactoryReady.ps1 -NoFlare) ===================================================
+# What's wrong with the agents VM before a run, as a list. $root: C:\HouseStyle.
+function Get-AgentsVMProblems([string]$root = "C:\HouseStyle", [string]$agentSid) {
+    $p = @()
+    if (-not $agentSid) { $agentSid = try { (New-Object Security.Principal.NTAccount $AgentUser).Translate([Security.Principal.SecurityIdentifier]).Value } catch { "" } }
+    if (-not $agentSid) { return @("There's no agent user.") }
+    $free = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+    if ($free -lt 30) { $p += "Only $free GB free on C:." }
+    $task = Get-ScheduledTask -TaskName $AgentTaskName -ErrorAction SilentlyContinue
+    if (-not $task -or "$($task.State)" -ne "Ready") { $p += "The agent task isn't ready." }
+    if (@(Get-AgentProcesses $agentSid).Count) { $p += "An agent user process is still running." }
+    if (Test-RestoreRule) { $p += "The package restore's access is still open." }
+    foreach ($c in (Get-CacheFolders $root)) { if (Test-CacheWritable $c.FullName $agentSid) { $p += "A package cache is still writable: $($c.Name)." } }
+    foreach ($n in "$EgressPrefix DNS (UDP)", "$EgressPrefix Anthropic (agent)", "$EgressPrefix GitHub (script)") { if (-not (Get-NetFirewallRule -DisplayName $n -ErrorAction SilentlyContinue)) { $p += "The egress rule '$n' is missing." } }
+    if (@(Get-NetFirewallProfile | Where-Object { "$($_.DefaultOutboundAction)" -ne "Block" }).Count) { $p += "Outbound traffic isn't blocked by default." }
+    $op = (& wevtutil.exe gl Microsoft-Windows-TaskScheduler/Operational) -join "`n"
+    if ($op -notmatch '(?m)^enabled:\s*true') { $p += "The Task Scheduler Operational log is off." }
+    $p += @(Test-EventLogRestriction $agentSid)
+    $w = @(Get-UserWritable -Sid $agentSid -Quick)
+    if ($w.Count) { $p += "The quick write scan found $($w.Count) places the agent user could change, the first $($w[0].path)." }
+    if (-not (Test-Path -LiteralPath (Join-Path $root "carry-done"))) { $p += "There's no carry-done: the agents VM's reset hasn't finished." }
+    $p
+}
+
 # ==== Text from the agents VM =========================================================================================
 # Everything the script logs or posts from a job is checked for the token first. A hit is an agent-output refusal.
 function Test-AgentText([string]$text, [string]$token) { -not ($token -and (Test-TokenText $text $token)) }
@@ -780,4 +943,6 @@ Export-ModuleMember -Function Get-FactoryMode, Join-ProcessArguments, Invoke-Age
     Test-SameHashes, ConvertFrom-FlareCheckResult, Read-FlareCheckResult, ConvertFrom-TrialJson, Test-GitConfigScopes, Assert-GitConfig, Format-Copy, Get-AgentChannels, Get-AgentSignIn, New-JobContext, Get-JobTestChannel, New-AgentJob, Start-AgentTask, Stop-AgentTask,
     Get-AgentTaskState, ConvertFrom-TaskEventXml, Get-TaskEvents, Wait-AgentTask, Remove-AgentTasksAndBits, Clear-JobFolders, Reset-AgentProfile, Invoke-Sweep,
     Read-JobOutput, Invoke-AgentJob, New-RunId, Get-CacheFolders, Test-CacheLocked, Test-CacheWritable, Get-NewestLockedCache, Remove-UnlockedCaches,
-    New-RunCache, Test-CacheLinks, Lock-RunCache, Remove-OldCaches, Test-AgentText -Variable FactoryCopy, FactoryModes, AgentKinds, JobKinds, AgentTaskName, JobFiles, FlareOutcomes, FlareVmKinds, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths
+    New-RunCache, Test-CacheLinks, Lock-RunCache, Remove-OldCaches, Test-AgentText, Get-OutcomeCharge, Get-OutcomeCopyKey, Add-VmOutcome, Test-HostStall,
+    Get-FixPathState, Read-TrialState, Get-EffectiveMode, New-MarkedEntry, Test-MarkedPosted, Test-PauseIsNew, Get-TrialWarning, Test-UsageLimit, Test-CliError,
+    Test-UsagePause, Test-ForkApproval, Get-AgentsVMProblems, ConvertTo-UtcTime -Variable NotPickedUpCountsTowardCap, StrikeKinds, CapOnlyKinds, PausedCopy, WaitingCopy, UsageLimitPattern, UsageLimitPatternSource, FactoryCopy, FactoryModes, AgentKinds, JobKinds, AgentTaskName, JobFiles, FlareOutcomes, FlareVmKinds, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths

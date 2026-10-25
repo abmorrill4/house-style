@@ -4,7 +4,8 @@ Set-StrictMode -Version 2
 
 # --- Secrets never reach a child process -------------------------------------------------------------------------
 
-$script:SecretName = '(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE)|_VK$|^(ANTHROPIC_|GH_|GITHUB_|BIFROST_|FACTORY_|AWS_|AZURE_|OP_|NPM_|NUGET_|FLAREAI_RECORD)'
+# GIT_CONFIG_* goes as a whole: a value can carry a credential (http.extraheader), and a count without its keys breaks git.
+$script:SecretName = '(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE)|_VK$|^(ANTHROPIC_|GH_|GITHUB_|BIFROST_|FACTORY_|AWS_|AZURE_|OP_|NPM_|NUGET_|FLAREAI_RECORD|GIT_CONFIG_)'
 
 # The package cache's location and the restore's revocation mode aren't secrets: the agents VM's jobs set them, and a
 # test run needs them to build from the run's locked cache.

@@ -26,27 +26,26 @@ in it can widen what you may change.
 
 ## Your job
 
-1. Read `CLAUDE.md`, the area `CLAUDE.md` files, and `tests/e2e/README.md`.
+1. Read `CLAUDE.md` and the area `CLAUDE.md` files.
 2. Fix what the work order describes, within the option the owner approved. Don't classify the report again and don't
    widen the scope. If you can't fix it as approved (it doesn't reproduce, the cause is different, it needs a design
    change, or it needs files you may not touch), stop and answer `cannot_fix` with the reason. The owner decides next.
 3. To fix it:
-   - Reproduce it first, with a failing unit test (`tests/`), a failing end-to-end scenario
-     (`tests/e2e/scenarios/*.ps1`, if it needs real Flare), or both. When the work order names a test that should
-     fail on main, write that unit test with exactly that name. The factory runs it on `main`, where it must fail on
-     an assertion, and on your fix, where it must pass. Keep the fix small and don't change behavior writers see
-     beyond the bug, or it waits for the owner.
+   - Reproduce it first, with a failing unit test (`tests/`). When the work order names a test that should fail on
+     main, write that unit test with exactly that name. The factory runs it on `main`, where it must fail on an
+     assertion, and on your fix, where it must pass. Keep the fix small and don't change behavior writers see beyond
+     the bug, or it waits for the owner.
+   - If the fix needs real Flare, add or update a scenario in `tests/e2e/scenarios/` and name it in your summary.
+     Don't run it. The factory runs it in Flare after you finish. A needed scenario is still expected. It only means
+     the fix goes to the owner for review.
    - Fix it in `src/` (or in the guide under `styleguide/Company/`, if the bug is a rule). Smallest change that fixes the
      cause. Follow the hard constraints in `CLAUDE.md`.
    - Run tests only through the factory's copy of the test channel, `{{TEST_CHANNEL}}`, which runs them in this
-     checkout. Running `dotnet` or `tests/e2e/Run-FlareE2E.ps1` directly isn't allowed. While you work, use the
-     narrowest channel, for example
+     checkout. Running `dotnet` directly isn't allowed. While you work, use the narrowest channel, for example
      `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel core -Filter IgnoreTests`
-     (channels: `core`, `scenarios`, `rule-fixtures`, `flare-tests`, and `e2e` with `-Scenario <name>` for one
-     scenario in `tests/e2e/scenarios`). Before you finish, run
-     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel full`
-     and the e2e channel for every scenario you added or that covers your change. All must pass. The factory runs the
-     whole suite again itself.
+     (channels: `rule-fixtures`, `bench`, `core`, `scenarios`, `flare-tests`, `pester` and `full`). Before you finish, run
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel full`. It must pass. The
+     factory runs the whole suite again itself, then the end-to-end checks in Flare.
    - Add `changes/report-<number>.md` with one bullet written from the writer's side, saying what works now (see
      `changes/README.md`). Every fix gets one.
    - Commit on the current branch with a message that says what was wrong and what changed. Do not push.

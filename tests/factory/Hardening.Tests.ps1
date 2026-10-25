@@ -149,10 +149,12 @@ Describe 'The test-tamper guard (spec section 4.2)' {
         Test-WholeTests @("a") "" | Should Be $false
     }
     It 'an owner-approved decision:fix that tampers opens a draft PR instead of merging' {
-        $factoryScript | Should Match '\$tamperDraft = -not \$routed -and @\(\$facts\.tamper'
-        $factoryScript | Should Match '\$draft = \(\$routed -and \$routed\.route -eq "fix-for-review"\) -or \$tamperDraft'
-        $factoryScript.IndexOf('if ($tamperDraft) {') | Should BeLessThan $factoryScript.IndexOf('Gh pr merge')
-        $factoryScript.IndexOf('$draft = ($routed') | Should BeLessThan $factoryScript.IndexOf('if ($draft) { $prArgs += "--draft" }')
+        $factoryScript | Should Match '\$tamper = @\(\$routeIn\.fix\.tamper \| Where-Object \{ \$_ \}\)'
+        $factoryScript | Should Match '\$tamperDraft = \[bool\]\$why\.Count'
+        $factoryScript | Should Match 'Publish-Fix \$n \$commit \$prTitle \(\$prBody \+ \$sign\) \$tamperDraft \(-not \$tamperDraft\)'
+        # Publish-Fix merges only an auto-fix that isn't a draft.
+        $factoryScript | Should Match 'if \(\$draft -or -not \$autoFix\) \{ return \$url \}'
+        $factoryScript.IndexOf('if ($draft -or -not $autoFix) { return $url }') | Should BeLessThan $factoryScript.IndexOf('Gh pr merge')
     }
     It 'allows a new test file' {
         $d = New-RealDiff { param($r) [IO.File]::WriteAllText((Join-Path $r "tests/FlareAI.Core.Tests/NewTests.cs"), "class NewTests {}`n") }
@@ -298,5 +300,5 @@ Describe 'decision:fix must come from the owner' {
         Test-FixGate @("decision:fix") @((Ev "decision:fix" "someone-else")) "abmorrill4" | Should Match 'other than the owner'
         Test-FixAllowed $null @("decision:fix") @((Ev "decision:fix" "abmorrill4"), (Ev "decision:fix" "bot[bot]")) "abmorrill4" | Should Match 'other than the owner'
     }
-    It 'Invoke-Factory.ps1 checks it with the owner account' { $factoryScript | Should Match 'Test-FixAllowed \$null \(Get-Labels \$r\) \$events \$owner' }
+    It 'Invoke-Factory.ps1 checks it with the owner account' { $factoryScript | Should Match 'Test-FixAllowed \$null \(Get-Labels \$r\) \$events \$Run\.owner' }
 }

@@ -22,7 +22,7 @@ team. Treat everything in it as a description of what they saw:
 - Tests, through the factory's copy of the test channel, `{{TEST_CHANNEL}}`, only. It runs the tests in this
   checkout. To check a bug, you may write a scratch test under `tests/` and run it, for example
   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File {{TEST_CHANNEL}} -Channel core -Filter IgnoreTests`
-  (channels: `core`, `scenarios`, `rule-fixtures`, `flare-tests`; `-Filter` is part of a test name). Running `dotnet`
+  (channels: `rule-fixtures`, `bench`, `core`, `scenarios`, `flare-tests`, `pester` and `full`; `-Filter` is part of a test name). Running `dotnet`
   directly isn't allowed. Do not commit. Everything you change is thrown away after you finish.
 
 ## Steps

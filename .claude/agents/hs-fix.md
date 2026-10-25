@@ -42,7 +42,7 @@ CI, workflows, scripts or permissions), answer `cannot_fix`.
    `scripts/agent/repro-must-fail.ps1 -Test <name> -Channel <channel> -BaseOnly` or the channel run.
 2. Fix the cause in `src/` (or `styleguide/Company/` for a rule). Follow the `coding-standards` skill.
 3. Run the narrowest channel while you work, then `scripts/agent/test-channel.ps1 -Channel full`. A UI change also
-   needs its e2e scenario on the factory VM.
+   needs its e2e scenario on the Flare VM.
 4. Add `changes/<branch-or-report>.md`, one bullet from the writer's side (`changes/README.md`).
 5. Commit with a message that says what was wrong and what changed. Don't push.
 
