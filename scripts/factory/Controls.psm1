@@ -31,6 +31,7 @@ $FactoryCopy = @{
     RestoreLeftOpen = "The package restore's access didn't close on the agents VM. That points at the agents VM rather than the fix."
     CacheHadLink = "The package cache on the agents VM held a link, so the run stopped. That points at the agents VM rather than the fix."
     TaskDidntStop = "The agent task on the agents VM didn't stop. That points at the agents VM rather than the fix."
+    LaunchFailed = "The agent task on the agents VM stopped before it ran the job. That points at the agents VM rather than the fix."
     SavedFixLost = "The saved fix for this report was lost on the agents VM. That points at the agents VM rather than the fix."
     AgentOutputRefused = "The agent's output on the agents VM was missing or couldn't be read safely, so the factory didn't use it."
     RouteAutoFixPaths = "the fix changes files auto-fix doesn't cover ({paths})"
@@ -359,6 +360,9 @@ function New-AgentJob($ctx, [hashtable]$spec) {
     $kind = "" + $spec.kind
     if ($JobKinds -cnotcontains $kind) { throw "A job's kind must be one of $($JobKinds -join ', ')." }
     if (("" + $spec.base) -cnotmatch '^[0-9a-f]{40}$') { throw "A job's base must be a 40-character commit." }
+    # The bundle file: the run's (main's history holds every saved fix's base), or the base's own when not given.
+    $bundle = if ($spec.bundle) { "" + $spec.bundle } else { "" + $spec.base }
+    if ($bundle -cnotmatch '^[0-9a-f]{40}$') { throw "A job's bundle must be named by a 40-character commit." }
     $limit = if ($spec.limitSeconds) { [int]$spec.limitSeconds } else { $ctx.limitMinutes * 60 }
     if ($limit -lt 1 -or $limit -gt $ctx.limitMinutes * 60) { throw "A job's limit must be within limits.agentMinutes ($($ctx.limitMinutes) minutes)." }
     if ($kind -eq "test") {
@@ -412,7 +416,7 @@ function New-AgentJob($ctx, [hashtable]$spec) {
         [IO.File]::WriteAllText((Join-Path $dir "nuget.config"), "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<configuration>`n  <packageSources>`n    <clear />`n$feeds  </packageSources>`n</configuration>`n", $utf8)
     }
     $job = [ordered]@{
-        id = $id; kind = $kind; base = "" + $spec.base; limitSeconds = $limit; cache = "" + $ctx.cache; channels = $ctx.channels
+        id = $id; kind = $kind; base = "" + $spec.base; bundle = $bundle; limitSeconds = $limit; cache = "" + $ctx.cache; channels = $ctx.channels
         channel = "" + $spec.channel; filter = "" + $spec.filter; exact = [bool]$spec.exact; path = "" + $spec.path; patch = "" + $spec.patch
         tools = $tools; claudeArgs = @($claudeArgs)
     }
@@ -528,23 +532,44 @@ $JobFiles = @{
     cover   = @()
     fix     = @(@{ name = "result.json"; max = 64KB; required = $true }, @{ name = "fix.patch"; max = 1MB; required = $true }, @{ name = "commits.txt"; max = 64KB; required = $true }, @{ name = "status.txt"; max = 64KB; required = $true })
     review  = @(@{ name = "result.json"; max = 64KB; required = $true })
-    test    = @(@{ name = "results\results.trx"; max = 8MB; required = $false }, @{ name = "results\pester.json"; max = 8MB; required = $false })
+    test    = @(@{ name = "results\pester.json"; max = 8MB; required = $false })   # and every TRX (Get-JobTrxPaths)
     restore = @()
 }
+# A test job's TRX files: one per test project, any name, under out\results. Folders that are links aren't entered.
+$TrxCap = 32
+function Get-JobTrxPaths([string]$dir, [int]$depth = 0) {
+    if ($depth -gt 3 -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+    foreach ($i in @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+        if ($i.PSIsContainer) { if (-not ($i.Attributes -band [IO.FileAttributes]::ReparsePoint)) { Get-JobTrxPaths $i.FullName ($depth + 1) } }
+        elseif ($i.Name -like "*.trx") { $i.FullName }
+    }
+}
 # Reads the job's fixed files through Read-GuardedFile, and refuses any that holds the token. Returns files (name ->
-# text, by leaf name) and refused (why, or $null).
+# text, by leaf name), trx (every TRX's text, for a test job, at most $TrxCap) and refused (why, or $null).
+# missing: the launcher left no launcher.json, so it stopped before it ran anything (an agents VM failure).
 function Read-JobOutput($ctx, [string]$id, [string]$kind) {
     $out = Join-Path $ctx.work "$id\out"
-    $files = @{}
+    $files = @{}; $trx = New-Object System.Collections.ArrayList
+    if (-not (Test-Path -LiteralPath (Join-Path $out "launcher.json"))) { return [pscustomobject]@{ files = $files; trx = @(); refused = $null; missing = $true } }
     foreach ($f in @($JobFiles.common) + @($JobFiles[$kind])) {
         $p = Join-Path $out $f.name
         if (-not $f.required -and -not (Test-Path -LiteralPath $p)) { continue }
         $r = Read-GuardedFile $p $ctx.work $ctx.agentSid $f.max
-        if (-not $r.ok) { return [pscustomobject]@{ files = $files; refused = $r.why } }
-        if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; refused = "$($f.name) holds the sign-in token" } }
+        if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $false } }
+        if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "$($f.name) holds the sign-in token"; missing = $false } }
         $files[(Split-Path $f.name -Leaf)] = $r.text
     }
-    [pscustomobject]@{ files = $files; refused = $null }
+    if ($kind -eq "test") {
+        $paths = @(Get-JobTrxPaths (Join-Path $out "results"))
+        if ($paths.Count -gt $TrxCap) { return [pscustomobject]@{ files = $files; trx = @(); refused = "the test job left more than $TrxCap TRX files"; missing = $false } }
+        foreach ($p in $paths) {
+            $r = Read-GuardedFile $p $ctx.work $ctx.agentSid 8MB
+            if (-not $r.ok) { return [pscustomobject]@{ files = $files; trx = @(); refused = $r.why; missing = $false } }
+            if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; trx = @(); refused = "a TRX file holds the sign-in token"; missing = $false } }
+            [void]$trx.Add($r.text)
+        }
+    }
+    [pscustomobject]@{ files = $files; trx = $trx.ToArray(); refused = $null; missing = $false }
 }
 
 # ---- One job --------------------------------------------------------------------------------------------------------
@@ -552,7 +577,7 @@ function Read-JobOutput($ctx, [string]$id, [string]$kind) {
 # timedOut, files, refused (a refused read: agent-output) and stuck (a factory string for an agents VM failure, which
 # leaves the report blocked:vm).
 function Invoke-AgentJob($ctx, [hashtable]$spec) {
-    $r = [pscustomobject]@{ id = $null; kind = "" + $spec.kind; exit = $null; timedOut = $false; files = @{}; refused = $null; stuck = $null }
+    $r = [pscustomobject]@{ id = $null; kind = "" + $spec.kind; exit = $null; timedOut = $false; files = @{}; trx = @(); refused = $null; stuck = $null }
     $why = Invoke-Sweep $ctx
     if ($why) { $r.stuck = $why; return $r }
     if ($spec.kind -eq "restore") {
@@ -571,7 +596,9 @@ function Invoke-AgentJob($ctx, [hashtable]$spec) {
     if ($why) { $r.stuck = $why; return $r }
     if ($spec.kind -eq "restore" -and (Test-RestoreRule)) { $r.stuck = "RestoreLeftOpen"; return $r }
     $read = Read-JobOutput $ctx $r.id $spec.kind
-    $r.files = $read.files; $r.refused = $read.refused
+    $r.files = $read.files; $r.trx = $read.trx; $r.refused = $read.refused
+    # No launcher.json: the launcher stopped before it ran anything (a bad job, the sign-in, the clone or the Job Object).
+    if ($read.missing) { $r.stuck = "LaunchFailed"; return $r }
     # The launcher's own record of the child's exit code, when the task's events didn't give one.
     if ($null -eq $r.exit -and $read.files["launcher.json"]) { try { $r.exit = [int](($read.files["launcher.json"] | ConvertFrom-Json).exit) } catch { } }
     $r
@@ -792,6 +819,8 @@ function Get-AgentsVMProblems([string]$root = "C:\HouseStyle", [string]$agentSid
     foreach ($c in (Get-CacheFolders $root)) { if (Test-CacheWritable $c.FullName $agentSid) { $p += "A package cache is still writable: $($c.Name)." } }
     foreach ($n in "$EgressPrefix DNS (UDP)", "$EgressPrefix Anthropic (agent)", "$EgressPrefix GitHub (script)") { if (-not (Get-NetFirewallRule -DisplayName $n -ErrorAction SilentlyContinue)) { $p += "The egress rule '$n' is missing." } }
     if (@(Get-NetFirewallProfile | Where-Object { "$($_.DefaultOutboundAction)" -ne "Block" }).Count) { $p += "Outbound traffic isn't blocked by default." }
+    $foreign = @(Get-ForeignOutboundRules)
+    if ($foreign.Count) { $p += "Windows' own outbound allow rules are on again: $(@($foreign | Select-Object -First 3 | ForEach-Object DisplayName) -join ', ')." }
     $op = (& wevtutil.exe gl Microsoft-Windows-TaskScheduler/Operational) -join "`n"
     if ($op -notmatch '(?m)^enabled:\s*true') { $p += "The Task Scheduler Operational log is off." }
     $p += @(Test-EventLogRestriction $agentSid)

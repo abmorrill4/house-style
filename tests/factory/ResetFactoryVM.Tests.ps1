@@ -24,6 +24,7 @@ Describe 'Reset-FactoryVM.ps1 (P16)' {
     }
     # The script's own seams, answered here; dot-sourced after the script, which defines some of them itself.
     $Seams = {
+    function Test-HostStateAcl { @() }
     function Get-HostNow { $global:Clock }
     function Wait-Briefly([int]$s) { $global:Clock = $global:Clock.AddSeconds($s) }
     function Test-Checkpoint([string]$vm, [string]$n) { [void]$global:Ops.Add("test:${vm}:$n"); $global:HasBase }
@@ -141,4 +142,11 @@ Describe 'Reset-FactoryVM.ps1 (P16)' {
         $ops -contains "write:flare-inbox\trial.json" | Should Be $true
         Test-Path (Get-FlagPath HSFACTORY) | Should Be $false
     }
-}
+    It 'a wrong owner or ACL on the host state folders stops either reset before anything else' {
+        $v = New-Root "acl"; . $reset -Name HSAGENTS -Root $v; . $Seams; Start-World
+        function Test-HostStateAcl { @("E:\HouseStyle\vm\flare-pending lets Users write") }
+        Invoke-Reset | Should Be "acl"
+        $global:Ops.Count | Should Be 0
+        Test-Path (Get-FlagPath HSAGENTS) | Should Be $false
+        (Get-Content (Get-HostPath "host.log") -Raw) | Should Match "host state folders' owner or ACL is wrong"
+    }}

@@ -155,14 +155,14 @@ function Get-ChannelCommand {
         { $_ -in 'rule-fixtures', 'core', 'scenarios', 'flare-tests' } {
             $a = @('test', $c.Project, '--nologo')
             if ($Filter) { $a += @('--filter', "FullyQualifiedName~$Filter") }
-            if ($ResultsDir) { $a += @('--logger', 'trx;LogFileName=results.trx', '--results-directory', $ResultsDir) }
+            if ($ResultsDir) { $a += @('--logger', 'trx', '--results-directory', $ResultsDir) }   # no fixed name: each test project writes its own TRX
             return [pscustomobject]@{ FilePath = 'dotnet'; ArgumentList = $a; WorkingDirectory = $RepoRoot }
         }
         'full' {
             if ($Filter -and -not $Exact) { throw "The full channel runs every test; use a narrower channel to filter, or -Exact for one test." }
             $a = @('test', 'FlareAI.sln', '-c', 'Release', '--nologo')
             if ($Exact) { $a += @('--filter', "FullyQualifiedName=$Filter") }
-            if ($ResultsDir) { $a += @('--logger', 'trx;LogFileName=results.trx', '--results-directory', $ResultsDir) }
+            if ($ResultsDir) { $a += @('--logger', 'trx', '--results-directory', $ResultsDir) }   # no fixed name: each test project writes its own TRX
             return [pscustomobject]@{ FilePath = 'dotnet'; ArgumentList = $a; WorkingDirectory = $RepoRoot }
         }
         'bench' {

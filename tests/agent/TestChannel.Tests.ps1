@@ -20,7 +20,7 @@ Describe 'Get-ChannelCommand' {
     }
     It 'asks for a TRX file when given a results folder' {
         $c = Get-ChannelCommand -Channel scenarios -RepoRoot $repo -ResultsDir 'C:\r'
-        ($c.ArgumentList -join ' ') | Should Match 'trx;LogFileName=results.trx --results-directory C:\\r'
+        ($c.ArgumentList -join ' ') | Should Match '--logger trx --results-directory C:\\r'
     }
     It 'runs Pester 3 on a path under tests/' {
         $c = Get-ChannelCommand -Channel pester -RepoRoot $repo -Path 'tests/agent'
@@ -119,7 +119,7 @@ Describe 'The factory-runtime channel rules (spec section 4; P14)' {
     }
     It '-Exact builds one exact test name on the full channel, with a fixed TRX name' {
         $c = Get-ChannelCommand -Channel full -RepoRoot $repo -Filter 'FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint' -Exact -ResultsDir 'C:\r'
-        ($c.ArgumentList -join ' ') | Should Be 'test FlareAI.sln -c Release --nologo --filter FullyQualifiedName=FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint --logger trx;LogFileName=results.trx --results-directory C:\r'
+        ($c.ArgumentList -join ' ') | Should Be 'test FlareAI.sln -c Release --nologo --filter FullyQualifiedName=FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint --logger trx --results-directory C:\r'
     }
     It '-Exact is refused with another channel, without a name, or with a filter that isn''t one name' {
         { Get-ChannelCommand -Channel core -RepoRoot $repo -Filter 'A.B' -Exact } | Should Throw 'only with -Channel full'

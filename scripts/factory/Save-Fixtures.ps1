@@ -71,6 +71,7 @@ function Protect-FixtureText([string]$t, [switch]$Network) {
 function Protect-Value($v, [switch]$Network) {
     if ($null -eq $v) { return $null }
     if ($v -is [string]) { return (Protect-FixtureText $v -Network:$Network) }
+    if ($v -is [array]) { return ,@(foreach ($x in $v) { Protect-Value $x -Network:$Network }) }   # trxFiles: one text per project
     $v
 }
 
@@ -294,6 +295,24 @@ namespace Probe.Tests
             $r = Invoke-Raw "dotnet.exe" @("test", $proj, "-c", "Release", "--filter", "FullyQualifiedName=$($c.name)", "--logger", "trx", "--results-directory", $res) $work @{ DOTNET_CLI_TELEMETRY_OPTOUT = "1"; MSBUILDDISABLENODEREUSE = "1" }
             $trx = @(Get-ChildItem $res -Filter *.trx -Recurse -ErrorAction SilentlyContinue | ForEach-Object { [IO.File]::ReadAllText($_.FullName) })
             $cases += @{ case = $c.case; command = "dotnet test <project> -c Release --filter FullyQualifiedName=$($c.name) --logger trx --results-directory <dir>"; exit = $r.exit; stdout = $r.stdout; stderr = $r.stderr; trx = $(if ($trx.Count) { $trx[0] } else { $null }) }
+        }
+        Remove-Item (Join-Path $proj "Broken.cs")
+        # A solution of eight test projects, run the way the full channel runs one test (-Exact): every project writes
+        # its own TRX into the one results folder, and only one of them holds the test.
+        $sln = Join-Path $work "Probe.sln"
+        Invoke-Raw "dotnet.exe" @("new", "sln", "-n", "Probe", "-o", $work) $work @{ DOTNET_CLI_TELEMETRY_OPTOUT = "1" } | Out-Null
+        Invoke-Raw "dotnet.exe" @("sln", $sln, "add", (Join-Path $proj "Probe.Tests.csproj")) $work @{ DOTNET_CLI_TELEMETRY_OPTOUT = "1" } | Out-Null
+        foreach ($i in 1..7) {
+            $other = Join-Path $work "Other$i.Tests"; New-Item -ItemType Directory -Force $other | Out-Null
+            [IO.File]::WriteAllText((Join-Path $other "Other$i.Tests.csproj"), [IO.File]::ReadAllText((Join-Path $proj "Probe.Tests.csproj")))
+            [IO.File]::WriteAllText((Join-Path $other "OtherTests.cs"), "using Xunit;`n`nnamespace Other$i.Tests`n{`n    public class OtherTests`n    {`n        [Fact]`n        public void Works() { Assert.True(true); }`n    }`n}`n")
+            Invoke-Raw "dotnet.exe" @("sln", $sln, "add", (Join-Path $other "Other$i.Tests.csproj")) $work @{ DOTNET_CLI_TELEMETRY_OPTOUT = "1" } | Out-Null
+        }
+        foreach ($c in @(@{ case = "multi-project-fail"; name = "Probe.Tests.ProbeTests.FailsAnAssertion" }, @{ case = "multi-project-pass"; name = "Probe.Tests.ProbeTests.Passes" })) {
+            $res = Join-Path $work "results-$($c.case)"
+            $r = Invoke-Raw "dotnet.exe" @("test", $sln, "-c", "Release", "--nologo", "--filter", "FullyQualifiedName=$($c.name)", "--logger", "trx", "--results-directory", $res) $work @{ DOTNET_CLI_TELEMETRY_OPTOUT = "1"; MSBUILDDISABLENODEREUSE = "1" }
+            $trx = @(Get-ChildItem $res -Filter *.trx -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object { [IO.File]::ReadAllText($_.FullName) })
+            $cases += @{ case = $c.case; command = "dotnet test <solution of 8 test projects> -c Release --nologo --filter FullyQualifiedName=$($c.name) --logger trx --results-directory <dir>"; exit = $r.exit; stdout = $r.stdout; stderr = $r.stderr; trxFiles = @($trx) }
         }
         Write-Fixture "trx" "dotnet" $ver "host" $cases
     }

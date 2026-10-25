@@ -103,7 +103,7 @@ function Initialize-RunCache {
 function Initialize-Labels { }
 # Scripted jobs: each kind answers from $W.agents (a scriptblock per kind) or a default.
 function Invoke-Job([hashtable]$spec) {
-    [void]$global:W.jobs.Add([pscustomobject]@{ kind = $spec.kind; base = $spec.base; channel = $spec.channel; exact = $spec.exact; patch = $spec.patch; cache = $Run.cache; at = $global:W.now; calls = $global:W.calls.Count })
+    [void]$global:W.jobs.Add([pscustomobject]@{ kind = $spec.kind; base = $spec.base; bundle = $spec.bundle; channel = $spec.channel; exact = $spec.exact; patch = $spec.patch; cache = $Run.cache; at = $global:W.now; calls = $global:W.calls.Count })
     [void]$global:W.calls.Add("job:$($spec.kind):$($spec.base)")
     if ($global:W.agents.ContainsKey($spec.kind)) { return (& $global:W.agents[$spec.kind] $spec) }
     $ok = '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"done","usage":{"input_tokens":10,"output_tokens":20}}'

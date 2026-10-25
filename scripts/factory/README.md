@@ -4,8 +4,8 @@ Two Hyper-V VMs on the owner's PC do the work.
 
 - **The agents VM (HSAGENTS)** runs the factory, which works through tester reports from the private
   `house-style-reports` repo. Its GitHub Actions runner has the `agents` label. Every agent job runs as the
-  `hsagent` user with its own token, and the VM can reach only GitHub, Anthropic and, during a restore, NuGet. It has
-  no Flare.
+  `hsagent` user with only the Claude sign-in token, never a GitHub one. `hsagent` can reach only Anthropic, and NuGet
+  during a package restore. The script user that runs the factory reaches GitHub. The VM has no Flare.
 - **The Flare VM (HSFACTORY)** runs real Flare for the end-to-end checks (`tests/e2e`) and, as a runner with the
   `flare` label, the e2e workflow on every pull request from this repository's own branches. It also runs each saved
   fix's Flare check, which the host starts (below). The factory never runs here.
@@ -116,7 +116,10 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | 7 | plan | a `feature` or `friction` ask no open issue covers | A public `from:tester` + `loop:auto` issue in our words, listing only the uncovered asks, with its `area:*` label, in Later on the board |
 | 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue, with its `area:*` label, in Later on the board |
 
-Auto-fix covers only the paths in `rules/routing.json`'s `autoFix.paths` and `autoFix.dataPaths`. A fix that changes any other file, or whose note has a link or runs past 20 lines, goes to fix-for-review instead.
+Auto-fix covers only the paths in `rules/routing.json`'s `autoFix.paths` (C# under `src/` and `tests/`) and
+`autoFix.dataPaths` (the fix's own note under `changes/`). The note must be new, with no link, and at most 20 lines
+and 1,000 characters. A fix that changes any other file, or edits a note, or whose note breaks those limits, goes to
+fix-for-review instead.
 
 **Split reports.** The brief splits a report into its asks (one to four), and routing works per ask. Which open
 issue covers each ask, and how much, is decided by the coverage judge (`.github/factory/cover-prompt.md`): Sonnet with

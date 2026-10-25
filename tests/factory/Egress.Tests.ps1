@@ -50,3 +50,26 @@ Describe 'Get-EgressRules (P12)' {
         $s | Should Match 'Get-EgressRules agents'
     }
 }
+
+Describe 'Windows'' own outbound allow rules (P12)' {
+    function New-Rule($name, $display, $dir = "Outbound", $action = "Allow", $enabled = "True") { [pscustomobject]@{ Name = $name; DisplayName = $display; Direction = $dir; Action = $action; Enabled = $enabled } }
+    $rules = @(
+        (New-Rule "CoreNet-ICMP6-NDS-Out" "Core Networking - Neighbor Discovery Solicitation (ICMPv6-Out)"),
+        (New-Rule "DeliveryOptimization-TCP-Out" "Delivery Optimization (TCP-Out)"),
+        (New-Rule "CoreNet-DHCP-Out" "Core Networking - Dynamic Host Configuration Protocol (DHCP-Out)"),
+        (New-Rule "{1}" "House Style egress Anthropic (agent)"),
+        (New-Rule "x-off" "Something disabled" "Outbound" "Allow" "False"),
+        (New-Rule "x-in" "Something inbound" "Inbound"),
+        (New-Rule "x-block" "Something blocking" "Outbound" "Block"))
+    It 'lists every enabled outbound allow rule but ours and DHCP''s, which setup turns off and the ready check reports' {
+        @(Get-ForeignOutboundAllows $rules | ForEach-Object Name) -join ',' | Should Be "CoreNet-ICMP6-NDS-Out,DeliveryOptimization-TCP-Out"
+    }
+    It 'setup turns them off for the agents VM, -Remove turns them back on, and the ready check and V6 look for them' {
+        $setup = Get-Content (Join-Path $root 'scripts\factory\Set-FactoryEgress.ps1') -Raw
+        $setup | Should Match 'Get-ForeignOutboundRules\)'
+        $setup | Should Match 'Disable-NetFirewallRule'
+        $setup | Should Match 'Enable-NetFirewallRule -Name'
+        (Get-Content (Join-Path $root 'scripts\factory\Controls.psm1') -Raw) | Should Match 'Windows'' own outbound allow rules are on again'
+        (Get-Content (Join-Path $root 'scripts\factory\Test-FactoryIsolation.ps1') -Raw) | Should Match 'Windows'' own outbound allow rules'
+    }
+}

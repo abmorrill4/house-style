@@ -6,7 +6,7 @@ The script user's Invoke-AgentJob writes the job and starts the task; this scrip
 1. deletes the other folders under agent-work, and stops if a delete fails;
 2. checks next.txt and job.json;
 3. reads signin.txt and deletes it, or stops;
-4. clones repo\ from the base bundle, and for test and review jobs applies the patch;
+4. clones repo\ from the run's bundle, checks out the job's base, and for test and review jobs applies the patch;
 5. joins a Job Object with KILL_ON_JOB_CLOSE and no breakaway;
 6. builds the child's environment from a fixed list, never from its own;
 7. runs one program with an argument array (claude.exe, the base copy of test-channel.ps1, or dotnet restore), with
@@ -25,6 +25,7 @@ param(
     [string]$Git = "C:\Program Files\Git\cmd\git.exe"
 )
 $ErrorActionPreference = "Stop"
+$launchStart = Get-Date   # the job's limit runs from here, as the script's deadline runs from the task's start
 $Kinds = "triage", "cover", "fix", "review", "test", "restore"
 $AgentKinds = "triage", "cover", "fix", "review"
 $jobs = Join-Path $Root "agent-jobs"; $work = Join-Path $Root "agent-work"
@@ -52,6 +53,7 @@ try { $job = [IO.File]::ReadAllText((Join-Path $jobDir "job.json")) | ConvertFro
 if (("" + $job.id) -ne $id) { Stop-Launch "job.json is for another job" }
 if ($Kinds -notcontains ("" + $job.kind)) { Stop-Launch "job.json's kind isn't one the factory runs" }
 if (("" + $job.base) -notmatch '^[0-9a-f]{40}$') { Stop-Launch "job.json's base isn't a commit" }
+if (("" + $job.bundle) -notmatch '^[0-9a-f]{40}$') { Stop-Launch "job.json's bundle isn't a commit" }
 $limit = [int]$job.limitSeconds
 if ($limit -lt 1 -or $limit -gt 6 * 3600) { Stop-Launch "job.json's limit isn't usable" }
 $isAgent = $AgentKinds -contains $job.kind
@@ -73,7 +75,8 @@ New-Item -ItemType Directory -Force $me, $home_, $out | Out-Null
 $hooks = Join-Path $me "no-hooks"; New-Item -ItemType Directory -Force $hooks | Out-Null
 $gitSafety = @("-c", "core.hooksPath=$hooks", "-c", "core.fsmonitor=false")
 $env:GIT_NO_REPLACE_OBJECTS = "1"
-$bundle = Join-Path $Root "agent-in\base-$($job.base).bundle"
+# The run's bundle, which holds main's history and so every saved fix's base; the checkout is the job's base.
+$bundle = Join-Path $Root "agent-in\base-$($job.bundle).bundle"
 function Invoke-Git([string[]]$a) { & $Git @gitSafety @a 2>&1 | Out-Null; if ($LASTEXITCODE) { Stop-Launch "git $($a[0]) failed" } }
 Invoke-Git @("clone", "--quiet", "--no-checkout", $bundle, $repo)
 Invoke-Git @("-C", $repo, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", $job.base)
@@ -211,7 +214,10 @@ try {
 try { $child.StandardInput.Close() } catch { }
 
 # ---- 8. The limit, then nothing left running ------------------------------------------------------------------------
-$timedOut = -not $child.WaitForExit($limit * 1000)
+# What's left of the limit after the setup above (the clone, the checkout and the patch), so the script's stop at
+# task start + limit + grace never lands before step 9.
+$left = [Math]::Max(1, $limit - [int]((Get-Date) - $launchStart).TotalSeconds)
+$timedOut = -not $child.WaitForExit($left * 1000)
 Stop-Others
 $code = if ($timedOut) { 259 } else { $child.ExitCode }
 try { [void]$copyOut.Wait(30000); [void]$copyErr.Wait(30000) } catch { }

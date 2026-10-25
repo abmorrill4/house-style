@@ -33,6 +33,8 @@ if ($Remove) {
     if ($DryRun) { Write-Output "Would remove the '$EgressPrefix' rules and set outbound back to Allow."; return }
     Get-NetFirewallRule -DisplayName "$EgressPrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+    $off = "C:\HouseStyle\setup-log\disabled-outbound-rules.txt"
+    if (Test-Path $off) { foreach ($n in @(Get-Content $off | Where-Object { $_ } | Sort-Object -Unique)) { Enable-NetFirewallRule -Name $n -ErrorAction SilentlyContinue }; Remove-Item $off }
     Write-Output "Removed the '$EgressPrefix' rules. Outbound is allowed again."
     return
 }
@@ -53,12 +55,20 @@ else {
 }
 if ($DryRun) {
     foreach ($r in $rules) { Write-Output "$($r.Name): $($r.Protocol) $($r.RemotePort) to $(@($r.RemoteAddress).Count) address ranges$(if ($r.LocalUser) { ' for one account' })" }
-    Write-Output "Then: default outbound action Block on every profile."
+    Write-Output "Then: default outbound action Block on every profile$(if ($Role -eq 'agents') { ', and Windows'' own outbound allow rules off except DHCP''s' })."
     return
 }
 
 Get-NetFirewallRule -DisplayName "$EgressPrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 foreach ($r in $rules) { if (@($r.RemoteAddress).Count) { New-EgressRule $r } }
 Set-NetFirewallProfile -All -DefaultOutboundAction Block
+if ($Role -eq "agents") {
+    # Windows' own outbound allow rules, off, and their names kept so -Remove can turn them back on.
+    $foreign = @(Get-ForeignOutboundRules)
+    $log = "C:\HouseStyle\setup-log"; New-Item -ItemType Directory -Force $log | Out-Null
+    if ($foreign.Count) { Add-Content (Join-Path $log "disabled-outbound-rules.txt") ($foreign | ForEach-Object Name); $foreign | Disable-NetFirewallRule }
+    if (@(Get-ForeignOutboundRules).Count) { throw "Some of Windows' own outbound allow rules wouldn't turn off." }
+    Write-Output "Turned off $($foreign.Count) of Windows' own outbound allow rules (DHCP's stay on)."
+}
 if ($Role -eq "agents") { Write-Output "Outbound is blocked except DNS, HTTPS from $AgentUser to Anthropic's API range, and HTTPS from $ScriptUser to GitHub. Undo with -Remove." }
 else { Write-Output "Outbound is blocked except DNS, and HTTPS from $ScriptUser to Anthropic, GitHub and $($Hosts.Count) more hosts. Undo with -Remove." }

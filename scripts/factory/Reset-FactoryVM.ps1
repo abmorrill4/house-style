@@ -313,6 +313,9 @@ function Wait-FlareDesktop([int]$minutes = 15) {
 
 # ==== Either ==========================================================================================================
 function Invoke-Reset {
+    # The host state folders first: the reset delivers held writes from them as host-written.
+    $acl = @(Test-HostStateAcl)
+    if ($acl.Count) { Write-HostLog "The reset of $Name didn't run, because the host state folders' owner or ACL is wrong: $($acl[0])."; return "acl" }
     # No base checkpoint: stop before setting any flag or touching the VM.
     $base = Get-BaseName
     if (-not (Test-Checkpoint $Name $base)) {

@@ -218,7 +218,12 @@ Describe 'V6' {
 }
 '@
         $r = @(Get-PesterRows $j); $bad = @($r | Where-Object { -not $_.passed })
-        [pscustomobject]@{ pass = ($r.Count -ge 10 -and -not $bad.Count); detail = $(if ($bad.Count) { "got through: " + (($bad | ForEach-Object { $_.name }) -join ', ') } else { "everything blocked" }) }
+        # Windows' own outbound allow rules would let the agent user out past the default Block; setup turned them off
+        # (all but DHCP's, which only the DHCP service uses), and none may be on again.
+        $foreign = @(Get-NetFirewallRule -Direction Outbound -Action Allow -Enabled True -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -notlike "House Style egress*" -and @("CoreNet-DHCP-Out", "CoreNet-DHCPV6-Out") -notcontains $_.Name })
+        $detail = if ($bad.Count) { "got through: " + (($bad | ForEach-Object { $_.name }) -join ', ') } else { "everything blocked" }
+        if ($foreign.Count) { $detail += "; Windows' own outbound allow rules are on: $(@($foreign | Select-Object -First 5 | ForEach-Object DisplayName) -join ', ')" }
+        [pscustomobject]@{ pass = ($r.Count -ge 10 -and -not $bad.Count -and -not $foreign.Count); detail = $detail }
     }
     "V6b" = {
         $j = Invoke-ProbeJob @'

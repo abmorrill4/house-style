@@ -290,6 +290,13 @@ Describe 'Invoke-AgentJob: one job''s order (P4)' {
         Mock -ModuleName Controls Wait-AgentTask { [pscustomobject]@{ exit = 259; timedOut = $true; instance = $null; stopFailed = $true } }
         (Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }).stuck | Should Be "TaskDidntStop"
     }
+    It 'a launcher that stopped before it ran anything (no launcher.json) is an agents VM failure, not a refused read' {
+        Mock -ModuleName Controls Read-JobOutput { [pscustomobject]@{ files = @{}; trx = @(); refused = $null; missing = $true } }
+        $j = Invoke-AgentJob $ctx @{ kind = "test"; base = $sha; channel = "core" }
+        $j.stuck | Should Be "LaunchFailed"
+        $j.refused | Should BeNullOrEmpty
+        & (Get-Module Controls) { $FactoryCopy["LaunchFailed"] } | Should Match 'rather than the fix'
+    }
 }
 
 Describe 'Wait-AgentTask (P4)' {
@@ -400,6 +407,31 @@ Describe 'Reading what a job wrote (P5)' {
         $x.files["result.json"] | Should Match 'bug'
     }
     It 'refuses a missing required file' { New-Out "a2" | Out-Null; (Read-JobOutput $ctx "a2" "fix").refused | Should Match 'missing' }
+    It 'a job with no launcher.json reads as a launch failure' {
+        $o = Join-Path $r "agent-work\a2b\out"; New-Item -ItemType Directory -Force $o | Out-Null
+        $x = Read-JobOutput $ctx "a2b" "test"
+        $x.missing | Should Be $true; $x.refused | Should BeNullOrEmpty
+    }
+    It (Get-FixtureTitle 'reads every TRX under out\results, and the repro check finds its test in one of the eight' @('trx')) -Skip:(Test-FixturesMissing @('trx')) {
+        $f = Get-Fixture 'trx'
+        foreach ($c in @(@{ case = 'multi-project-fail'; id = "m1"; expect = "fail"; name = "Probe.Tests.ProbeTests.FailsAnAssertion" }, @{ case = 'multi-project-pass'; id = "m2"; expect = "pass"; name = "Probe.Tests.ProbeTests.Passes" })) {
+            $files = @((Get-FixtureCase $f $c.case).trxFiles)
+            $files.Count | Should Be 8
+            $o = New-Out $c.id; $i = 0
+            foreach ($text in $files) { $i++; $d = Join-Path $o "results\run$i"; New-Item -ItemType Directory -Force $d | Out-Null; [IO.File]::WriteAllText((Join-Path $d "user_host_$i.trx"), $text) }
+            $x = Read-JobOutput $ctx $c.id "test"
+            $x.refused | Should BeNullOrEmpty
+            @($x.trx).Count | Should Be 8
+            Test-ReproResult $x.trx $c.name $c.expect | Should BeNullOrEmpty
+            # One of them alone, as the old fixed file name left it, usually isn't the one.
+            Test-ReproResult @($files | Where-Object { $_ -notmatch [regex]::Escape($c.name) } | Select-Object -First 1) $c.name $c.expect | Should Match "didn't run"
+        }
+    }
+    It 'refuses more than 32 TRX files' {
+        $o = New-Out "m3"; New-Item -ItemType Directory -Force (Join-Path $o "results") | Out-Null
+        foreach ($i in 1..33) { Set-Content (Join-Path $o "results\$i.trx") "<TestRun />" -Encoding ASCII }
+        (Read-JobOutput $ctx "m3" "test").refused | Should Match 'more than 32'
+    }
     It 'refuses a junction anywhere in the path' {
         $o = New-Out "a3"; $real = Join-Path $TestDrive "real-out"; New-Item -ItemType Directory -Force $real | Out-Null
         foreach ($n in "launcher.json", "stdout.txt", "stderr.txt", "result.json") { Set-Content (Join-Path $real $n) "{}" }

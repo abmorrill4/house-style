@@ -187,8 +187,10 @@ function Send-CheckResult([string]$checkId, $result, [bool]$nothingRestored) {
         }
         Remove-Item -LiteralPath $staged -Recurse -Force
     }
-    Write-AgentsVM "flare-inbox\$checkId\result.json" $bytes $checkId | Out-Null
-    Write-AgentsVM "flare-inbox\trial.json" (Get-InboxTrialBytes) | Out-Null
+    # trial.json first: a trial-expired or trial-unknown result is read against it, so it must never arrive before it.
+    # If trial.json is held, the result is held after it, and the held writes go in oldest first.
+    if ((Write-AgentsVM "flare-inbox\trial.json" (Get-InboxTrialBytes)) -eq "written") { Write-AgentsVM "flare-inbox\$checkId\result.json" $bytes $checkId | Out-Null }
+    else { $l = Enter-AgentsWriteLock; try { Save-HeldWrite "flare-inbox\$checkId\result.json" $bytes $checkId | Out-Null } finally { if ($l) { Exit-AgentsWriteLock $l } } }
     if ($nothingRestored) {
         Exit-CheckLock
         if (-not $ScratchVM) { Invoke-VMCall $FlareVMName $StartListener @() 60 | Out-Null }
@@ -313,6 +315,9 @@ function Invoke-HandoffTick {
     if ($lock -and (Test-CheckLockStale $lock (Get-HostNow))) {
         $start = Get-ProcessStartTime ([int]$lock.pid)
         if ($start -and $start -eq $lock.start) { Stop-Process -Id ([int]$lock.pid) -Force -ErrorAction SilentlyContinue }
+        # A lock still marked "claiming" (or a scratch check's) never touched the Flare VM and has no check to answer:
+        # it's released, with no reset and nothing delivered.
+        if (@("claiming", "scratch") -contains $lock.check) { Exit-CheckLock; Write-HostLog "A Flare check stopped before it started, so its lock was released."; return "recovered" }
         if ($lock.check -eq "re-read") { Invoke-CheckReset "re-read" | Out-Null; return "recovered" }
         if ([int]$lock.step -lt 9) { if (Invoke-CheckReset $lock.check) { Send-CheckResult $lock.check ([pscustomobject]@{ check = $lock.check; outcome = "vm"; vmKind = "interrupted" }) $false } }
         else { Send-CheckResult $lock.check ([pscustomobject]@{ check = $lock.check; outcome = "vm"; vmKind = "interrupted" }) $true }

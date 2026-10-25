@@ -54,7 +54,8 @@ function Install-HostTasks {
         if ($LASTEXITCODE) { throw "origin/main has no scripts/factory/$f." }
         $dest = Join-Path $bin $f
         Assert-NoReparse $dest
-        if (-not $DryRun) { [IO.File]::WriteAllText($dest, $text + "`r`n", (New-Object Text.UTF8Encoding $true)) }
+        # A new file each time, so it takes bin's ACL and keeps no ACE an older copy had.
+        if (-not $DryRun) { Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue; [IO.File]::WriteAllText($dest, $text + "`r`n", (New-Object Text.UTF8Encoding $true)) }
     }
     $agentDir = Join-Path (Split-Path $bin) "agent"   # Controls.psm1 loads ..\agent\AgentCommon.psm1
     New-Item -ItemType Directory -Force $agentDir | Out-Null

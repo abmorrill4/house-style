@@ -353,6 +353,13 @@ function Select-PatchFiles([string]$patch, $paths) {
 
 # ==== Agent steps =====================================================================================================
 $MaxTurns = 200
+# Every job clones the run's bundle, which holds main's history and so every saved fix's base. A job on an older base
+# (a saved fix continued after a nightly reset wiped agent-in and agent-tools) also gets that base's scripts/agent.
+function Use-JobBase([hashtable]$spec) {
+    $spec.bundle = $Run.base
+    if ($spec.base -ne $Run.base) { Save-AgentTools $spec.base }
+    $spec
+}
 # Writes a patch into agent-in for a test or review job. Returns its file name.
 function Add-JobPatch([string]$patch) {
     $name = "$([guid]::NewGuid().ToString()).patch"
@@ -367,7 +374,7 @@ function Invoke-AgentStep([string]$step, [int]$n, [hashtable]$spec) {
     if ($over) { $Run.runCapStop = $true; throw (New-Stop "run-cap" "Stopped before the $step agent started, because $over.") }
     $Run.runsUsed++
     $t0 = Get-Date
-    $j = Invoke-Job $spec
+    $j = Invoke-Job (Use-JobBase $spec)
     $stdout = "" + $j.files["stdout.txt"]
     $out = ConvertFrom-AgentOutput $stdout
     $proc = [pscustomobject]@{ exit = $(if ($j.timedOut) { -1 } elseif ($null -ne $j.exit) { [int]$j.exit } else { -1 }); timedOut = [bool]$j.timedOut; seconds = [int]((Get-Date) - $t0).TotalSeconds }
@@ -392,7 +399,7 @@ function Invoke-AgentStep([string]$step, [int]$n, [hashtable]$spec) {
 }
 # A test job: no ledger entry (no agent), the same stops for the agents VM and a refused read.
 function Invoke-TestJob([int]$n, [hashtable]$spec) {
-    $j = Invoke-Job $spec
+    $j = Invoke-Job (Use-JobBase $spec)
     if ($j.stuck) { throw (New-Stop "vm" (Format-Copy $j.stuck)) }
     if ($j.refused) { "$(Get-Date -Format o) test job $($j.id): $($j.refused)" | Add-Content (Join-Path $Run.logs "report-$n-refused.log"); throw (New-Stop "agent-output" (Format-Copy AgentOutputRefused)) }
     [IO.File]::WriteAllText((Join-Path $Run.logs "report-$n-test-$($j.id).log"), ("" + $j.files["stdout.txt"]))
@@ -407,7 +414,7 @@ function Invoke-ReproCheck([int]$n, [string]$name, $testFiles, [string]$base, [s
         $spec = @{ kind = "test"; base = $base; channel = "full"; filter = $name; exact = $true }
         if ($p) { $spec.patch = Add-JobPatch $p }
         $j = Invoke-TestJob $n $spec
-        $runs[$side] = @($j.files["results.trx"] | Where-Object { $_ })
+        $runs[$side] = @($j.trx | Where-Object { $_ })   # every test project's TRX; the test is in one of them
     }
     $why = Test-ReproResult $runs["base"] $name "fail"
     if (-not $why) { $why = Test-ReproResult $runs["fix"] $name "pass" }
@@ -655,8 +662,9 @@ function Move-SavedFix($state) {
     $patch = Get-FixFile $state "fix.patch"
     try {
         if ([int]$state.moves -ge 2) { throw "a third move" }
-        if (-not (Add-PatchCommit $n $Run.base $patch "Fix tester report $n")) { throw "the patch doesn't apply" }
+        # The patch text against this run's rules before git apply (step 11's order), in case the rules changed.
         if (-not (Test-PatchText $patch $Run.patchRules).ok) { throw "the patch checks" }
+        if (-not (Add-PatchCommit $n $Run.base $patch "Fix tester report $n")) { throw "the patch doesn't apply" }
         $w = Test-CommitDiff $Run.base; if ($w) { throw $w }
         if ($state.routed -and $state.reproTest) { $rp = Invoke-ReproCheck $n $state.reproTest $state.testFiles $Run.base $patch; if ($rp -ne "pass") { throw $rp } }
         Invoke-FullSuite $n $Run.base $patch
@@ -716,8 +724,8 @@ function Resume-SavedFix($state) {
             # The same packages: the saved patch again on its saved base, the checks and tests again, then the route.
             $patch = Get-FixFile $state "fix.patch"
             try {
+                if (-not (Test-PatchText $patch $Run.patchRules).ok) { throw "The fix changed files the factory may not touch." }   # before git apply
                 if (-not (Add-PatchCommit $n $state.base $patch "Fix tester report $n")) { throw "The saved fix no longer applies to its base." }
-                if (-not (Test-PatchText $patch $Run.patchRules).ok) { throw "The fix changed files the factory may not touch." }
                 $why = Test-CommitDiff $state.base; if ($why) { throw $why }
                 if ($state.routed -and $state.reproTest) { $rp = Invoke-ReproCheck $n $state.reproTest $state.testFiles $state.base $patch; if ($rp -ne "pass") { throw "The reproducing test no longer holds: $rp" } }
                 Invoke-FullSuite $n $state.base $patch

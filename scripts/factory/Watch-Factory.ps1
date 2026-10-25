@@ -72,4 +72,38 @@ function Invoke-GuestReboot([string]$vm, $s, [string]$why) {
     "rebooted"
 }
 
-if (-not $script:Dot) { foreach ($vm in $FlareVMName, $AgentsVMName) { try { Invoke-WatchVM $vm | Out-Null } catch { Write-HostLog "Watching $vm failed: $($_.Exception.Message)" } } }
+# FACTORY_MODE, read with the owner's gh: off, shadow, live, or $null when it can't be read.
+function Get-FactoryMode {
+    $ErrorActionPreference = "Continue"
+    $v = & gh.exe variable get FACTORY_MODE -R $Repo 2>$null
+    if (-not $LASTEXITCODE) { return ("" + $v).Trim().ToLowerInvariant() }
+    & gh.exe auth status 2>$null | Out-Null
+    if ($LASTEXITCODE) { return $null }   # signed out: no evidence either way
+    "off"   # signed in and no variable: unset is off
+}
+# Logs the "factory off for a day" line once a day while FACTORY_MODE has been off for 24 hours. Nothing when it can't
+# be read.
+function Test-FactoryOff {
+    $mode = Get-FactoryMode
+    if ($null -eq $mode) { return "unknown" }
+    $p = Get-HostPath "factory-mode.json"
+    $s = Read-HostJson $p
+    $now = Get-HostNow
+    if (@("shadow", "live") -contains $mode) { if ($s) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }; return "on" }
+    if (-not $s) { $s = [pscustomobject]@{ offSince = $now.ToString("o"); warnedDay = $null }; Write-HostJson $p $s; return "off" }
+    $day = $now.ToString("yyyy-MM-dd")
+    if (($now - [datetime]$s.offSince).TotalHours -ge 24 -and $s.warnedDay -ne $day) {
+        Write-HostLog "FACTORY_MODE has been off for 24 hours, so no nightly release has gone out. Decide whether to keep it off."
+        $s.warnedDay = $day; Write-HostJson $p $s; return "warned"
+    }
+    "off"
+}
+# Both VMs, once the host state folders' owner and ACL are right.
+function Invoke-Watch {
+    $acl = @(Test-HostStateAcl)
+    if ($acl.Count) { Write-HostLog "The factory watch didn't run, because the host state folders' owner or ACL is wrong: $($acl[0])."; return "acl" }
+    foreach ($vm in $FlareVMName, $AgentsVMName) { try { Invoke-WatchVM $vm | Out-Null } catch { Write-HostLog "Watching $vm failed: $($_.Exception.Message)" } }
+    try { Test-FactoryOff | Out-Null } catch { }
+    "watched"
+}
+if (-not $script:Dot) { Invoke-Watch | Out-Null }

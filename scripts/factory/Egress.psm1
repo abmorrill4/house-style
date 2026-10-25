@@ -55,4 +55,14 @@ function New-EgressRule($rule) {
 function Remove-RestoreRule { Get-NetFirewallRule -DisplayName $RestoreRuleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule }
 function Test-RestoreRule { [bool](Get-NetFirewallRule -DisplayName $RestoreRuleName -ErrorAction SilentlyContinue) }
 
-Export-ModuleMember -Function Get-UserSddl, Get-EgressRules, Get-RestoreRule, Resolve-NuGetAddresses, New-EgressRule, Remove-RestoreRule, Test-RestoreRule -Variable EgressPrefix, RestoreRuleName, AnthropicRange, NuGetHosts
+# Windows' own outbound allow rules (Core Networking's ICMPv6, Delivery Optimization, store apps) would let the agent
+# user out past the default Block. On the agents VM setup disables every enabled outbound allow rule but ours and DHCP's
+# (which only the DHCP service can use), and the ready check lists any that come back, so the limit holds by
+# construction, not only by V6's probes.
+$KeepOutboundRules = "CoreNet-DHCP-Out", "CoreNet-DHCPV6-Out"
+function Get-ForeignOutboundAllows($rules) {
+    @($rules | Where-Object { "$($_.Direction)" -eq "Outbound" -and "$($_.Action)" -eq "Allow" -and "$($_.Enabled)" -eq "True" -and
+        "$($_.DisplayName)" -notlike "$EgressPrefix*" -and $KeepOutboundRules -notcontains "$($_.Name)" })
+}
+function Get-ForeignOutboundRules { Get-ForeignOutboundAllows @(Get-NetFirewallRule -Direction Outbound -Action Allow -Enabled True -ErrorAction SilentlyContinue) }
+Export-ModuleMember -Function Get-ForeignOutboundAllows, Get-ForeignOutboundRules, Get-UserSddl, Get-EgressRules, Get-RestoreRule, Resolve-NuGetAddresses, New-EgressRule, Remove-RestoreRule, Test-RestoreRule -Variable KeepOutboundRules, EgressPrefix, RestoreRuleName, AnthropicRange, NuGetHosts

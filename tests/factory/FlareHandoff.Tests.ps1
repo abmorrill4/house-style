@@ -306,6 +306,35 @@ Describe 'The Flare check host task (P16)' {
     }
 
     # ---- stale locks --------------------------------------------------------------------------------------------
+    It 'a stale lock still marked claiming is released with no reset and nothing delivered' {
+        Reset-World 'staleclaim' | Out-Null; Use-AgentsGuest
+        Write-HostJson (Get-HostPath "flare-check.lock") ([pscustomobject]@{ pid = 999999; start = "x"; check = "claiming"; step = 0; at = $global:Clock.ToString("o") })
+        Invoke-HandoffTick | Should Be "recovered"
+        @($global:Ops | Where-Object { $_ -like "restore:*" }).Count | Should Be 0
+        @($global:Guest.writes | Where-Object { $_ -like "*result.json" }).Count | Should Be 0
+        Get-CheckLock | Should BeNullOrEmpty
+    }
+    It 'delivers trial.json before result.json, and holds the result too when trial.json can''t go in' {
+        Reset-World 'trialorder' | Out-Null; Use-AgentsGuest
+        $id = Add-Request
+        Invoke-HandoffTick | Should Be "checked:pass"
+        $w = @($global:Guest.writes)
+        [array]::LastIndexOf($w, "flare-inbox\trial.json") | Should BeLessThan ([array]::IndexOf($w, "flare-inbox\$id\result.json"))
+        # trial.json held (a failed call): the result is held after it, never written alone.
+        Reset-World 'trialheld' | Out-Null; Use-AgentsGuest
+        $id = Add-Request
+        $global:Flare.onStep["Run"] = { Mock -ModuleName FactoryVM Invoke-VMCall { [pscustomobject]@{ ok = $false; timedOut = $false; output = @(); error = "off"; errorId = "VMOff"; stopped = $true } } }
+        Invoke-HandoffTick | Out-Null
+        Get-GuestResult $id | Should BeNullOrEmpty
+        $held = @(Get-HeldWrites | ForEach-Object { $_.item.path })
+        $held -contains "flare-inbox\trial.json" | Should Be $true
+        $held -contains "flare-inbox\$id\result.json" | Should Be $true
+    }
+    It 'only the reset writes carry-done' {
+        Reset-World 'carrydone' | Out-Null; Use-AgentsGuest
+        { Write-AgentsVM "carry-done" ([byte[]](1)) } | Should Throw "Only the agents VM's reset writes carry-done"
+        @($global:Guest.writes | Where-Object { $_ -eq "carry-done" }).Count | Should Be 0
+    }
     It 'a stale check lock before step 9 gets step 9 then step 10; a stale re-read lock gets step 9 only' {
         Reset-World 'stalelock' | Out-Null; Use-AgentsGuest
         $id = [guid]::NewGuid().ToString()
@@ -499,6 +528,24 @@ Describe 'The other host scripts (P16)' {
         $src | Should Not Match 'Invoke-Command'
         $src | Should Match ([regex]::Escape('Invoke-VMCall $FlareVMName'))
         $src | Should Not Match 'Invoke-VMCall \$AgentsVMName|Invoke-VMCall \$vm'
+        function Test-HostStateAcl { @("vm\bin lets Users write") }
+        Invoke-Watch | Should Be "acl"
+    }
+    It 'Watch-Factory logs "factory off for a day" once a day after 24 hours off, and nothing while it can''t read the mode' {
+        $v = Join-Path $TestDrive "offday"; New-Item -ItemType Directory -Force $v | Out-Null
+        . (Join-Path $repoRoot 'scripts\factory\Watch-Factory.ps1') -Root $v
+        $global:Mode = "off"; $global:Now = [datetime]::new(2026, 11, 2, 9, 0, 0)
+        function Get-FactoryMode { $global:Mode }
+        function Get-HostNow { $global:Now }
+        $line = "FACTORY_MODE has been off for 24 hours, so no nightly release has gone out. Decide whether to keep it off."
+        function LogCount { $p = Get-HostPath "host.log"; if (Test-Path $p) { ([regex]::Matches((Get-Content $p -Raw), [regex]::Escape($line))).Count } else { 0 } }
+        Test-FactoryOff | Should Be "off"
+        $global:Now = $global:Now.AddHours(23); Test-FactoryOff | Should Be "off"; LogCount | Should Be 0
+        $global:Now = $global:Now.AddHours(2); Test-FactoryOff | Should Be "warned"; LogCount | Should Be 1
+        $global:Now = $global:Now.AddHours(1); Test-FactoryOff | Should Be "off"; LogCount | Should Be 1
+        $global:Mode = $null; Test-FactoryOff | Should Be "unknown"
+        $global:Mode = "shadow"; Test-FactoryOff | Should Be "on"
+        $global:Mode = "off"; $global:Now = $global:Now.AddDays(2); Test-FactoryOff | Should Be "off"   # the clock starts again
     }
     It 'the task registrations match the limits table' {
         . (Join-Path $repoRoot 'scripts\factory\Install-HostTasks.ps1')

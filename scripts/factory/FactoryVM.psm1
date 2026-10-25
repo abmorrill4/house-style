@@ -134,7 +134,11 @@ function Test-HostStateAcl {
     $problems = @()
     $root = $script:VmRoot
     $admins = "S-1-5-32-544"; $system = "S-1-5-18"
-    foreach ($p in @($root, (Join-Path $root "bin"))) {
+    # vm and vm\bin, the scripts in bin (a rewrite could keep an ACE an older file had), and flare-pending, whose held
+    # writes the reset delivers as host-written.
+    $bin = Join-Path $root "bin"
+    $more = @(@(Get-ChildItem -LiteralPath $bin -File -Force -ErrorAction SilentlyContinue | ForEach-Object FullName) + @(Join-Path $root "flare-pending" | Where-Object { Test-Path -LiteralPath $_ }))
+    foreach ($p in @($root, $bin) + $more) {
         if (-not (Test-Path -LiteralPath $p)) { $problems += "$p is missing"; continue }
         $item = Get-Item -LiteralPath $p -Force
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $problems += "$p is a reparse point"; continue }
@@ -339,6 +343,7 @@ function Write-AgentsVM {
     # The claim is a write too: the rename, under the same lock, with its read-back (Invoke-ClaimLocked).
     if ($Claim) { return (Invoke-ClaimLocked) }
     if ($Path -notmatch $AgentsPathPattern) { throw "Write-AgentsVM doesn't write $Path." }
+    if ($Path -eq "carry-done" -and -not $AsReset) { throw "Only the agents VM's reset writes carry-done, through -AsReset." }
     $why = $null; $lock = $null
     if ($AsReset) {
         $refused = Test-ResetCaller
@@ -376,14 +381,18 @@ function Send-HeldWrites([switch]$AsReset) {
     foreach ($h in (Get-HeldWrites)) {
         $bytes = [Convert]::FromBase64String($h.item.data)
         $r = Write-AgentsVM $h.item.path $bytes $h.checkId -AsReset:$AsReset -NoHold
-        if ($r -eq "written") { Remove-Item -LiteralPath $h.file -Force }
+        if ($r -eq "written") { $l = if ($AsReset) { $null } else { Enter-AgentsWriteLock }; try { Remove-Item -LiteralPath $h.file -Force -ErrorAction SilentlyContinue } finally { if ($l) { Exit-AgentsWriteLock $l } } }
     }
     foreach ($d in @(Get-ChildItem -LiteralPath (Get-HostPath "flare-pending") -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $GuidPattern })) {
         $mirror = Join-Path $d.FullName "latest-progress.json"
         if ($AsReset -and (Test-Path -LiteralPath $mirror)) {
             Write-AgentsVM "flare-inbox\$($d.Name)\progress.json" ([IO.File]::ReadAllBytes($mirror)) $d.Name -AsReset -NoHold | Out-Null
         }
-        if (-not @(Get-ChildItem -LiteralPath (Join-Path $d.FullName "held") -File -ErrorAction SilentlyContinue).Count -and -not (Test-CheckRunning $d.Name)) { Remove-Item -LiteralPath $d.FullName -Recurse -Force }
+        # Every change to flare-pending happens under the write lock. With -AsReset the reset already holds it.
+        $l = if ($AsReset) { $null } else { Enter-AgentsWriteLock }
+        if (-not $AsReset -and -not $l) { continue }
+        try { if (-not @(Get-ChildItem -LiteralPath (Join-Path $d.FullName "held") -File -ErrorAction SilentlyContinue).Count -and -not (Test-CheckRunning $d.Name)) { Remove-Item -LiteralPath $d.FullName -Recurse -Force } }
+        finally { if ($l) { Exit-AgentsWriteLock $l } }
     }
 }
 function Test-CheckRunning([string]$checkId) { $l = Read-HostJson (Get-HostPath $script:LockFile); [bool]($l -and $l.check -eq $checkId) }

@@ -14,7 +14,7 @@ From the pinned git (2.53.0.windows.1) and .NET SDK (8.0.426), on the host, with
 `-Set trx`. These tools behave the same on the agents VM at their pinned versions.
 
 - `git-patch-forms`, `git-patch-refused`, `git-apply-check`, `git-config-scopes`, `git-diff-name-only`, `git-worktree`
-- `trx`
+- `trx`, one project per case, plus a solution of eight test projects run the way the full channel runs one test
 
 ## Still to capture
 

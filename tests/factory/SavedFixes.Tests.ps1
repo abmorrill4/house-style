@@ -216,6 +216,38 @@ Describe 'Saved fixes (P8)' {
         @($global:W.jobs | Where-Object { $_.kind -eq "review" }).Count | Should Be 0
         (Get-FixComments 301) | Should Match 'passed the tests, review and the Flare check'
     }
+    It 'a fix saved at base A, a nightly reset, then a pass with main at B and no package change: its jobs clone the run''s bundle with A''s tools, and it routes' {
+        New-World 'afterreset' | Out-Null
+        $a = (New-HandedOff 305).base
+        $b = Add-MainCommit
+        Complete-HostCheck "pass" | Out-Null
+        # The nightly reset restores agents-base: agent-in and agent-tools aren't carried, so A's bundle and tools are gone.
+        foreach ($d in "agent-in", "agent-tools") { Remove-Item (Join-Path $global:W.root $d) -Recurse -Force; New-Item -ItemType Directory (Join-Path $global:W.root $d) | Out-Null }
+        $global:W.calls.Clear(); $global:W.jobs.Clear(); Move-Clock 5; Invoke-Run | Out-Null
+        $Run.base | Should Be $b
+        $global:W.calls -contains "repro:$a" | Should Be $true
+        $tests = @($global:W.jobs | Where-Object kind -eq "test")
+        $tests.Count | Should BeGreaterThan 0
+        foreach ($t in $tests) { $t.base | Should Be $a; $t.bundle | Should Be $b }
+        Test-Path (Join-Path $global:W.root "agent-in\base-$b.bundle") | Should Be $true
+        Test-Path (Join-Path $global:W.root "agent-in\base-$a.bundle") | Should Be $false
+        Test-Path (Join-Path $global:W.root "agent-tools\$a\scripts\agent\test-channel.ps1") | Should Be $true
+        # The run's bundle holds A, so the launcher's clone and checkout of A work.
+        $c = Join-Path $TestDrive "afterreset-clone"; $ErrorActionPreference = "Continue"
+        & git.exe clone -q --no-checkout (Join-Path $global:W.root "agent-in\base-$b.bundle") $c 2>&1 | Out-Null
+        & git.exe -C $c -c advice.detachedHead=false checkout -q --detach $a 2>&1 | Out-Null
+        $LASTEXITCODE | Should Be 0
+        Get-Fix 305 | Should BeNullOrEmpty                     # routed and finished
+        (Get-FixComments 305) | Should Match 'passed the tests, review and the Flare check'
+    }
+    It 'a saved fix''s patch text is checked against this run''s rules before git apply, when it moves and when it continues' {
+        $src = Get-Content (Join-Path $hRoot 'scripts\factory\Invoke-Factory.ps1') -Raw
+        foreach ($fn in "Move-SavedFix", "Resume-SavedFix") {
+            $body = [regex]::Match($src, "(?s)function $fn\b.*?(?=`n# |`nfunction )").Value
+            $body.IndexOf('Test-PatchText $patch $Run.patchRules') | Should BeGreaterThan 0
+            $body.IndexOf('Test-PatchText $patch $Run.patchRules') | Should BeLessThan ($body.IndexOf('Add-PatchCommit'))
+        }
+    }
     It 'a patch that conflicts on the new base, a failed review, or a third move leave it out of date, with no strike' {
         New-World 'stalemove' | Out-Null
         New-HandedOff 311 | Out-Null

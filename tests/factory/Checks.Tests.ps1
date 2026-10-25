@@ -36,6 +36,7 @@ Describe 'Blocked causes and reason codes for every string (P9)' {
             @{ key = "RestoreLeftOpen"; code = "vm"; cause = "vm" }
             @{ key = "CacheHadLink"; code = "vm"; cause = "vm" }
             @{ key = "TaskDidntStop"; code = "vm"; cause = "vm" }
+            @{ key = "LaunchFailed"; code = "vm"; cause = "vm" }
             @{ key = "SavedFixLost"; code = "vm"; cause = "vm" }
             @{ key = "SavedFixStale"; code = "saved-fix-stale"; cause = "other" }
             @{ key = "HoldoutReport"; code = "holdout"; cause = "other" }
