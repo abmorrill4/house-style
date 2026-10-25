@@ -408,3 +408,13 @@ Describe 'Workflows, credentials, host calls and text (P15)' {
         $r._about | Should Match 'autoFix\.paths and autoFix\.dataPaths'
     }
 }
+
+Describe 'Native and cmdlet arguments' {
+    It 'never passes a bare cast in argument mode, which PowerShell reads as text' {
+        # `-ArgumentList $a, [bool]$b` passes the string "[bool]False", which is truthy. Wrap casts in parentheses.
+        $root = Join-Path $PSScriptRoot "..\.."
+        $hits = @(Get-ChildItem (Join-Path $root "scripts") -Recurse -Include *.ps1, *.psm1 | Select-String -Pattern '-ArgumentList\b[^(\r\n]*?(,\s*|\s)\[(bool|int|string)\]\$' |
+                  ForEach-Object { "$($_.Path | Split-Path -Leaf):$($_.LineNumber)" })
+        $hits | Should BeNullOrEmpty
+    }
+}

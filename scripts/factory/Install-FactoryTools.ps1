@@ -138,11 +138,13 @@ Invoke-Command -VMName $Name -Credential $cred -ScriptBlock {
 Copy-IntoVM @("AgentsVM.psm1", "Egress.psm1", "Set-FactoryEgress.ps1", "Guards.psm1") "C:\Setup\factory"
 Copy-IntoVM @("Start-AgentJob.ps1", "Guards.psm1") "C:\Setup\agent-runner"
 
-Invoke-Command -VMName $Name -Credential $cred -ArgumentList $pins, $AgentLogon, [bool]$ScanOnly -ScriptBlock {
+Invoke-Command -VMName $Name -Credential $cred -ArgumentList $pins, $AgentLogon, ([bool]$ScanOnly) -ScriptBlock {
     param($pins, $logon, $scanOnly)
     $ErrorActionPreference = "Stop"
     $ProgressPreference = "SilentlyContinue"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    # A fresh Windows runs no scripts until the machine policy below is set, and the module loads first.
+    Set-ExecutionPolicy Bypass -Scope Process -Force
     Import-Module C:\Setup\factory\AgentsVM.psm1 -Force
     $hs = $HouseStyleRoot
     function Fetch($url, $file) { $p = "C:\Setup\$file"; Invoke-WebRequest $url -OutFile $p -UseBasicParsing; $p }

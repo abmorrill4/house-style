@@ -29,7 +29,7 @@ $cred = Get-VMCredential $Name
 # The service logs on as the factory account, so config.cmd needs its password, passed in memory over PowerShell Direct.
 $password = if ($Service) { $cred.GetNetworkCredential().Password } else { $null }
 
-Invoke-Command -VMName $Name -Credential $cred -ArgumentList $Repo, $Token, $Name, $Labels, [bool]$Service, [bool]$NoStart, $password -ScriptBlock {
+Invoke-Command -VMName $Name -Credential $cred -ArgumentList $Repo, $Token, $Name, $Labels, ([bool]$Service), ([bool]$NoStart), $password -ScriptBlock {
     param($repo, $token, $name, $labels, $asService, $noStart, $password)
     $ErrorActionPreference = "Stop"
     $ProgressPreference = "SilentlyContinue"
