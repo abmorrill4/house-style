@@ -15,10 +15,14 @@ Each failure is a **VM failure** or a **test failure**:
 The summary line counts both kinds. The factory reports a fix whose only failures are VM failures as a VM problem,
 not as a bad fix. A pass that needed a retry is named in the factory's PR.
 
+In CI these run on the Flare VM (the `flare` runner). A factory fix is checked there too, by the host's Flare check,
+never by a workflow, so `e2e.yml` skips `factory/*` branches.
+
 ```powershell
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install          # build, install, run everything
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -NoAi             # skip ai-* scenarios (no key, no cost)
+powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install -PrepareOnly   # build and install only, without starting Flare
 ```
 
 It closes any running Flare. Don't run it while you have unsaved work in Flare.

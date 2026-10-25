@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Answer file for the factory VM (New-FactoryVM.ps1 fills __PASSWORD__ and __NAME__ and puts it on a small second
+<!-- Answer file for either VM (New-FactoryVM.ps1 fills __PASSWORD__ and __NAME__ and puts it on a small second
      disk as autounattend.xml): Windows Setup wipes disk 0, installs with no screens, then a local admin "factory" signs
      in by itself (Flare needs a desktop session) with PowerShell remoting on. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">

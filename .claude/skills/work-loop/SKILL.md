@@ -50,7 +50,7 @@ intent and research done, spec in progress". Never just "mid-design".
 5. **Build.** Code against the verification plan, test first where you can. One branch and PR per piece.
 6. **Verify.** Run every check the plan named (for a Fix, the reproducing test named in its Intent), and the full
    Release suite before you push. A UI change needs its
-   `tests/e2e` scenario in real Flare (the factory VM when the local Flare is busy).
+   `tests/e2e` scenario in real Flare (the Flare VM when the local Flare is busy).
 7. **Build review.** Run `work-loop-review` with `stage: "build"` on the PR. Lenses: correctness, security,
    consistency. Fix confirmed blocking findings. Then merge per the merge policy (CI green plus this review).
 8. **Ship and learn.** A `changes/<name>.md` note from the writer's side (`changes/README.md`); the nightly release

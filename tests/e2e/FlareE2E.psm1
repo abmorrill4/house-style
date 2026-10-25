@@ -24,7 +24,7 @@ $script:Run = $null
 # A Flare UI thread blocked this long counts as hung (the plugin's E2E hook writes heartbeat.json from it every second).
 $script:HeartbeatSeconds = 60
 
-<# Where runs go: E:\HouseStyle\e2e on the dev PC, C:\HouseStyle\e2e in the factory VM (no E: there). #>
+<# Where runs go: E:\HouseStyle\e2e on the dev PC, C:\HouseStyle\e2e in the Flare VM (no E: there). #>
 function Get-E2ERoot { if (Test-Path "E:\") { "E:\HouseStyle\e2e" } else { "$env:SystemDrive\HouseStyle\e2e" } }
 
 <# Throws when the plugin is up but Flare's UI thread has stopped answering, naming the windows it had open. #>
@@ -83,7 +83,7 @@ function Start-FlareE2E {
         if (-not $Force) { throw "Flare is running. Close it, or pass -Force to close it (unsaved work is lost)." }
         $running | Stop-Process -Force -PassThru | Wait-Process -Timeout 30
     }
-    # Program Files on the dev PC; Program Files (x86) where Flare's MSI was installed directly (the factory VM).
+    # Program Files on the dev PC; Program Files (x86) where Flare's MSI was installed directly (the Flare VM).
     $flare = @("$env:ProgramFiles", "${env:ProgramFiles(x86)}") | ForEach-Object { Join-Path $_ "MadCap Software\MadCap Flare 22\Flare.app\Flare.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $flare) { throw "Flare 22 isn't installed." }
     $dir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss")

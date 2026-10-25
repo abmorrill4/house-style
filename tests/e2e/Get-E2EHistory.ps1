@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS How each e2e scenario has done over the last runs on the factory VM: passes, test failures, VM failures and
+.SYNOPSIS How each e2e scenario has done over the last runs on the Flare VM: passes, test failures, VM failures and
 passes that needed a retry. Flaky scenarios and an unhealthy VM show up here before they show up as a bad week.
 .DESCRIPTION Reads the e2e-results artifact (results.json) of each completed e2e run through gh. Runs from before the
 VM/test split (2026-10-24) count their failures as "unknown". Artifacts expire after GitHub's retention period.

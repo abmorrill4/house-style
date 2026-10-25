@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS Puts what a factory VM needs into it. The Flare VM (default): Flare (trial), Git, .NET SDK 8, GitHub CLI, Claude
+.SYNOPSIS Puts what each VM needs into it. The Flare VM (default): Flare (trial), Git, .NET SDK 8, GitHub CLI, Claude
 Code, and the Flare check. The agents VM (-NoFlare): the pinned tools, the agent user and everything section 8 of the
 factory-runtime spec sets up.
 .DESCRIPTION Run elevated on the host after New-FactoryVM.ps1, by hand, never from a task. Files go into the VM over

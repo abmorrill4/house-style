@@ -16,8 +16,8 @@ and which proves the fix. The full study is `planning/research/testing-channels.
 | 3 | `scenarios` | any Windows runner | Document edits, undo, Change and Ignore, the review session, governance, AI flows with a scripted model | A `[Fact]` in `tests/FlareAI.Scenarios/<Area>/`: `using (var fx = ReviewFixture.Scratch(body, ScriptedReview.Review(...)))`, drive `fx.Session`, assert on `fx.Doc.Xml` |
 | 4 | `flare-tests` | any Windows runner | Pane and dialog layout and behavior in real, hidden WinForms | A `[Fact]` in `tests/FlareAI.Flare.Tests`: build the form inside `Sta(() => ...)`, assert on controls and accessible names |
 | 5 | `pester`, `vitest` | any runner | Factory, release, guide publisher, agent scripts; the feedback Worker | Pester 3: an `It` in `tests/<area>/*.Tests.ps1`. vitest: an `it(...)` in `tools/feedback-worker/test/` |
-| 6 | `conformance` | factory VM | The adapter against Flare's real editor | Not built yet (gap G1). Add the case to `tests/FlareAI.TestKit/Conformance/AdapterConformance.cs` so it runs on the sim now and in Flare once G1 lands |
-| 7 | `e2e` | factory VM | Docking, ribbon, Flare events, anything only visible in Flare | Copy `tests/e2e/scenarios/reopen-issues.ps1`: `Start-FlareE2E`, `Send-E2E open`, `Invoke-Ribbon "Lint Topic"`, `Wait-PaneDone`, `Assert-E2E` |
+| 6 | `conformance` | Flare VM | The adapter against Flare's real editor | Not built yet (gap G1). Add the case to `tests/FlareAI.TestKit/Conformance/AdapterConformance.cs` so it runs on the sim now and in Flare once G1 lands |
+| 7 | `e2e` | Flare VM | Docking, ribbon, Flare events, anything only visible in Flare | Copy `tests/e2e/scenarios/reopen-issues.ps1`: `Start-FlareE2E`, `Send-E2E open`, `Invoke-Ribbon "Lint Topic"`, `Wait-PaneDone`, `Assert-E2E` |
 
 **Until G1 lands, a FlareSim scenario doesn't prove an adapter or write-behavior bug for auto-fix.** Those go to
 fix-for-review. FlareSim models Flare's rules from notes, and only the real editor proves them.
@@ -42,7 +42,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/agent/test-chann
   hs-* agents run tests only this way, and only from the repository root.
 - `-Filter` is a `FullyQualifiedName~` match for the .NET channels. `-Scenario` names one e2e scenario. AI scenarios
   (`ai-*`) never run here because they need a key.
-- `e2e` needs real Flare and an unlocked desktop, so it runs on the factory VM. A reproduction there is two batches,
+- `e2e` needs real Flare and an unlocked desktop, so it runs on the Flare VM. A reproduction there is two batches,
   one plugin build each: base, then head.
 
 ## Proving a reproduction

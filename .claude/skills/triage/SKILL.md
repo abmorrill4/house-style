@@ -94,13 +94,22 @@ Show noise as one batch to confirm. Show triage failures with their reason and o
 `gh workflow run factory -R abmorrill4/house-style -f issue=<n>`. A retry also routes the report again, which is how a
 report triaged in shadow mode gets a live route.
 
-**Security (hold).** Nothing went public and any branch stays on the factory VM. If the owner agrees it's a
+**Security (hold).** Nothing went public and any branch stays on the agents VM. If the owner agrees it's a
 vulnerability, draft a private advisory with them (`gh api repos/abmorrill4/house-style/security-advisories`, CLAUDE.md
 security invariants), in our own words. Never a public issue.
 
 **Merge (fix for review).** The draft PR says why it didn't merge on its own. To merge:
 `gh pr ready <pr> -R abmorrill4/house-style` then `gh pr merge <pr> -R abmorrill4/house-style --merge` once CI passes.
 Then label the report `factory:done`, remove `waiting:merge` and `factory:needs-decision`, and close it.
+
+**Saved fixes and the Flare check.** A fix is built on the agents VM and saved there until the Flare VM checks it.
+- A saved fix waiting for the owner after three failed Flare checks resumes when the owner adds `decision:fix`. The
+  factory removes the stuck labels, puts back `factory:working`, and sends the check again.
+- A saved fix that's out of date (`blocked:other`, "Saved fix out of date" or "Retry needed") needs a
+  `**Retry triage**`. `decision:fix` doesn't resume it.
+- A retry also removes `blocked:vm`, deletes the saved fix and starts the report over.
+- `factory:queued` can also mean the report is parked until fixes can run again, while the Flare trial or license is
+  out or the host hasn't picked up checks. Nothing needs doing; it's picked again once the fix path is back.
 
 ## 4. Record the decision
 

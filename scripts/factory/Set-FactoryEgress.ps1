@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS Limits where a factory VM can connect (factory-runtime spec section 7, the egress decision).
+.SYNOPSIS Limits where either VM can connect (factory-runtime spec section 7, the egress decision).
 .DESCRIPTION A setup step, run elevated inside the VM (for example over PowerShell Direct), never by the factory or a
 task. It sets Windows Firewall's default outbound action to Block on every profile and adds allow rules, each named
 "House Style egress ...". DNS (port 53) goes only to the VM's own resolvers, for every account (gap 2).

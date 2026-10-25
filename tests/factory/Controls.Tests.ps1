@@ -317,7 +317,7 @@ Describe 'The open factory PR limit' {
 
 Describe 'blocked:<cause> labels' {
     It 'names the cause from the reason a run stopped' {
-        Get-BlockedCause "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the factory VM rather than the fix; rerun." | Should Be "vm"
+        Get-BlockedCause "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the Flare VM rather than the fix; rerun." | Should Be "vm"
         Get-BlockedCause "The end-to-end run stopped before any scenario ran (setup)." | Should Be "vm"
         Get-BlockedCause "Required checks failed on https://x: fail:build" | Should Be "flaky-test"
         Get-BlockedCause "Stopped by a cap, because the agent ran past its 45-minute limit and was stopped." | Should Be "owner"

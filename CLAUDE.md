@@ -104,7 +104,8 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the
   last tag, it tags the next patch version on `main` and starts `build.yml` on it, which signs and publishes.
   - **The factory's kill switch** is the `FACTORY_MODE` repository variable (`off`, `shadow` or `live`). Unset or
-    `off` stops the factory and the nightly release (`scripts/factory/README.md`). Only the owner changes it.
+    `off` stops the factory and the nightly release (`scripts/factory/README.md`). Claude may set `off` or `shadow`
+    under the owner-ops authorization. Only the owner sets `live`.
   - **Notes:** every PR writers would notice adds `changes/<name>.md` (see `changes/README.md`); CI fails one that
     doesn't, unless it has the `no-notes` label. A hand-written `docs/release-notes/x.y.z.md` goes first when present.
   - **To release now:** run the `nightly` workflow by hand (`gh workflow run nightly`). It and its dry run need

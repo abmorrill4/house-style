@@ -1,51 +1,72 @@
 # The code factory
 
-A Hyper-V VM on the owner's PC runs real Flare for the end-to-end checks (`tests/e2e`) and, as a GitHub Actions
-runner, the e2e workflow on every pull request from this repository's own branches. It also runs the factory, which
-works through tester reports from the private `house-style-reports` repo.
+Two Hyper-V VMs on the owner's PC do the work.
 
-## Build or rebuild the VM (elevated PowerShell on the host)
+- **The agents VM (HSAGENTS)** runs the factory, which works through tester reports from the private
+  `house-style-reports` repo. Its GitHub Actions runner has the `agents` label. Every agent job runs as the
+  `hsagent` user with its own token, and the VM can reach only GitHub, Anthropic and, during a restore, NuGet. It has
+  no Flare.
+- **The Flare VM (HSFACTORY)** runs real Flare for the end-to-end checks (`tests/e2e`) and, as a runner with the
+  `flare` label, the e2e workflow on every pull request from this repository's own branches. It also runs each saved
+  fix's Flare check, which the host starts (below). The factory never runs here.
+
+The host moves work between them. The agents VM leaves a check request in `C:\HouseStyle\flare-outbox`, the host task
+"House Style Flare check" claims it, runs it on the Flare VM from `flare-check-base` with the network cut, puts the
+Flare VM back on `factory-base`, and writes the result into the agents VM's `C:\HouseStyle\flare-inbox`. Every host
+write into the agents VM goes through `Write-AgentsVM` (`FactoryVM.psm1`).
+
+## Build or rebuild a VM (elevated PowerShell on the host)
 
 ```powershell
-scripts\factory\New-FactoryVM.ps1 -Iso E:\HouseStyle\vm\win11-ltsc-eval.iso   # about 20 minutes; -Force rebuilds
-scripts\factory\Install-FactoryTools.ps1                                      # Flare, Git, gh, .NET 8, Claude Code
+scripts\factory\New-FactoryVM.ps1 -Role agents -Iso E:\HouseStyle\vm\win11-ltsc-eval.iso   # HSAGENTS; -Role flare for HSFACTORY
+scripts\factory\Install-FactoryTools.ps1 -Name HSAGENTS -NoFlare    # Git, gh, .NET 8, Claude Code, the hsagent user, the write scan
+scripts\factory\Install-FactoryTools.ps1 -Name HSFACTORY            # Flare (trial), Git, gh, .NET 8
+scripts\factory\Set-FactoryEgress.ps1 -Role agents                  # and -Role flare for the Flare VM
+scripts\factory\Test-FactoryIsolation.ps1                           # the agents VM's isolation probes
 ```
 
 - Windows 11 Enterprise LTSC evaluation, activated for 90 days. Rebuild from a newer evaluation ISO when it runs out.
-- A local account `factory` signs in by itself, because Flare needs a desktop. Its password is in
-  `E:\HouseStyle\vm\factory-credential.xml`, which only the owner's Windows account can read.
-- Checkpoints: one production checkpoint, `factory-base`, which the nightly reset goes back to (below). The build
-  scripts take `windows-ready`, `tools-ready` and `e2e-ready` along the way. `Reset-FactoryVM.ps1 -Refresh` merges
-  them into the disk.
+- Each VM's admin password is in `E:\HouseStyle\vm\<Name>-credential.xml`, which only the owner's Windows account can
+  read.
+- Checkpoints: `agents-base` for the agents VM; `flare-check-base` (Flare with no runner, for checks) and
+  `factory-base` (with the runner) for the Flare VM. A reset stops at once if its base checkpoint doesn't exist.
 
-## Keeping it running
+## Keeping them running
 
 ```powershell
-scripts\factory\Install-Runner.ps1 -Token (gh api -X POST repos/abmorrill4/house-style/actions/runners/registration-token --jq .token)
-scripts\factory\Watch-Factory.ps1 -Install   # host task, every 5 minutes
-scripts\factory\Reset-FactoryVM.ps1 -Refresh  # once, then after updating the VM's tools and about monthly
-scripts\factory\Reset-FactoryVM.ps1 -Install  # host task, nightly at 03:00
-tests\e2e\Get-E2EHistory.ps1 -Runs 50         # how each scenario has done lately
+scripts\factory\Install-Runner.ps1 -Name HSAGENTS -Labels agents -Service -Token <token>
+scripts\factory\Install-Runner.ps1 -Name HSFACTORY -Labels flare -Token <token>
+scripts\factory\Install-HostTasks.ps1                   # the host tasks, from origin/main into E:\HouseStyle\vm\bin
+scripts\factory\Reset-FactoryVM.ps1 -Name HSAGENTS -Refresh    # after updating a VM's tools, and about monthly
+scripts\factory\Reset-FactoryVM.ps1 -Name HSFACTORY -Refresh   # also after adding the Flare license
+scripts\factory\Set-FlareInUse.ps1 -On                  # before using the Flare VM by hand; -Off afterwards
+tests\e2e\Get-E2EHistory.ps1 -Runs 50                   # how each scenario has done lately
 ```
 
-- **Install-Runner** (elevated, on the host) installs the runner and registers it with `-Token`. It starts the runner
-  at sign-in in the factory account's desktop, un-elevated, and restarts it within 30 seconds if it exits. It also
-  turns off the screensaver and sleep. Without `-Token` it only refreshes those settings.
-- **Test-FactoryReady** is the first step of every e2e and factory job. It fails in seconds, with the reason, if the
-  runner has no desktop, the desktop is locked or disconnected, or C: is nearly full. It also closes any Flare left by
-  an earlier run. A failure leaves `C:\HouseStyle\not-ready.txt` in the VM.
-- **Watch-Factory** runs on the host while the owner is signed in. It starts the VM if it's off. It reboots the guest
-  if the runner has been offline for 10 minutes, for example a VM stuck at the sign-in screen (seen 2026-10-23), or if
-  `not-ready.txt` says the last job found the desktop unusable. That's a guest reboot through Hyper-V, never a hard
-  reset, and at most one every 30 minutes. Create `E:\HouseStyle\vm\maintenance` to keep it away during checkpoint
-  merges or rebuilds, and delete it afterwards. Its log is `E:\HouseStyle\vm\watch-factory.log`.
-- **Reset-FactoryVM** runs on the host every night at 03:00. It waits up to an hour for a running job, then holds
-  Watch-Factory off and copies `C:\HouseStyle\factory-logs` to a dated folder under `E:\HouseStyle\vm\factory-logs`. It checks for a
-  running job again just before the VM goes off, and skips the night if it can't read the runner's state. It puts the VM back
-  on `factory-base` and waits for the runner to come online. Whatever happened in the VM since the base is gone:
-  leftover files, Windows updates, disk growth. `-Refresh` makes the VM as it is now the new base. Run it after
-  updating the VM's tools, and about monthly so Windows updates and the runner version stay current. Its log is
-  `E:\HouseStyle\vm\reset-factory.log`.
+The host tasks, all `IgnoreNew`, run as the owner's elevated, interactive logon:
+
+| Task | When | Limit |
+|---|---|---|
+| House Style Flare check | every minute | 4 hours |
+| House Style HSFACTORY nightly reset | 03:00 | 6 hours |
+| House Style HSAGENTS nightly reset | 03:30 | 6 hours |
+| House Style HSAGENTS reset resume | when the Flare check task finds a reset that stopped early | 6 hours |
+| House Style factory watch | every 5 minutes | 4 minutes |
+
+- **Test-FactoryReady** is the first step of every e2e and factory job. On the Flare VM it fails in seconds, with the
+  reason, if the runner has no desktop, the desktop is locked or disconnected, or C: is nearly full, and leaves
+  `C:\HouseStyle\not-ready.txt`. On the agents VM (`-NoFlare`) it checks the disk, the job task, the egress rules, the
+  write scan, the event log restriction, `carry-done` and the fork-PR approval setting.
+- **Watch-Factory** starts either VM if it's off, and reboots the guest if its runner has been offline for 10 minutes,
+  at most once every 30 minutes. For the Flare VM it also answers `not-ready.txt` with a reboot and leaves the VM alone
+  while a check, the in-use flag or the failed-reset marker holds it. It never runs a command inside the agents VM.
+- **The nightly resets** put each VM back on its base, so leftover files, Windows updates and disk growth don't pile up.
+  The Flare VM's waits up to 4 hours for a running check or the in-use flag and keeps the nightly e2e results. The
+  agents VM's carries `fix-state`, the outbox, the inbox and `factory-logs` across the restore (through
+  `E:\HouseStyle\vm\hsagents-carry`), writes in what the host held while it ran, then writes `carry-done`. Each reset
+  sets `E:\HouseStyle\vm\maintenance-<Name>` while it runs. Everything is logged to `E:\HouseStyle\vm\host.log`.
+- **A failed reset of the Flare VM** leaves it off and offline with `E:\HouseStyle\vm\flare-reset-failed`. Nothing
+  runs on it until the owner deletes that file.
 - **The ai-\* e2e scenarios** run on pushes to `main`, nightly at 10:23 UTC (well after the reset) and by hand, never on
   a branch push. Their results vary from run to run, so they don't judge a change.
 - **Get-E2EHistory** reads the last runs' `results.json` artifacts and shows each scenario's passes, test failures,
@@ -89,11 +110,13 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
 | 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*` and written by the owner or the factory, apart from questions the docs answer riding along, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
 | 3 | regression | `same` as a **closed** public issue | Handled as a bug (rows 4 to 6), the closed issue named |
-| 4 | auto-fix | a bug, reproduced, and every auto-fix check passes | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
+| 4 | auto-fix | a bug, reproduced, every auto-fix check passes, and the fix changes only `.cs` files under `src/` or `tests/` plus its `changes/` note | PR labeled `factory:auto-fix`, CI, merge. Ships that night |
 | 5 | fix-for-review | a bug, reproduced, and any check fails; or an ask the brief wants fixed now (`fix_now`: a small change to existing behavior, never a bug or a feature) | A **draft** PR with the reasons. `waiting:merge` |
 | 6 | brief-only | a bug, not reproduced (or a duplicate of nothing open) | No code. `waiting:decide` |
 | 7 | plan | a `feature` or `friction` ask no open issue covers | A public `from:tester` + `loop:auto` issue in our words, listing only the uncovered asks, with its `area:*` label, in Later on the board |
 | 8 | docs-gap | a `question` and `docs_gap: true` | A public `from:tester` + `documentation` + `docs-gap` issue, with its `area:*` label, in Later on the board |
+
+Auto-fix covers only the paths in `rules/routing.json`'s `autoFix.paths` and `autoFix.dataPaths`. A fix that changes any other file, or whose note has a link or runs past 20 lines, goes to fix-for-review instead.
 
 **Split reports.** The brief splits a report into its asks (one to four), and routing works per ask. Which open
 issue covers each ask, and how much, is decided by the coverage judge (`.github/factory/cover-prompt.md`): Sonnet with
@@ -163,7 +186,8 @@ One repository variable, read by `factory.yml` (triage and fix) and `nightly.yml
 
 Manual runs need shadow or live too, dry runs included: a `factory` or `nightly` run with `dry_run` stops at the
 switch like any other while the mode is off. Turning the factory on is setting it to shadow: `gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`.
-To go live, `--body live`; to stop everything, `--body off`. Only the owner changes it. Reports routed in shadow mode
+To go live, `--body live`; to stop everything, `--body off`. Claude may set `off` or `shadow` under the owner-ops
+authorization. Only the owner sets `live`. Reports routed in shadow mode
 keep their labels when it goes live; a `**Retry triage**` routes one again.
 
 ### Run controls

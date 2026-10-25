@@ -8,7 +8,7 @@ Import-Module (Join-Path $root 'scripts\factory\Controls.psm1') -Force
 Import-Module (Join-Path $here 'Fixtures.psm1') -Force
 
 Describe 'Blocked causes and reason codes for every string (P9)' {
-    # Today's strings, built from parts so the "factory VM" text check (P15) doesn't find them here.
+    # Today's strings, built from parts so the old VM name text check (P15) doesn't find them here.
     $old = "factory " + "VM"
     It 'today''s posted strings keep their old codes' {
         $s = "Flare failed to start or stopped responding during the end-to-end checks, twice. That points at the $old rather than the fix; rerun the report once the VM is healthy."

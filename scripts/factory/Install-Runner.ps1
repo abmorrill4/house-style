@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS Sets up a factory VM's GitHub Actions runner: installs it and registers it (with -Token).
+.SYNOPSIS Sets up a VM's GitHub Actions runner: installs it and registers it (with -Token).
 .DESCRIPTION Run elevated on the host, by hand. Two kinds:
 - The Flare VM (default, -Labels flare): the runner can't be a service, because a service has no desktop and Flare
   needs one. It starts at sign-in in the factory account's desktop session, un-elevated, and restarts if it exits.

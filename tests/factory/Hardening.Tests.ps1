@@ -302,3 +302,109 @@ Describe 'decision:fix must come from the owner' {
     }
     It 'Invoke-Factory.ps1 checks it with the owner account' { $factoryScript | Should Match 'Test-FixAllowed \$null \(Get-Labels \$r\) \$events \$Run\.owner' }
 }
+
+# ==== Shape (factory-runtime spec, P15) =============================================================================
+Describe 'Workflows, credentials, host calls and text (P15)' {
+    $wfDir = Join-Path $root '.github\workflows'
+    $factoryYml = Get-Content (Join-Path $wfDir 'factory.yml') -Raw
+    $e2eYml = Get-Content (Join-Path $wfDir 'e2e.yml') -Raw
+    # The workflow hunks are the owner's commit (workflows.patch, migration step 5). Until then their checks skip.
+    $applied = $factoryYml -match 'runs-on: \[self-hosted, windows, agents\]'
+    $pending = 'workflow hunks not committed yet (migration step 5)'
+    $files = @(& git.exe -C $root ls-files --cached --others --exclude-standard)
+
+    It ($(if ($applied) { 'factory.yml runs only on agents and never names flare; agents appears in no other workflow' } else { "factory.yml runs only on agents: $pending" })) -Skip:(-not $applied) {
+        $factoryYml | Should Match 'runs-on: \[self-hosted, windows, agents\]'
+        $factoryYml | Should Not Match '\bflare\]'
+        foreach ($w in Get-ChildItem $wfDir -Filter *.yml) {
+            if ($w.Name -ne 'factory.yml') { (Get-Content $w.FullName -Raw) | Should Not Match 'runs-on:.*\bagents\b' }
+        }
+        $factoryYml | Should Not Match 'ANTHROPIC_API_KEY'
+        $factoryYml | Should Match 'Test-FactoryReady\.ps1 -NoFlare'
+        $factoryYml | Should Match 'name: Check the agents VM is ready'
+        $factoryYml | Should Match 'usage limit was reached'
+    }
+    It ($(if ($applied) { 'factory.yml''s capture input keeps the FACTORY_MODE gate and has its own concurrency group' } else { "capture, its gate and its group: $pending" })) -Skip:(-not $applied) {
+        $factoryYml | Should Match '(?m)^\s+capture:\s*$'
+        $factoryYml | Should Match ([regex]::Escape("group: factory-`${{ inputs.capture && 'capture' || 'run' }}"))
+        $factoryYml | Should Match "if: github\.repository == 'abmorrill4/house-style' && \(vars\.FACTORY_MODE == 'shadow' \|\| vars\.FACTORY_MODE == 'live'\)"
+        $factoryYml | Should Match ([regex]::Escape('if ($env:CAPTURE -eq ''true'') { $a += "-Capture" }'))
+    }
+    It ($(if ($applied) { 'e2e.yml ignores factory/* pushes and skips a manual run on a factory/* ref' } else { "e2e.yml's filter: $pending" })) -Skip:(-not $applied) {
+        $e2eYml | Should Match ([regex]::Escape("branches-ignore: ['factory/**']"))
+        $e2eYml | Should Match ([regex]::Escape("!startsWith(github.ref, 'refs/heads/factory/')"))
+        $e2eYml | Should Match 'name: Check the Flare VM is ready'
+    }
+    It 'every checkout of repo code keeps no credentials, and no secret appears inside a run: body' {
+        foreach ($w in Get-ChildItem $wfDir -Filter *.yml) {
+            $lines = @(Get-Content $w.FullName)
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -match 'uses: actions/checkout@') {
+                    $block = ($lines[($i + 1)..([Math]::Min($i + 6, $lines.Count - 1))] | Where-Object { $_ -notmatch '^\s*-\s' }) -join "`n"
+                    if ($block -notmatch 'persist-credentials: false') { throw "$($w.Name) line $($i + 1) checks out with credentials." }
+                }
+                if ($lines[$i] -match '^(\s*)(-\s+)?run:\s*(.*)$') {
+                    $indent = $Matches[1].Length + $(if ($Matches[2]) { $Matches[2].Length } else { 0 })
+                    $body = @($Matches[3])
+                    for ($j = $i + 1; $j -lt $lines.Count -and ($lines[$j] -match '^\s*$' -or ($lines[$j] -match '^(\s*)' -and $Matches[1].Length -gt $indent)); $j++) { $body += $lines[$j] }
+                    if (($body -join "`n") -match '\$\{\{\s*secrets\.') { throw "$($w.Name) line $($i + 1) puts a secret inside a run: body." }
+                }
+            }
+        }
+    }
+    It 'the old VM name appears in no tracked file' {
+        $old = "factory " + "VM"
+        $skip = '\.(png|jpg|ico|dll|exe|zip|pfx|snk|nupkg|trx)$'
+        $hits = foreach ($f in $files) {
+            if ($f -match $skip) { continue }
+            if (-not $applied -and $f -like '.github/workflows/*') { continue }   # the owner's commit fixes these
+            $p = Join-Path $root $f
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+            if ((Get-Item -LiteralPath $p).Length -gt 5MB) { continue }
+            if ([IO.File]::ReadAllText($p) -match "(?i)$old") { $f }
+        }
+        @($hits) -join ', ' | Should BeNullOrEmpty
+    }
+    It 'the kill-switch line in CLAUDE.md and the factory README says who sets off, shadow and live' {
+        foreach ($f in 'CLAUDE.md', 'scripts\factory\README.md') {
+            $t = (Get-Content (Join-Path $root $f) -Raw) -replace '\s+', ' '
+            $t | Should Match 'Claude may set `off` or `shadow` under the owner-ops authorization\. Only the owner sets `live`\.'
+            $t | Should Not Match 'Only the owner changes it'
+        }
+    }
+    It 'no task registration passes -ScratchVM, and no task runs a hand-run setup script' {
+        . (Join-Path $root 'scripts\factory\Install-HostTasks.ps1')
+        foreach ($t in $HostTasks) {
+            $t.args | Should Not Match 'ScratchVM'
+            $t.script | Should Not Match '^(New-FactoryVM|Install-FactoryTools|Install-Runner|Set-FactoryEgress|Save-Fixtures|Test-FactoryIsolation)\.ps1$'
+        }
+    }
+    It 'host calls into the agents VM appear only on the allow list' {
+        $dir = Join-Path $root 'scripts\factory'
+        $setup = 'New-FactoryVM.ps1', 'Install-FactoryTools.ps1', 'Install-Runner.ps1', 'Set-FactoryEgress.ps1', 'Save-Fixtures.ps1', 'Test-FactoryIsolation.ps1'
+        foreach ($f in Get-ChildItem $dir -Include *.ps1, *.psm1 -Recurse) {
+            $src = Get-Content $f.FullName -Raw
+            if ($setup -contains $f.Name) { continue }
+            # Direct calls: only Invoke-VMCall's own body in FactoryVM.psm1, and the reset's on the Flare VM.
+            if ($f.Name -ne 'FactoryVM.psm1') { $src | Should Not Match 'Invoke-Command' }
+            if ($f.Name -ne 'Reset-FactoryVM.ps1') { $src | Should Not Match 'New-PSSession|Copy-VMFile' }
+            else { [regex]::Matches($src, '(New-PSSession|Copy-VMFile)[^\r\n]*') | ForEach-Object { $_.Value | Should Match 'FlareVMName' } }
+            # Invoke-VMCall into the agents VM: Write-AgentsVM and the claim (FactoryVM.psm1), and the reset's quiesce,
+            # carry and wait (Reset-FactoryVM.ps1). Anywhere else, only into the Flare VM.
+            if ('FactoryVM.psm1', 'Reset-FactoryVM.ps1' -notcontains $f.Name) {
+                [regex]::Matches($src, 'Invoke-VMCall\s+(\S+)') | ForEach-Object { $_.Groups[1].Value | Should Match '^\$(FlareVMName|script:CheckVM|vm|FlareVM)$' }
+                $src | Should Not Match 'Invoke-VMCall\s+\$AgentsVMName|Invoke-VMCall\s+"?HSAGENTS'
+            }
+            # -AsReset: only Reset-FactoryVM.ps1 passes it.
+            if ('FactoryVM.psm1', 'Reset-FactoryVM.ps1' -notcontains $f.Name) { $src | Should Not Match '-AsReset' }
+        }
+        $watch = Get-Content (Join-Path $dir 'Watch-Factory.ps1') -Raw
+        [regex]::Matches($watch, 'Invoke-VMCall\s+(\S+)') | ForEach-Object { $_.Groups[1].Value | Should Be '$FlareVMName' }
+    }
+    It 'rules/routing.json has the auto-fix path rule exactly, and its _about mentions it' {
+        $r = Get-Content (Join-Path $root 'rules\routing.json') -Raw | ConvertFrom-Json
+        @($r.autoFix.paths) -join '|' | Should BeExactly '^(src|tests)/.+\.cs$'
+        @($r.autoFix.dataPaths) -join '|' | Should BeExactly '^changes/(?!README\.md$)[^/]+\.md$'
+        $r._about | Should Match 'autoFix\.paths and autoFix\.dataPaths'
+    }
+}
