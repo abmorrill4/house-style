@@ -1,0 +1,262 @@
+{
+    "name":  "git-patch-refused",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:09Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "mode-change",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Thing.cs b/src/App/Thing.cs\nold mode 100644\nnew mode 100755\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "exec-bit",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Run.cs b/src/App/Run.cs\nnew file mode 100755\nindex 0000000..6386e3c\n--- /dev/null\n+++ b/src/App/Run.cs\n@@ -0,0 +1 @@\n+class Run { }\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "symlink",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Link.cs b/src/App/Link.cs\nnew file mode 120000\nindex 0000000..a1bbcf3\n--- /dev/null\n+++ b/src/App/Link.cs\n@@ -0,0 +1 @@\n+Thing.cs\n\\ No newline at end of file\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "binary",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Data.cs b/src/App/Data.cs\nnew file mode 100644\nindex 0000000..64ec669\nBinary files /dev/null and b/src/App/Data.cs differ\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "rename",
+                      "command":  "git diff --no-ext-diff --no-textconv -M --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Old.cs b/src/App/Renamed.cs\nsimilarity index 100%\nrename from src/App/Old.cs\nrename to src/App/Renamed.cs\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "no-prefix",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --no-prefix \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git src/App/Thing.cs src/App/Thing.cs\nindex 83a7952..1a55ac9 100644\n--- src/App/Thing.cs\n+++ src/App/Thing.cs\n@@ -1,5 +1,5 @@\n class Thing\n {\n     int A() =\u003e 1;\n-    int B() =\u003e 2;\n+    int B() =\u003e 23;\n }\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "package-change",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/App.csproj b/src/App/App.csproj\nindex b35fb68..cbf45f6 100644\n--- a/src/App/App.csproj\n+++ b/src/App/App.csproj\n@@ -1,5 +1,5 @@\n \u003cProject Sdk=\"Microsoft.NET.Sdk\"\u003e\n   \u003cItemGroup\u003e\n-    \u003cPackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.1\" /\u003e\n+    \u003cPackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" /\u003e\n   \u003c/ItemGroup\u003e\n \u003c/Project\u003e\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/App.csproj.user",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/App.csproj.user b/src/App/App.csproj.user\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/App.csproj.user\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/bin/Out.cs",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/bin/Out.cs b/src/App/bin/Out.cs\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/bin/Out.cs\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/obj/x.props",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/obj/x.props b/src/App/obj/x.props\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/obj/x.props\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/Directory.Build.props",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/Directory.Build.props b/tests/Directory.Build.props\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/Directory.Build.props\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/Build.targets",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Build.targets b/src/App/Build.targets\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/Build.targets\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/csc.rsp",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/csc.rsp b/src/App/csc.rsp\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/csc.rsp\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/Lib.vbproj",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Lib.vbproj b/src/App/Lib.vbproj\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/Lib.vbproj\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/Shared.projitems",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Shared.projitems b/src/App/Shared.projitems\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/Shared.projitems\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/Directory.Packages.props",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/Directory.Packages.props b/src/Directory.Packages.props\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/Directory.Packages.props\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/Directory.Solution.props",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/Directory.Solution.props b/src/Directory.Solution.props\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/Directory.Solution.props\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App.sln",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App.sln b/src/App.sln\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App.sln\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/global.json",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/global.json b/src/global.json\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/global.json\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/nuget.config",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/nuget.config b/src/nuget.config\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/nuget.config\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/packages.lock.json",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/packages.lock.json b/src/App/packages.lock.json\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/packages.lock.json\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/CLAUDE.md",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/CLAUDE.md b/src/CLAUDE.md\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/CLAUDE.md\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/.claude/settings.json",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/.claude/settings.json b/src/.claude/settings.json\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/.claude/settings.json\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/.gitattributes",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/.gitattributes b/src/.gitattributes\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/.gitattributes\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/.gitmodules",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/.gitmodules b/src/.gitmodules\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/.gitmodules\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/.lfsconfig",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/.lfsconfig b/src/.lfsconfig\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/.lfsconfig\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/App.runsettings",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/App.runsettings b/tests/App.runsettings\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/App.runsettings\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/xunit.runner.json",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/xunit.runner.json b/tests/xunit.runner.json\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/xunit.runner.json\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/.editorconfig",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/.editorconfig b/src/.editorconfig\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/.editorconfig\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/e2e/Run-FlareE2E.ps1",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/e2e/Run-FlareE2E.ps1 b/tests/e2e/Run-FlareE2E.ps1\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/e2e/Run-FlareE2E.ps1\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/e2e/FlareE2E.psm1",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/e2e/FlareE2E.psm1 b/tests/e2e/FlareE2E.psm1\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/e2e/FlareE2E.psm1\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:tests/e2e/flaui/Deps.cs",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/tests/e2e/flaui/Deps.cs b/tests/e2e/flaui/Deps.cs\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/tests/e2e/flaui/Deps.cs\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:src/App/Tool.CSPROJ",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Tool.CSPROJ b/src/App/Tool.CSPROJ\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/src/App/Tool.CSPROJ\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:scripts/factory/Extra.ps1",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/scripts/factory/Extra.ps1 b/scripts/factory/Extra.ps1\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/scripts/factory/Extra.ps1\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:rules/routing.json",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/rules/routing.json b/rules/routing.json\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/rules/routing.json\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "path:README.md",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/README.md b/README.md\nnew file mode 100644\nindex 0000000..587be6b\n--- /dev/null\n+++ b/README.md\n@@ -0,0 +1 @@\n+x\n",
+                      "stderr":  ""
+                  }
+              ]
+}

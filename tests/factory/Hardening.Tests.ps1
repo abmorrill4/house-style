@@ -15,7 +15,7 @@ function New-Brief {
     }
 }
 function New-Fix([hashtable]$over = @{}) {
-    $f = [pscustomobject]@{ repro = "pass"; lines = 40; files = 2; behavior = @(); owner_only = @(); overlap = @(); tamper = @(); area = "Style" }
+    $f = [pscustomobject]@{ repro = "pass"; lines = 40; files = 2; behavior = @(); owner_only = @(); overlap = @(); tamper = @(); area = "Style"; paths = @("src/FlareAI.Core/Style/IgnoreList.cs", "tests/FlareAI.Core.Tests/IgnoreTests.cs"); uncovered = @() }
     foreach ($k in $over.Keys) { $f.$k = $over[$k] }
     $f
 }
@@ -199,11 +199,11 @@ Describe 'The test-tamper guard (spec section 4.2)' {
         ($route.reasons -join ' ') | Should Match 'changes existing tests or protected test files'
         (Route-Fix (New-Fix)).route | Should Be "auto-fix"
     }
-    It 'the e2e harness stays a hard deny in the factory' {
-        $m = [regex]::Match($factoryScript, "(?m)^\`$denied = '([^']+)'")
-        $m.Success | Should Be $true
-        foreach ($p in "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/FlaUI.Deps.csproj", "src/X/X.csproj", "Directory.Build.props") { $p -match $m.Groups[1].Value | Should Be $true }
-        "tests/e2e/scenarios/new-one.ps1" -match $m.Groups[1].Value | Should Be $false
+    It 'the e2e harness stays a hard deny in the factory (PatchRules.psd1)' {
+        Import-Module (Join-Path $root 'scripts\factory\Guards.psm1') -Force
+        $pr = Import-PatchRules (Join-Path $root 'scripts\factory\PatchRules.psd1')
+        foreach ($p in "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/FlaUI.Deps.csproj", "src/X/X.csproj", "tests/Directory.Build.props") { Test-PatchPath $p $pr | Should Not BeNullOrEmpty }
+        Test-PatchPath "tests/e2e/scenarios/new-one.ps1" $pr | Should BeNullOrEmpty
     }
     It 'Invoke-Factory.ps1 passes the tamper list and area into the route' { $factoryScript | Should Match 'tamper = @\(\$facts\.tamper\); area = \$facts\.area' }
 }

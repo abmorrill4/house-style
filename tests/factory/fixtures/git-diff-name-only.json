@@ -1,0 +1,24 @@
+{
+    "name":  "git-diff-name-only",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:10Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "package-change",
+                      "command":  "git diff --name-only \u003csaved base\u003e \u003crun base\u003e",
+                      "exit":  0,
+                      "stdout":  "src/App/App.csproj\nsrc/App/Thing.cs\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "code-only",
+                      "command":  "git diff --name-only \u003csaved base\u003e \u003crun base\u003e",
+                      "exit":  0,
+                      "stdout":  "src/App/Old.cs\n",
+                      "stderr":  ""
+                  }
+              ]
+}

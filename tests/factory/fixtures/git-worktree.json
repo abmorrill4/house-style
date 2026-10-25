@@ -1,0 +1,31 @@
+{
+    "name":  "git-worktree",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:11Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "add",
+                      "command":  "git worktree add --detach \u003cpath\u003e \u003cbase\u003e",
+                      "exit":  0,
+                      "stdout":  "HEAD is now at e5b9f91 base\n",
+                      "stderr":  "Preparing worktree (detached HEAD e5b9f91)\n"
+                  },
+                  {
+                      "case":  "list",
+                      "command":  "git worktree list --porcelain",
+                      "exit":  0,
+                      "stdout":  "worktree C:/Users/_user_/AppData/Local/Temp/hs-fixtures-git-c4e928dc/repo\nHEAD 4602026a40aa5ad8b67b30334ace77562666494d\ndetached\n\nworktree C:/Users/_user_/AppData/Local/Temp/hs-fixtures-git-c4e928dc/patch-work\nHEAD e5b9f916ece63503c9e3b1e43a61e8cc1a52d71a\ndetached\n\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "remove",
+                      "command":  "git worktree remove --force \u003cpath\u003e",
+                      "exit":  0,
+                      "stdout":  "",
+                      "stderr":  ""
+                  }
+              ]
+}

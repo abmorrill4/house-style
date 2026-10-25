@@ -1,4 +1,4 @@
-﻿# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
+# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $here '..\..\scripts\factory\Triage.psm1') -Force
@@ -24,7 +24,7 @@ function New-Input([hashtable]$over = @{}) {
     $in
 }
 function New-Fix([hashtable]$over = @{}) {
-    $f = [pscustomobject]@{ repro = "pass"; lines = 40; files = 2; behavior = @(); owner_only = @(); overlap = @() }
+    $f = [pscustomobject]@{ repro = "pass"; lines = 40; files = 2; behavior = @(); owner_only = @(); overlap = @(); paths = @("src/FlareAI.Core/Style/IgnoreList.cs", "tests/FlareAI.Core.Tests/IgnoreTests.cs"); uncovered = @() }
     foreach ($k in $over.Keys) { $f.$k = $over[$k] }
     $f
 }
@@ -572,3 +572,65 @@ Describe 'The coverage judge' {
     }
 }
 
+
+Describe 'The auto-fix path rule (factory-runtime spec section 3, step 14; P7)' {
+    It 'rules/routing.json holds the rule exactly, and its _about says what each list is for' {
+        @($rules.autoFix.paths) -join '|' | Should Be '^(src|tests)/.+\.cs$'
+        @($rules.autoFix.dataPaths) -join '|' | Should Be '^changes/(?!README\.md$)[^/]+\.md$'
+        $rules._about | Should Match 'autoFix\.paths and autoFix\.dataPaths are the auto-fix path rule'
+        $rules._about | Should Match 'release note'
+    }
+    It 'every replay case with a built fix carries its paths, except the ones about a missing list' {
+        foreach ($c in @($cases | Where-Object { $_.input.fix -and $_.name -notmatch 'no paths' })) { $c.input.fix.PSObject.Properties.Name -contains 'paths' | Should Be $true }
+    }
+    It 'C# under src/ and tests/ stays auto-fix' {
+        (Get-Route (New-Input @{ fix = (New-Fix) }) $rules).route | Should Be "auto-fix"
+    }
+    It 'C# with a short, link-free note stays auto-fix' {
+        $files = @{ "changes/ignore-sticks.md" = @{ status = "A"; added = @("- Ignored issues stay ignored after you lint again."); removed = @() } }
+        $paths = @("src/FlareAI.Core/Style/IgnoreList.cs", "changes/ignore-sticks.md")
+        @(Get-UncoveredPaths $paths $files $rules).Count | Should Be 0
+        (Get-Route (New-Input @{ fix = (New-Fix @{ paths = $paths; uncovered = @() }) }) $rules).route | Should Be "auto-fix"
+    }
+    It 'a scenario script, a Pester test, JSON under tests/, Markdown or XML under src/ each go for review with the reason' {
+        foreach ($other in "tests/e2e/scenarios/ignore-sticks.ps1", "tests/agent/Ignore.Tests.ps1", "tests/FlareAI.Core.Tests/data.json", "src/FlareAI.Flare/whats-new.md", "src/FlareAI.Core/Style/rules.xml") {
+            $paths = @("src/FlareAI.Core/Style/IgnoreList.cs", $other)
+            @(Get-UncoveredPaths $paths @{} $rules) -join ',' | Should Be $other
+            $r = Get-Route (New-Input @{ fix = (New-Fix @{ paths = $paths; uncovered = @($other) }) }) $rules
+            $r.route | Should Be "fix-for-review"
+            ($r.reasons -join ' ') | Should Match ([regex]::Escape("the fix changes files auto-fix doesn't cover ($other)"))
+            Get-ReasonCodes $r.reasons | Should Be "auto-fix-paths"
+        }
+    }
+    It 'a note with a URL, over 20 lines or 1,000 characters, or not new, goes for review' {
+        $paths = @("src/FlareAI.Core/Style/IgnoreList.cs", "changes/x.md")
+        foreach ($added in @(@("- See https://example.com for more."), @("- Visit www.example.com."), @(1..21 | ForEach-Object { "- line $_" }), @("- " + ("a" * 1001)))) {
+            @(Get-UncoveredPaths $paths @{ "changes/x.md" = @{ status = "A"; added = $added; removed = @() } } $rules) -join ',' | Should Be "changes/x.md"
+        }
+        @(Get-UncoveredPaths $paths @{ "changes/x.md" = @{ status = "M"; added = @("- short"); removed = @() } } $rules) -join ',' | Should Be "changes/x.md"
+        @(Get-UncoveredPaths $paths @{ "changes/x.md" = @{ status = "A"; added = @(1..20 | ForEach-Object { "- line $_" }); removed = @() } } $rules).Count | Should Be 0
+        (Get-Route (New-Input @{ fix = (New-Fix @{ paths = $paths; uncovered = @("changes/x.md") }) }) $rules).route | Should Be "fix-for-review"
+    }
+    It 'changes/README.md isn''t covered' {
+        @(Get-UncoveredPaths @("changes/README.md") @{ "changes/README.md" = @{ status = "A"; added = @("x"); removed = @() } } $rules) -join ',' | Should Be "changes/README.md"
+    }
+    It 'a built fix whose facts lack paths, or list none, goes for review: the rule fails closed' {
+        $f = New-Fix; $f.PSObject.Properties.Remove('paths')
+        $r = Get-Route (New-Input @{ fix = $f }) $rules
+        $r.route | Should Be "fix-for-review"
+        ($r.reasons -join ' ') | Should Match "files auto-fix doesn't cover \(its changed paths weren't listed\)"
+        (Get-Route (New-Input @{ fix = (New-Fix @{ paths = @() }) }) $rules).route | Should Be "fix-for-review"
+    }
+    It 'a record without uncovered still checks its paths against the rules' {
+        $f = New-Fix @{ paths = @("src/FlareAI.Core/Style/IgnoreList.cs", "scripts/agent/x.ps1") }; $f.PSObject.Properties.Remove('uncovered')
+        (Get-Route (New-Input @{ fix = $f }) $rules).route | Should Be "fix-for-review"
+    }
+    It 'rules without the lists cover nothing' {
+        $bare = $rules | ConvertTo-Json -Depth 6 | ConvertFrom-Json; $bare.autoFix.PSObject.Properties.Remove('paths'); $bare.autoFix.PSObject.Properties.Remove('dataPaths')
+        (Get-Route (New-Input @{ fix = (New-Fix) }) $bare).route | Should Be "fix-for-review"
+    }
+    It 'the route is unchanged before a fix is built' {
+        (Get-Route (New-Input) $rules).route | Should Be "auto-fix"
+        (Get-Route (New-Input) $rules).build | Should Be $true
+    }
+}

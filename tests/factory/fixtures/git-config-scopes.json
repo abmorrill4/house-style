@@ -1,0 +1,24 @@
+{
+    "name":  "git-config-scopes",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:10Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "local",
+                      "command":  "git config --list --show-scope",
+                      "exit":  0,
+                      "stdout":  "system\tdiff.astextplain.textconv=astextplain\nsystem\tfilter.lfs.clean=git-lfs clean -- %f\nsystem\tfilter.lfs.smudge=git-lfs smudge -- %f\nsystem\tfilter.lfs.process=git-lfs filter-process\nsystem\tfilter.lfs.required=true\nsystem\thttp.sslbackend=schannel\nsystem\tcore.autocrlf=true\nsystem\tcore.fscache=true\nsystem\tcore.symlinks=true\nsystem\tpull.rebase=false\nsystem\tcredential.helper=manager\nsystem\tcredential.https://dev.azure.com.usehttppath=true\nsystem\tinit.defaultbranch=master\nlocal\tcore.repositoryformatversion=0\nlocal\tcore.filemode=false\nlocal\tcore.bare=false\nlocal\tcore.logallrefupdates=true\nlocal\tcore.symlinks=false\nlocal\tcore.ignorecase=true\nlocal\tcore.autocrlf=false\nlocal\tuser.name=fixture\nlocal\tuser.email=fixture@example.invalid\ncommand\tcore.hookspath=C:\\Users\\_user_\\AppData\\Local\\Temp\\hs-fixtures-git-c4e928dc\\no-hooks\ncommand\tcore.fsmonitor=false\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "worktree",
+                      "command":  "git config --list --show-scope",
+                      "exit":  0,
+                      "stdout":  "system\tdiff.astextplain.textconv=astextplain\nsystem\tfilter.lfs.clean=git-lfs clean -- %f\nsystem\tfilter.lfs.smudge=git-lfs smudge -- %f\nsystem\tfilter.lfs.process=git-lfs filter-process\nsystem\tfilter.lfs.required=true\nsystem\thttp.sslbackend=schannel\nsystem\tcore.autocrlf=true\nsystem\tcore.fscache=true\nsystem\tcore.symlinks=true\nsystem\tpull.rebase=false\nsystem\tcredential.helper=manager\nsystem\tcredential.https://dev.azure.com.usehttppath=true\nsystem\tinit.defaultbranch=master\nlocal\tcore.repositoryformatversion=0\nlocal\tcore.filemode=false\nlocal\tcore.bare=false\nlocal\tcore.logallrefupdates=true\nlocal\tcore.symlinks=false\nlocal\tcore.ignorecase=true\nlocal\tcore.autocrlf=false\nlocal\tuser.name=fixture\nlocal\tuser.email=fixture@example.invalid\nlocal\textensions.worktreeconfig=true\nworktree\tcore.fsmonitor=true\ncommand\tcore.hookspath=C:\\Users\\_user_\\AppData\\Local\\Temp\\hs-fixtures-git-c4e928dc\\no-hooks\ncommand\tcore.fsmonitor=false\n",
+                      "stderr":  ""
+                  }
+              ]
+}

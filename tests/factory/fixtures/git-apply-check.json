@@ -1,0 +1,24 @@
+{
+    "name":  "git-apply-check",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:09Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "ok",
+                      "command":  "git apply --check \u003cpatch\u003e",
+                      "exit":  0,
+                      "stdout":  "",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "conflict",
+                      "command":  "git apply --check \u003cpatch\u003e",
+                      "exit":  1,
+                      "stdout":  "",
+                      "stderr":  "error: patch failed: src/App/Thing.cs:1\nerror: src/App/Thing.cs: patch does not apply\n"
+                  }
+              ]
+}

@@ -1,0 +1,73 @@
+{
+    "name":  "git-patch-forms",
+    "tool":  "git",
+    "version":  "2.53.0.windows.1",
+    "machine":  "host",
+    "capturedAt":  "2026-10-25T04:40:09Z",
+    "redacted":  true,
+    "cases":  [
+                  {
+                      "case":  "change",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Thing.cs b/src/App/Thing.cs\nindex 83a7952..0b7352f 100644\n--- a/src/App/Thing.cs\n+++ b/src/App/Thing.cs\n@@ -1,5 +1,5 @@\n class Thing\n {\n     int A() =\u003e 1;\n-    int B() =\u003e 2;\n+    int B() =\u003e 22;\n }\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "new",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/NewThing.cs b/src/App/NewThing.cs\nnew file mode 100644\nindex 0000000..fa9467e\n--- /dev/null\n+++ b/src/App/NewThing.cs\n@@ -0,0 +1,3 @@\n+class NewThing\n+{\n+}\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "new-empty",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Blank.cs b/src/App/Blank.cs\nnew file mode 100644\nindex 0000000..e69de29\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "deleted",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Gone.cs b/src/App/Gone.cs\ndeleted file mode 100644\nindex 4a87924..0000000\n--- a/src/App/Gone.cs\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-class Gone\n-{\n-}\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "deleted-empty",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Empty.cs b/src/App/Empty.cs\ndeleted file mode 100644\nindex e69de29..0000000\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "several",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/changes/fix-thing.md b/changes/fix-thing.md\nnew file mode 100644\nindex 0000000..42bde43\n--- /dev/null\n+++ b/changes/fix-thing.md\n@@ -0,0 +1 @@\n+- Thing counts right.\ndiff --git a/src/App/Gone.cs b/src/App/Gone.cs\ndeleted file mode 100644\nindex 4a87924..0000000\n--- a/src/App/Gone.cs\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-class Gone\n-{\n-}\ndiff --git a/src/App/Thing.cs b/src/App/Thing.cs\nindex 83a7952..ef23910 100644\n--- a/src/App/Thing.cs\n+++ b/src/App/Thing.cs\n@@ -1,5 +1,5 @@\n class Thing\n {\n-    int A() =\u003e 1;\n+    int A() =\u003e 11;\n     int B() =\u003e 2;\n }\ndiff --git a/tests/App.Tests/ThingTests.cs b/tests/App.Tests/ThingTests.cs\nnew file mode 100644\nindex 0000000..ce817db\n--- /dev/null\n+++ b/tests/App.Tests/ThingTests.cs\n@@ -0,0 +1,3 @@\n+class ThingTests\n+{\n+}\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "no-newline-at-end",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/NoEol.cs b/src/App/NoEol.cs\nindex e768f39..1693c1d 100644\n--- a/src/App/NoEol.cs\n+++ b/src/App/NoEol.cs\n@@ -1 +1 @@\n-class NoEol { }\n\\ No newline at end of file\n+class NoEol { int E() =\u003e 5; }\n\\ No newline at end of file\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "crlf-lines",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Crlf.cs b/src/App/Crlf.cs\nindex cbc3f67..52abe62 100644\n--- a/src/App/Crlf.cs\n+++ b/src/App/Crlf.cs\n@@ -1,4 +1,4 @@\n class Crlf\r\n {\r\n-    int D() =\u003e 4;\r\n+    int D() =\u003e 44;\r\n }\r\n",
+                      "stderr":  ""
+                  },
+                  {
+                      "case":  "content-looks-like-headers",
+                      "command":  "git diff --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ \u003cbase\u003e HEAD",
+                      "exit":  0,
+                      "stdout":  "diff --git a/src/App/Thing.cs b/src/App/Thing.cs\nindex 83a7952..5173f19 100644\n--- a/src/App/Thing.cs\n+++ b/src/App/Thing.cs\n@@ -1,5 +1,8 @@\n class Thing\n {\n-    int A() =\u003e 1;\n+diff --git a/x b/x\n++++ b/x\n+--- a/x\n+@@ -1 +1 @@\n     int B() =\u003e 2;\n }\n",
+                      "stderr":  ""
+                  }
+              ]
+}

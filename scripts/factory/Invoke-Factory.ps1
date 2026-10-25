@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS The code factory: takes one open tester report. A new one is triaged into a brief and routed by a fixed
 decision matrix (Get-Route in Triage.psm1). A clear-cut bug is fixed and checked in the same run. A report the owner
 marked decision:fix is fixed too.
@@ -46,8 +46,9 @@ $reports = "abmorrill4/house-style-reports"
 $owner = "abmorrill4"
 $tmp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $here = Split-Path (Split-Path $PSScriptRoot)   # repo root
-$allowed = '^(src|tests|styleguide/Company|docs/user-guide|changes)/'
-$denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
+# The paths a fix may change, as data (PatchRules.psd1, Guards.psm1).
+Import-Module (Join-Path $PSScriptRoot "Guards.psm1") -Force
+$patchRules = Import-PatchRules (Join-Path $PSScriptRoot "PatchRules.psd1")
 # Routes act on the public repo only in live mode, and never in a dry run.
 $routeMode = $factoryMode   # shadow or live from here on
 $live = $routeMode -eq "live" -and -not $DryRun
@@ -284,15 +285,6 @@ function Assert-CleanTree($who) {
     Assert-GitConfig $who   # first: git status could run a program an agent configured (core.fsmonitor)
     $dirty = git status --porcelain
     if ($dirty) { throw "$who left changes outside its commits: $(@($dirty) -join '; ')" }
-}
-
-# The checkout's own git config may hold only harmless keys. Code an agent wrote could add ones that run programs
-# (core.fsmonitor, core.sshCommand, credential.helper, url.*.insteadOf, ...), and the script's git calls run with the
-# token. The checkout persists between runs, so this is checked at the start too.
-function Assert-GitConfig($who) {
-    $ok = '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|symlinks|ignorecase|autocrlf|longpaths)|remote\.origin\.(url|fetch)|branch\..+\.(remote|merge)|user\.(name|email)|gc\.auto|extensions\.worktreeconfig|maintenance\.auto)='
-    $bad = @(git config --local --list | Where-Object { $_ -notmatch $ok })
-    if ($bad) { throw "$who left git settings the factory doesn't allow: $(($bad | ForEach-Object { ($_ -split '=')[0] }) -join ', ')" }
 }
 
 # Auto-merged fixes left today (UTC). Shadow mode merges nothing, so its cap is always open. A count that fails reads
@@ -611,7 +603,7 @@ try {
 
     # ---- check what the agent changed (no rename detection: a move shows as a delete plus an add) ------------------
     $changes = @(git diff --no-renames --name-status "$base..HEAD")
-    $bad = foreach ($c in $changes) { $path = ($c -split "`t")[-1]; if ($path -notmatch $allowed -or $path -match $denied) { $c } }
+    $bad = foreach ($c in $changes) { $path = ($c -split "`t")[-1]; if (Test-PatchPath $path $patchRules) { $c } }
     if ($bad) { throw "The fix changed files the factory may not touch: $($bad -join ', ')" }
     $modes = @(git diff --no-renames --summary "$base..HEAD" | Where-Object { $_ -match 'mode change|create mode 120000|delete mode 120000' })
     if ($modes) { throw "The fix changes file modes or adds symlinks: $($modes -join '; ')" }
@@ -637,7 +629,7 @@ try {
                  else { Invoke-ReproCheck $reproTest $facts.test_files $base $branch }
         $routeIn.fix = [pscustomobject]@{ repro = $repro; lines = $facts.lines; files = $facts.files; behavior = @($facts.behavior)
                                           owner_only = @($facts.owner_only); overlap = @(Get-Overlap @($numstat | ForEach-Object { ($_ -split "`t")[-1] }) $branch)
-                                          tamper = @($facts.tamper); area = $facts.area }
+                                          tamper = @($facts.tamper); area = $facts.area; paths = @($facts.paths); uncovered = @($facts.uncovered) }
         $routeIn.our_words = -not $ow.Count
         $routeIn.cap_left = Get-CapLeft $rules
         $routed = Get-Route $routeIn $rules

@@ -10,6 +10,63 @@ function Get-FactoryMode($value) {
     if ($FactoryModes -contains $v) { $v } else { "off" }
 }
 
+# ==== What the factory says (factory-runtime spec, Copy) =============================================================
+# Owner-facing strings: private comments, job logs and PR text, in one place. Format-Copy fills the {name} slots.
+# A VM or host failure ends with "That points at the ... rather than the fix" (Get-BlockedCause reads it as vm); the
+# strings that aren't failures (paused-path waits, ledger entries, Moved, Resumed, Retry needed) don't.
+$FactoryCopy = @{
+    NoOAuth = "CLAUDE_CODE_OAUTH_TOKEN isn't set, so the agents can't sign in."
+    LiveWithoutLicense = "FACTORY_MODE is live, but the Flare VM has no Flare license yet, so this run stays in shadow mode."
+    WaitingForCheck = "The fix is built, tested and reviewed. It's waiting for its Flare check."
+    Parked = "Fixes are paused until the Flare VM can run Flare checks. The factory picks this report up again then."
+    Moved = "Main's packages changed while this fix waited, so the factory moved the fix to the current main, reviewed it again, and is checking it in Flare again."
+    SavedFixStale = "the saved fix no longer applies to main, so it waits for you. Retry triage to build it again on the current main."
+    Resumed = "Picked up again after your decision:fix. The fix's Flare check runs again with the same fix."
+    RetryNeeded = "This fix no longer applies to main, so decision:fix can't resume it. Retry triage to build it again on the current main."
+    UsageLimitLog = "The Claude plan's usage limit was reached, so the factory waits an hour."
+    UsageLimitReport = "The Claude plan's usage limit was reached. This report is picked again after an hour."
+    AgentsNotReady = "Agents VM not ready. {reason}"
+    ForkApprovalChanged = "Outside contributors' workflow runs no longer need approval, so the factory stopped. Turn approval back on for all outside contributors."
+    SweepFailed = "The agents VM couldn't be cleaned up after a job. That points at the agents VM rather than the fix."
+    RestoreLeftOpen = "The package restore's access didn't close on the agents VM. That points at the agents VM rather than the fix."
+    CacheHadLink = "The package cache on the agents VM held a link, so the run stopped. That points at the agents VM rather than the fix."
+    TaskDidntStop = "The agent task on the agents VM didn't stop. That points at the agents VM rather than the fix."
+    SavedFixLost = "The saved fix for this report was lost on the agents VM. That points at the agents VM rather than the fix."
+    AgentOutputRefused = "The agent's output on the agents VM was missing or couldn't be read safely, so the factory didn't use it."
+    RouteAutoFixPaths = "the fix changes files auto-fix doesn't cover ({paths})"
+    ResultUnreadable = "The Flare check's result couldn't be read. That usually points at the Flare VM rather than the fix."
+    NotPickedUp = "The Flare check didn't start within 30 minutes. The host task wasn't running, or the VMs were being reset. It's tried again in an hour. That points at the host rather than the fix."
+    InUse = "The Flare VM was in use, so the Flare check is tried again in an hour. That points at the Flare VM rather than the fix."
+    Busy = "The Flare VM was busy with another job, so the Flare check is tried again in an hour. That points at the Flare VM rather than the fix."
+    Interrupted = "The Flare check was interrupted on the host, so it's tried again in an hour. That points at the host rather than the fix."
+    WaitingTrialEnded = "Flare's trial on the Flare VM has ended, so this fix waits for its Flare check until a Flare license is added."
+    WaitingLicenseLapsed = "Flare's license on the Flare VM is no longer valid, so this fix waits for its Flare check."
+    WaitingStateUnknown = "The Flare VM's license state couldn't be read, so this fix waits for its Flare check."
+    WaitingHost = "Flare checks haven't started for two hours, so this fix waits for its Flare check."
+    PausedTrial = "Flare's trial on the Flare VM has ended, so the factory triages reports but builds no fixes, and saved fixes wait. Add a Flare license to the Flare VM to start fixes again."
+    PausedLicense = "Flare's license on the Flare VM is no longer valid, so the factory triages reports but builds no fixes, and saved fixes wait. The host checks it again each day. Once the license is renewed, run Reset-FactoryVM.ps1 -Name HSFACTORY -Refresh on THESEUS to start fixes now."
+    PausedUnknown = "The Flare VM's license state couldn't be read, so the factory triages reports but builds no fixes, and saved fixes wait. The host reads it again each day. To read it now, run Reset-FactoryVM.ps1 -Name HSFACTORY -Refresh on THESEUS."
+    PausedHost = "Flare checks haven't started for two hours, so the factory triages reports but builds no fixes. Sign in to THESEUS and check that the House Style Flare check task is turned on."
+    TrialWarning = "Flare's trial on the Flare VM ends on {date}. Add a Flare license to keep Flare checks running and to let the factory go live."
+    CheckCouldntRun = "The Flare check couldn't run on the Flare VM. It's tried again in an hour. The logs are in E:\HouseStyle\vm\flare-logs. That usually points at the Flare VM rather than the fix."
+    WaitingForYou = "the Flare check couldn't run for this fix after several tries, so it waits for you. Add decision:fix to try the check again with the same fix. That usually points at the Flare VM or the host rather than the fix."
+    RoutePublicScenarioFails = "the end-to-end checks in Flare fail on the fix"
+    HoldoutReport = "A holdout scenario fails on the fix, so it stays off GitHub. The patch is in factory-logs on the agents VM, and the screenshots and logs are in E:\HouseStyle\vm\flare-logs. Decide what to do with it."
+    HoldNext = "Look at it privately. Nothing more goes to GitHub. The patch is in factory-logs on the agents VM. Add decision:fix if you want it fixed and checked in Flare."
+    OwnerOnlyHold = "Not pushing this fix because {reasons}. The patch is in factory-logs on the agents VM."
+    ShadowChecked = "The fix is built and passed the tests, review and the Flare check. In live mode it would {action}. Decide as before. The patch is in factory-logs on the agents VM."
+    DryRun = "Dry run. The fix is built, tested and reviewed. In live mode it would now wait for its Flare check."
+    PrBody = "Unit tests passed on the agents VM, and the end-to-end checks passed in Flare on the Flare VM."
+    PrBodyRetries = "{count} of these passed only on a retry after a VM failure, so look for a flaky start-up."
+    JobLog = "Agent output is in {file} on the agents VM."
+}
+function Format-Copy([string]$key, [hashtable]$values = @{}) {
+    if (-not $FactoryCopy.ContainsKey($key)) { throw "No factory string '$key'." }
+    $t = $FactoryCopy[$key]
+    foreach ($k in $values.Keys) { $t = $t.Replace("{$k}", "" + $values[$k]) }
+    $t
+}
+
 # ==== The agents' tools ===============================================================================================
 # The agent's own commands run as children of claude, which holds its Anthropic sign-in. So agents never run dotnet or
 # the e2e harness directly: builds and tests go through scripts/agent/test-channel.ps1, which removes every secret from
@@ -151,10 +208,112 @@ function Test-WipFull([int]$open, [int]$limit) { $open -ge $limit }
 # ==== Blocked causes ==================================================================================================
 # The cause to label a stuck report with, from the reason the run stopped: vm, flaky-test, owner or other.
 function Get-BlockedCause([string]$why) {
-    if ($why -match "factory VM rather than the fix|end-to-end run stopped before any scenario ran|factory VM isn't ready") { return "vm" }
-    if ($why -match "Required checks failed") { return "flaky-test" }   # passed on the factory VM, failed in CI on the same commit
+    if ($why -match '(VM|host) rather than the fix|VM not ready|end-to-end run stopped before any scenario ran') { return "vm" }
+    if ($why -match "Required checks failed") { return "flaky-test" }   # passed on the agents VM and in Flare, failed in CI on the same commit
     if ($why -match "agent runs are used up|ran past its|used all its|Triage failed three times") { return "owner" }
     "other"
+}
+
+# ==== The Flare check's result (factory-runtime spec section 5) ======================================================
+# result.json comes back from the host into flare-inbox\<check id>.claimed\. It's data with a fixed schema: check,
+# outcome, vmKind (with vm only), failed and retried (scenario names). A holdout failure names no holdout scenario: the
+# outcome says it, and their names stay private. Anything else, or a file over 16 KB, is unreadable, which the run
+# treats as a vm outcome with no strike.
+$FlareOutcomes = "pass", "fix", "holdout", "vm"
+$FlareVmKinds = "in-use", "busy", "interrupted", "not-ready", "no-start", "no-scenarios", "timeout", "trial-expired", "trial-unknown"
+
+# $text: result.json. $checkId: the request's id. $trialState: the state in the host-written trial.json.
+# $scenarios: the base's scenario names plus those the saved patch adds. Returns ok, why and result.
+function ConvertFrom-FlareCheckResult([string]$text, [string]$checkId, [string]$trialState, $scenarios) {
+    function No($why) { [pscustomobject]@{ ok = $false; why = $why; result = $null } }
+    if ($null -eq $text -or [Text.Encoding]::UTF8.GetByteCount($text) -gt 16384) { return No "result.json is missing or over 16 KB" }
+    try { $o = $text | ConvertFrom-Json } catch { return No "result.json isn't JSON" }
+    if ($o -isnot [pscustomobject]) { return No "result.json isn't one object" }
+    $names = @($o.PSObject.Properties.Name)
+    $extra = @($names | Where-Object { @("check", "outcome", "vmKind", "failed", "retried") -cnotcontains $_ })
+    if ($extra.Count) { return No "result.json has a field it shouldn't ($($extra -join ', '))" }
+    if (("" + $o.check) -cne $checkId) { return No "result.json is for another check" }
+    if ($FlareOutcomes -cnotcontains ("" + $o.outcome)) { return No "result.json's outcome isn't one the factory knows" }
+    if ($o.outcome -eq "vm") {
+        if ($FlareVmKinds -cnotcontains ("" + $o.vmKind)) { return No "result.json's vmKind isn't one the factory knows" }
+        # Only the host's own read of Flare can say the trial ended or its state is unknown.
+        if ($o.vmKind -eq "trial-expired" -and $trialState -ne "expired") { return No "result.json says the trial expired, but the host's trial.json doesn't" }
+        if ($o.vmKind -eq "trial-unknown" -and $trialState -ne "unknown") { return No "result.json says the license state is unknown, but the host's trial.json doesn't" }
+    }
+    elseif ($names -ccontains "vmKind") { return No "result.json has a vmKind without a vm outcome" }
+    $known = @($scenarios | Where-Object { $_ })
+    foreach ($f in "failed", "retried") {
+        $v = $o.$f
+        if ($null -eq $v) { continue }
+        if ($v -is [string] -or @($v).Count -gt 50) { return No "result.json's $f isn't a list of at most 50 names" }
+        foreach ($s in @($v)) {
+            if ($s -isnot [string] -or $s -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$' -or $known -cnotcontains $s) { return No "result.json's $f names a scenario the base and the patch don't have" }
+        }
+    }
+    [pscustomobject]@{ ok = $true; why = $null; result = [pscustomobject]@{ check = "" + $o.check; outcome = "" + $o.outcome
+        vmKind = $(if ($o.outcome -eq "vm") { "" + $o.vmKind } else { $null }); failed = @($o.failed | Where-Object { $_ }); retried = @($o.retried | Where-Object { $_ }) } }
+}
+
+# Reads result.json from the inbox, 16 KB at most, then checks it.
+function Read-FlareCheckResult([string]$path, [string]$checkId, [string]$trialState, $scenarios) {
+    $text = $null
+    try {
+        $fi = New-Object IO.FileInfo $path
+        if ($fi.Exists -and $fi.Length -le 16384 -and -not ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $text = [IO.File]::ReadAllText($path) }
+    } catch { $text = $null }
+    ConvertFrom-FlareCheckResult $text $checkId $trialState $scenarios
+}
+
+# flare-inbox\trial.json, written by the host: state (active, expired, licensed or unknown), endDate (yyyy-MM-dd, when
+# the state comes from a trial) and wasLicensed. Any other content reads as unknown, so the fix path stays off.
+function ConvertFrom-TrialJson([string]$text) {
+    $unknown = [pscustomobject]@{ state = "unknown"; endDate = $null; wasLicensed = $false }
+    if (-not $text -or $text.Length -gt 4096) { return $unknown }
+    try { $o = $text | ConvertFrom-Json } catch { return $unknown }
+    if ($o -isnot [pscustomobject]) { return $unknown }
+    if (@($o.PSObject.Properties.Name | Where-Object { @("state", "endDate", "wasLicensed") -cnotcontains $_ }).Count) { return $unknown }
+    if (@("active", "expired", "licensed", "unknown") -cnotcontains ("" + $o.state)) { return $unknown }
+    if ($null -ne $o.wasLicensed -and $o.wasLicensed -isnot [bool]) { return $unknown }
+    $end = $null
+    if ($null -ne $o.endDate) {
+        $d = [datetime]::MinValue
+        if (("" + $o.endDate) -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not [datetime]::TryParseExact(("" + $o.endDate), "yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture, "None", [ref]$d)) { return $unknown }
+        $end = "" + $o.endDate
+    }
+    if ($o.state -eq "active" -and -not $end) { return $unknown }   # a trial always has its end date
+    [pscustomobject]@{ state = "" + $o.state; endDate = $end; wasLicensed = ($o.wasLicensed -eq $true) }
+}
+
+# ==== Git config scopes (factory-runtime spec section 3, step 8) =====================================================
+# The script's git calls run with the token in reach, so the checkout's own config may hold only harmless keys, in the
+# local scope only. Nothing may come from a worktree config, and extensions.worktreeconfig (which turns one on) is
+# refused in every scope. $lines: git config --list --show-scope output, one "scope<TAB>key=value" per line. The
+# system, global and command scopes belong to the script user and the script itself. Returns what isn't allowed.
+$GitLocalKeys = '^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|symlinks|ignorecase|autocrlf|longpaths)|remote\.origin\.(url|fetch)|branch\..+\.(remote|merge)|user\.(name|email)|gc\.auto|maintenance\.auto)='
+function Test-GitConfigScopes($lines) {
+    $bad = @()
+    foreach ($l in @($lines | Where-Object { $_ })) {
+        $parts = ("" + $l) -split "`t", 2
+        if ($parts.Count -ne 2) { $bad += "an unreadable line"; continue }
+        $scope = $parts[0]; $entry = $parts[1]; $key = ($entry -split '=', 2)[0].ToLowerInvariant()
+        if ($key -eq "extensions.worktreeconfig") { $bad += "$scope $key"; continue }
+        switch ($scope) {
+            "local" { if ($entry -notmatch $GitLocalKeys) { $bad += "local $key" } }
+            { @("system", "global", "command") -contains $_ } { }
+            default { $bad += "$scope $key" }
+        }
+    }
+    @($bad | Select-Object -Unique)
+}
+
+# Throws when the checkout in the current folder has config the factory doesn't allow. $who names the step for the
+# message. git config --show-scope reads every scope, including a worktree config.
+function Assert-GitConfig([string]$who) {
+    $ErrorActionPreference = "Continue"
+    $lines = @(& git.exe config --list --show-scope 2>$null)
+    if ($LASTEXITCODE) { throw "$who left a git config the factory can't read." }
+    $bad = @(Test-GitConfigScopes $lines)
+    if ($bad.Count) { throw "$who left git settings the factory doesn't allow: $($bad -join ', ')" }
 }
 
 # ==== Holdout scenarios ===============================================================================================
@@ -292,4 +451,4 @@ function Format-Scorecard($s) {
 Export-ModuleMember -Function Get-FactoryMode, Join-ProcessArguments, Invoke-AgentProcess, ConvertFrom-AgentOutput, Get-AgentStop, New-LedgerEntry,
     Format-LedgerComment, ConvertFrom-LedgerComment, Get-RunsToday, Test-RunBudget, Get-OpenFactoryPrCount, Test-WipFull, Get-BlockedCause,
     Save-Holdout, Get-OwnerWaits, Get-Median, Get-Scorecard, Format-Scorecard, Get-TestChannelTool, Get-TriageTools, Get-FixTools, Get-TreeHashes,
-    Test-SameHashes -Variable FactoryModes, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths
+    Test-SameHashes, ConvertFrom-FlareCheckResult, Read-FlareCheckResult, ConvertFrom-TrialJson, Test-GitConfigScopes, Assert-GitConfig, Format-Copy -Variable FactoryCopy, FactoryModes, FlareOutcomes, FlareVmKinds, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths

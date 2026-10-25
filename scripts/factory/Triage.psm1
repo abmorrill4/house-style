@@ -449,6 +449,8 @@ function Get-RouteRow($in, $rules) {
             if (@($fix.overlap | Where-Object { $_ }).Count) { $fails += "another open factory PR changes the same files (#$(@($fix.overlap) -join ', #'))" }
             if (@($fix.tamper | Where-Object { $_ }).Count) { $fails += "the fix changes existing tests or protected test files ($(@($fix.tamper) -join ', '))" }
             if ($fix.area -and @($rules.suspended | Where-Object { $_ -eq $fix.area }).Count) { $fails += "auto-fix is suspended for the $($fix.area) area after a reverted fix" }
+            $outside = @(Get-RouteUncovered $fix $rules)
+            if ($outside.Count) { $fails += "the fix changes files auto-fix doesn't cover ($($outside -join ', '))" }
         }
         if ($fails.Count) {
             $out.route = "fix-for-review"; $out.row = 5; $out.reasons = $pre + $fails
@@ -724,7 +726,45 @@ function Get-DiffFacts($numstat, [string]$diff, [string]$reproTest, $rules, [str
         owner_only = @($owner)
         tamper = @(Get-TestTamper $files)
         area = Get-FixArea $numstat
+        paths = @($paths)
+        uncovered = @(Get-UncoveredPaths $paths $files $rules)
     }
+}
+
+# ==== The auto-fix path rule (factory-runtime spec section 3, step 14) ===============================================
+# Auto-fix merges only C# under src/ and tests/ (autoFix.paths in rules/routing.json), plus the fix's own release note
+# under changes/ (autoFix.dataPaths), which nightly.yml reads only as data. Every other path sends the fix for review.
+# A note still does when it holds a URL, runs over 20 lines or 1,000 characters, or isn't a new file the fix adds,
+# because it ships to every writer's What's new. Rules without the lists cover nothing, so the rule fails closed.
+function Test-NoteForAutoFix($file) {
+    if (-not $file -or $file.status -ne "A") { return $false }
+    $text = @($file.added) -join "`n"
+    if (@($file.added).Count -gt 20 -or $text.Length -gt 1000) { return $false }
+    -not ($text -match '(?i)\b[a-z][a-z0-9+.-]*://|\bwww\.')
+}
+
+# The changed paths auto-fix doesn't cover. $files: Split-Diff output, for the notes' text.
+function Get-UncoveredPaths($paths, $files, $rules) {
+    $code = @($rules.autoFix.paths | Where-Object { $_ }); $data = @($rules.autoFix.dataPaths | Where-Object { $_ })
+    @(foreach ($p in @($paths | Where-Object { $_ })) {
+        if (@($code | Where-Object { $p -cmatch $_ }).Count) { continue }
+        if (@($data | Where-Object { $p -cmatch $_ }).Count -and $files -and (Test-NoteForAutoFix $files[$p])) { continue }
+        $p
+    })
+}
+
+# What Get-Route reads: the facts' uncovered list, plus every path in the facts' paths list that matches neither list
+# in $rules, so a record missing uncovered still fails closed. A built fix with no paths list goes for review too.
+function Get-RouteUncovered($fix, $rules) {
+    $paths = @($fix.paths | Where-Object { $_ })
+    if (-not $paths.Count) { return @("its changed paths weren't listed") }
+    $code = @($rules.autoFix.paths | Where-Object { $_ }); $data = @($rules.autoFix.dataPaths | Where-Object { $_ })
+    $out = @($fix.uncovered | Where-Object { $_ })
+    foreach ($p in $paths) {
+        if (@(@($code) + @($data) | Where-Object { $p -cmatch $_ }).Count) { continue }
+        if ($out -notcontains $p) { $out += $p }
+    }
+    $out
 }
 
 # Reads the TRX files of a filtered test run and says whether the named test behaved as $expect ("fail" on the base
@@ -871,9 +911,14 @@ $ReasonCodes = [ordered]@{
     "daily-cap"        = 'auto-fixes are used up'
     "run-cap"          = 'agent runs are used up|ran past its|used all its turns'
     "unit-tests"       = 'Unit tests fail on the fix'
-    "e2e"              = 'End-to-end checks fail|end-to-end run stopped'
+    "usage-limit"      = 'usage limit was reached'
+    "agent-output"     = 'output on the agents VM'
+    "flare-result"     = 'Flare check''s result couldn''t be read'
     "holdout"          = 'holdout scenario'
-    "vm"               = 'factory VM rather than the fix'
+    "e2e"              = 'end-to-end checks (in Flare )?fail|end-to-end run stopped'
+    "vm"               = '(VM|host) rather than the fix'
+    "auto-fix-paths"   = 'files auto-fix doesn''t cover'
+    "saved-fix-stale"  = 'saved fix no longer applies'
     "ci"               = 'Required checks'
     "review-blocked"   = 'Review blocked the fix'
     "disallowed-files" = 'files the factory may not touch|file modes or adds symlinks|binary files'
@@ -906,4 +951,5 @@ function New-BodyFile([string]$Text) {
 Export-ModuleMember -Function New-BodyFile, Test-TriageBrief, Format-TriageComment, Get-LabelActor, Format-Field, Select-Report, Test-FixGate, Assert-FactoryLabel, Get-TriageFailures, Get-Labels,
     Test-TestName, Test-CuratedIssue, Set-CuratedAuthors, Get-IssueArea, Get-PlanArea, Resolve-Matches, New-RouteInput, ConvertTo-RouteAsks, New-CoverInput, Get-CoverVote, Get-RouteAsks, Get-Route, Get-WaitingReason, Test-FixAllowed, Test-OurWords, Get-DiffFacts,
     Test-ReproResult, Get-PublicText, Format-RouteComment, Split-Diff, Get-AddedText, Get-TriageLabel, Get-WipWaiting, Get-TestTamper, Get-FixArea,
-    Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes
+    Get-RevertedShas, Get-RevertedFixes, Get-SuspendedAreas, Get-ReasonCodes, Test-SecretShape, Test-WholeTests,
+    Get-UncoveredPaths, Get-RouteUncovered, Test-NoteForAutoFix -Variable Routes, WaitingReasons, OwnerOnly, BlockedCauses, TestProtected, ReasonCodes

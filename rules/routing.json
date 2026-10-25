@@ -1,10 +1,16 @@
 {
-  "_about": "Thresholds for the factory's routing (Get-Route in scripts/factory/Triage.psm1). The factory reads this file from main before any agent runs. Changes are the owner's call and come with updated replay cases in tests/factory/routing-cases.json. limits, suspended, reinstated and startingTargets come from the command center spec (planning/work/command-center/spec.md): suspended lists areas (folders under src/FlareAI.Core/ or src/FlareAI.Flare/) where fixes go for review; reinstated maps an area to the date the owner reinstated it, so reverts before then no longer suspend it; startingTargets are days per class of service until a class has 10 finished items. limits.featureLoop and limits.vmBatch are placeholders the command center shows; nothing enforces them yet.",
+  "_about": "Thresholds for the factory's routing (Get-Route in scripts/factory/Triage.psm1). The factory reads this file from main before any agent runs. Changes are the owner's call and come with updated replay cases in tests/factory/routing-cases.json. limits, suspended, reinstated and startingTargets come from the command center spec (planning/work/command-center/spec.md): suspended lists areas (folders under src/FlareAI.Core/ or src/FlareAI.Flare/) where fixes go for review; reinstated maps an area to the date the owner reinstated it, so reverts before then no longer suspend it; startingTargets are days per class of service until a class has 10 finished items. limits.featureLoop and limits.vmBatch are placeholders the command center shows; nothing enforces them yet. autoFix.paths and autoFix.dataPaths are the auto-fix path rule (planning/work/factory-runtime/spec.md, the gap 5 decision): a built fix merges on its own only when every path it changes matches autoFix.paths (C# under src/ and tests/, which runs only when built and tested) or autoFix.dataPaths (the fix's own release note under changes/, which nightly.yml reads only as data), and that note is new, link-free and at most 20 lines and 1,000 characters. Any other path sends the fix for review.",
   "autoFix": {
     "maxChangedLines": 150,
     "maxChangedFiles": 5,
     "dailyCap": 3,
-    "confidence": "high"
+    "confidence": "high",
+    "paths": [
+      "^(src|tests)/.+\\.cs$"
+    ],
+    "dataPaths": [
+      "^changes/(?!README\\.md$)[^/]+\\.md$"
+    ]
   },
   "behaviorPaths": [
     "^styleguide/",

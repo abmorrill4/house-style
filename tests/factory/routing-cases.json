@@ -94,7 +94,11 @@
      "owner_only": [
       "src/FlareAI.Core/Settings/PluginSettings.cs"
      ],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Settings/PluginSettings.cs",
+      "tests/FlareAI.Core.Tests/SettingsTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -138,7 +142,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -578,7 +586,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -605,7 +617,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -634,7 +650,12 @@
       "styleguide/Company/Rules.flsnp"
      ],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "styleguide/Company/Rules.flsnp",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -662,7 +683,11 @@
       "src/FlareAI.Flare/UI/AskForm.cs (UI text)"
      ],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Flare/UI/AskForm.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -687,7 +712,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -712,7 +741,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -737,7 +770,11 @@
      "files": 5,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -762,7 +799,11 @@
      "files": 6,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 3
    },
@@ -789,6 +830,10 @@
      "owner_only": [],
      "overlap": [
       231
+     ],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
      ]
     },
     "cap_left": 3
@@ -834,7 +879,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 0
    },
@@ -861,7 +910,11 @@
      "files": 2,
      "behavior": [],
      "owner_only": [],
-     "overlap": []
+     "overlap": [],
+     "paths": [
+      "src/FlareAI.Core/Style/IgnoreList.cs",
+      "tests/FlareAI.Core.Tests/IgnoreTests.cs"
+     ]
     },
     "cap_left": 0
    },
@@ -2438,6 +2491,338 @@
     "evidence": "12",
     "plan": ""
    }
+  },
+  {
+   "name": "auto-fix path rule: C# under src and tests stays auto-fix",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "tests/FlareAI.Core.Tests/IgnoreTests.cs"],
+     "uncovered": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix"
+   }
+  },
+  {
+   "name": "auto-fix path rule: C# with a short note stays auto-fix",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "tests/FlareAI.Core.Tests/IgnoreTests.cs", "changes/ignore-sticks.md"],
+     "uncovered": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "auto-fix"
+   }
+  },
+  {
+   "name": "auto-fix path rule: an e2e scenario script goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Flare/UI/IssuesPane.cs", "tests/e2e/scenarios/ignore-sticks.ps1"],
+     "uncovered": ["tests/e2e/scenarios/ignore-sticks.ps1"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: a Pester test goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "tests/agent/Ignore.Tests.ps1"],
+     "uncovered": ["tests/agent/Ignore.Tests.ps1"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: JSON under tests goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "tests/FlareAI.Core.Tests/data.json"],
+     "uncovered": ["tests/FlareAI.Core.Tests/data.json"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: Markdown under src goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "src/FlareAI.Flare/whats-new.md"],
+     "uncovered": ["src/FlareAI.Flare/whats-new.md"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: XML under src goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "src/FlareAI.Core/Style/rules.xml"],
+     "uncovered": ["src/FlareAI.Core/Style/rules.xml"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: changes/README.md goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "changes/README.md"],
+     "uncovered": ["changes/README.md"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: a note the facts flagged goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "changes/ignore-sticks.md"],
+     "uncovered": ["changes/ignore-sticks.md"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: a record missing uncovered still checks its paths",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": ["src/FlareAI.Core/Style/IgnoreList.cs", "scripts/agent/x.ps1"]
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: a built fix with no paths goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
+  },
+  {
+   "name": "auto-fix path rule: a built fix with an empty paths list goes for review",
+   "input": {
+    "kind": "bug",
+    "security": false,
+    "reproduced": "yes",
+    "confidence": "high",
+    "repro_test": "FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint",
+    "docs_gap": false,
+    "matches": [],
+    "our_words": true,
+    "fix": {
+     "repro": "pass",
+     "lines": 40,
+     "files": 2,
+     "behavior": [],
+     "owner_only": [],
+     "overlap": [],
+     "paths": [],
+     "uncovered": []
+    },
+    "cap_left": 3
+   },
+   "expect": {
+    "route": "fix-for-review",
+    "waiting": "merge"
+   }
   }
+
  ]
 }
