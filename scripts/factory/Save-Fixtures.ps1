@@ -302,9 +302,9 @@ namespace Probe.Tests
 
 # ==== In a VM, over PowerShell Direct =================================================================================
 function Get-VMCred([string]$name) {
-    $f = Join-Path $Root "$name-credential.xml"
-    if (-not (Test-Path $f)) { throw "No credential file for $name at $f." }
-    Import-Clixml $f
+    Import-Module (Join-Path $PSScriptRoot "FactoryVM.psm1") -Force
+    Set-FactoryVMRoot $Root
+    Get-VMCredential $name
 }
 function Invoke-InVM([scriptblock]$block, [object[]]$argv = @()) {
     if (-not $VMName) { throw "This set runs in a VM: pass -VMName." }
@@ -409,7 +409,7 @@ function Save-ServiceSddlFixtures {
 
 function Save-EventLogAccessFixtures {
     $rows = Invoke-InVM {
-        $before = if (Test-Path "C:\Setup\eventlog-before.json") { Get-Content "C:\Setup\eventlog-before.json" -Raw | ConvertFrom-Json } else { $null }
+        $before = if (Test-Path "C:\HouseStyle\setup-log\eventlog-before.json") { Get-Content "C:\HouseStyle\setup-log\eventlog-before.json" -Raw | ConvertFrom-Json } else { $null }
         foreach ($ch in "Microsoft-Windows-PowerShell/Operational", "Windows PowerShell", "Microsoft-Windows-TaskScheduler/Operational", "Application") {
             if ($before) { $b = @($before | Where-Object channel -eq $ch); if ($b.Count) { [pscustomobject]@{ case = "before:$ch"; command = "wevtutil gl <channel>"; exit = $b[0].exit; stdout = $b[0].stdout; stderr = "" } } }
             $o = (& wevtutil.exe gl $ch 2>&1 | Out-String)

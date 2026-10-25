@@ -1,26 +1,36 @@
 <#
-.SYNOPSIS Builds (or rebuilds) the code factory's Hyper-V VM: Windows installed from an ISO, unattended, ready for PowerShell Direct.
-.DESCRIPTION Run elevated (Hyper-V needs it). Creates a Gen 2 VM on the Default Switch with an empty disk, the ISO in its DVD
-drive and a small second disk holding autounattend.xml (local admin "factory", auto sign-in, remoting on). Windows
-Setup does the partitioning and boot files inside the VM. Then it waits for the signed-in desktop, removes the
-installer media and checkpoints the VM as "windows-ready". The VM's password is generated once and kept in
-factory-credential.xml (DPAPI: only this Windows account on this PC can read it). -Force rebuilds an existing VM.
-Then run Install-FactoryTools.ps1.
+.SYNOPSIS Builds (or rebuilds) one of the factory's Hyper-V VMs: Windows installed from an ISO, unattended, ready for
+PowerShell Direct.
+.DESCRIPTION Run elevated (Hyper-V needs it). -Role flare builds the Flare VM (HSFACTORY: 12 GB, 6 CPUs) and -Role
+agents the agents VM (HSAGENTS: 8 GB static, 4 CPUs). Creates a Gen 2 VM on the Default Switch with an empty disk and
+a small second disk holding the installer and autounattend.xml (local admin "factory", auto sign-in for the first
+boot, remoting on). Windows Setup does the partitioning and boot files inside the VM. Then it waits for the signed-in
+desktop, removes the installer media and checkpoints the VM as "windows-ready". Each VM has its own generated password
+in E:\HouseStyle\vm\<Name>-credential.xml (DPAPI, Administrators only), made once and kept across rebuilds. No VM gets
+another VM's credential. -Force rebuilds an existing VM. Then run Install-FactoryTools.ps1 (with -NoFlare for the
+agents VM).
 .EXAMPLE powershell -File scripts\factory\New-FactoryVM.ps1 -Iso E:\HouseStyle\vm\win11-ltsc-eval.iso
+.EXAMPLE scripts\factory\New-FactoryVM.ps1 -Role agents -Iso E:\HouseStyle\vm\win11-ltsc-eval.iso
 #>
 param(
     [Parameter(Mandatory)][string]$Iso,
-    [string]$Name = "HSFACTORY",
+    [ValidateSet("flare", "agents")][string]$Role = "flare",
+    [string]$Name,
     [string]$Root = "E:\HouseStyle\vm",
     [int64]$DiskBytes = 128GB,
-    [int64]$MemoryBytes = 12GB,
-    [int]$Cpus = 6,
+    [int64]$MemoryBytes,
+    [int]$Cpus,
     [switch]$Force
 )
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "FactoryVM.psm1") -Force
+Set-FactoryVMRoot $Root
+# Section 10's sizes: one agent job at a time on the agents VM, Flare plus a plugin build on the Flare VM.
+if (-not $Name) { $Name = if ($Role -eq "agents") { "HSAGENTS" } else { "HSFACTORY" } }
+if (-not $MemoryBytes) { $MemoryBytes = if ($Role -eq "agents") { 8GB } else { 12GB } }
+if (-not $Cpus) { $Cpus = if ($Role -eq "agents") { 4 } else { 6 } }
 $vhd = Join-Path $Root "$Name.vhdx"
 $answer = Join-Path $Root "$Name-answer.vhdx"
-$credFile = Join-Path $Root "factory-credential.xml"
 
 if (Get-VM -Name $Name -ErrorAction SilentlyContinue) {
     if (-not $Force) { throw "VM $Name exists. Pass -Force to delete and rebuild it." }
@@ -29,16 +39,8 @@ if (Get-VM -Name $Name -ErrorAction SilentlyContinue) {
 }
 foreach ($f in $vhd, $answer) { if (Test-Path $f) { if (-not $Force) { throw "$f exists. Pass -Force." }; Remove-Item $f -Force } }
 
-# The VM account's password: made once, then reused so a rebuild keeps the same credential.
-if (Test-Path $credFile) { $cred = Import-Clixml $credFile }
-else {
-    $chars = [char[]]"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-    $b = New-Object byte[] 24
-    (New-Object System.Security.Cryptography.RNGCryptoServiceProvider).GetBytes($b)
-    $plain = -join ($b | ForEach-Object { $chars[$_ % $chars.Length] })
-    $cred = New-Object System.Management.Automation.PSCredential("factory", (ConvertTo-SecureString $plain -AsPlainText -Force))
-    $cred | Export-Clixml $credFile
-}
+# This VM's own password: made once, then reused so a rebuild keeps the same credential.
+$cred = Get-VMCredential $Name -Create
 
 # The installer on a disk, not a DVD: a Gen 2 VM booting the ISO stops at "Press any key to boot from CD or DVD", and a
 # disk boots without asking. One FAT32 partition (UEFI boots only FAT), so install.wim is split under FAT32's 4 GB limit.

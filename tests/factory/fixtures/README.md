@@ -26,7 +26,7 @@ From the pinned git (2.53.0.windows.1) and .NET SDK (8.0.426), on the host, with
 | `get-netfirewallrule` | 3 | `-Set get-netfirewallrule -VMName HSAGENTS`, after `Set-FactoryEgress.ps1 -Role agents` |
 | `get-scheduledtaskinfo` | 3 | `-Set get-scheduledtaskinfo -VMName HSAGENTS` |
 | `sc-sdshow` | 3 | `-Set sc-sdshow -VMName HSAGENTS` |
-| `wevtutil-gl` | 3 | `-Set wevtutil-gl -VMName HSAGENTS` (the "before" values come from setup's `C:\Setup\eventlog-before.json`) |
+| `wevtutil-gl` | 3 | `-Set wevtutil-gl -VMName HSAGENTS` (the "before" values come from setup's `C:\HouseStyle\setup-log\eventlog-before.json`) |
 | `task-events` | 3 | `-Set task-events -VMName HSAGENTS` |
 | `hyperv-shapes` | 3 | `-Set hyperv-shapes -VMName HSAGENTS`, elevated on the host, after the `host-windows` pin is set |
 | `psdirect-failures` | 3 | `-Set psdirect-failures -VMName HSAGENTS`, elevated on the host. It turns the VM off and restores a temporary checkpoint. |
