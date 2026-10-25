@@ -112,3 +112,42 @@ Describe 'test-channel.ps1' {
         }
     }
 }
+
+Describe 'The factory-runtime channel rules (spec section 4; P14)' {
+    It 'says the Flare VM runs e2e and conformance' {
+        foreach ($n in 'e2e', 'conformance') { (@(Get-TestChannel) | Where-Object Name -eq $n).Where | Should Be 'Flare VM' }
+    }
+    It '-Exact builds one exact test name on the full channel, with a fixed TRX name' {
+        $c = Get-ChannelCommand -Channel full -RepoRoot $repo -Filter 'FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint' -Exact -ResultsDir 'C:\r'
+        ($c.ArgumentList -join ' ') | Should Be 'test FlareAI.sln -c Release --nologo --filter FullyQualifiedName=FlareAI.Core.Tests.IgnoreTests.IgnoreSurvivesRelint --logger trx;LogFileName=results.trx --results-directory C:\r'
+    }
+    It '-Exact is refused with another channel, without a name, or with a filter that isn''t one name' {
+        { Get-ChannelCommand -Channel core -RepoRoot $repo -Filter 'A.B' -Exact } | Should Throw 'only with -Channel full'
+        { Get-ChannelCommand -Channel full -RepoRoot $repo -Exact } | Should Throw
+        foreach ($f in 'A~B', 'A=B', 'A!B', 'A&B', 'A|B', 'A,B', 'A(B)', 'A B') { { Get-ChannelCommand -Channel full -RepoRoot $repo -Filter $f -Exact } | Should Throw }
+        { Get-ChannelCommand -Channel full -RepoRoot $repo -Filter 'A.B' } | Should Throw
+    }
+    It 'checks the agents'' list first: e2e gets the add-a-scenario message, other channels a plain refusal' {
+        $list = 'rule-fixtures,bench,core,scenarios,flare-tests,pester,full'
+        Get-ChannelRefusal -Channel e2e -AgentChannels $list -HasFlare $true | Should Be "The factory's agents can't run e2e. Add or update a scenario in tests/e2e/scenarios, and the factory runs it in Flare after you finish."
+        Get-ChannelRefusal -Channel vitest -AgentChannels $list -HasFlare $true | Should Be "The factory's agents can't run this channel."
+        Get-ChannelRefusal -Channel conformance -AgentChannels $list -HasFlare $true | Should Be "The factory's agents can't run this channel."
+        Get-ChannelRefusal -Channel core -AgentChannels $list -HasFlare $false | Should BeNullOrEmpty
+    }
+    It 'without the list, e2e needs Flare on the machine' {
+        Get-ChannelRefusal -Channel e2e -AgentChannels '' -HasFlare $false | Should Be "There's no Flare on this machine. Run e2e on the Flare VM."
+        Get-ChannelRefusal -Channel e2e -AgentChannels '' -HasFlare $true | Should BeNullOrEmpty
+    }
+    It 'test-channel.ps1 refuses e2e for the agents with exit 2 and the message' {
+        $env:HOUSESTYLE_AGENT_CHANNELS = 'core,pester'
+        try { $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Channel e2e -Scenario reopen-issues }
+        finally { Remove-Item env:HOUSESTYLE_AGENT_CHANNELS }
+        $LASTEXITCODE | Should Be 2
+        ($out -join ' ') | Should Match 'Add or update a scenario in tests/e2e/scenarios'
+    }
+    It 'keeps the package cache''s variables, which aren''t secrets' {
+        Test-SecretName 'NUGET_PACKAGES' | Should Be $false
+        Test-SecretName 'NUGET_CERT_REVOCATION_MODE' | Should Be $false
+        Test-SecretName 'NUGET_API_KEY' | Should Be $true
+    }
+}

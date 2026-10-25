@@ -6,8 +6,13 @@ Set-StrictMode -Version 2
 
 $script:SecretName = '(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE)|_VK$|^(ANTHROPIC_|GH_|GITHUB_|BIFROST_|FACTORY_|AWS_|AZURE_|OP_|NPM_|NUGET_|FLAREAI_RECORD)'
 
+# The package cache's location and the restore's revocation mode aren't secrets: the agents VM's jobs set them, and a
+# test run needs them to build from the run's locked cache.
+$script:NotSecret = @('NUGET_PACKAGES', 'NUGET_CERT_REVOCATION_MODE')
+
 function Test-SecretName([string]$Name) {
     # True for an environment variable name that is, or may hold, a secret.
+    if ($script:NotSecret -contains $Name) { return $false }
     return [bool]($Name -match $script:SecretName)
 }
 
@@ -79,12 +84,41 @@ $script:Channels = @(
     [pscustomobject]@{ Name = 'flare-tests';   Order = 4; Where = 'any Windows runner'; Proves = 'Pane and dialog layout and behavior in hidden WinForms'; Project = 'tests/FlareAI.Flare.Tests' }
     [pscustomobject]@{ Name = 'pester';        Order = 5; Where = 'any runner'; Proves = 'Factory, release, guide publisher and agent scripts'; Project = $null }
     [pscustomobject]@{ Name = 'vitest';        Order = 5; Where = 'any runner'; Proves = 'The feedback Worker'; Project = $null }
-    [pscustomobject]@{ Name = 'conformance';   Order = 6; Where = 'factory VM'; Proves = "The adapter against Flare's real editor (not built yet, gap G1)"; Project = $null }
-    [pscustomobject]@{ Name = 'e2e';           Order = 7; Where = 'factory VM'; Proves = 'Docking, ribbon, events, anything only visible in Flare'; Project = $null }
+    [pscustomobject]@{ Name = 'conformance';   Order = 6; Where = 'Flare VM'; Proves = "The adapter against Flare's real editor (not built yet, gap G1)"; Project = $null }
+    [pscustomobject]@{ Name = 'e2e';           Order = 7; Where = 'Flare VM'; Proves = 'Docking, ribbon, events, anything only visible in Flare'; Project = $null }
     [pscustomobject]@{ Name = 'full';          Order = 8; Where = 'any Windows runner'; Proves = 'The whole Release suite, as CI runs it, before a push'; Project = 'FlareAI.sln' }
 )
 
 function Get-TestChannel { $script:Channels }
+
+# What test-channel.ps1 says when a channel is refused (factory-runtime spec section 4 and Copy).
+$script:ChannelMessages = @{
+    NotForAgents = "The factory's agents can't run this channel."
+    E2eForAgents = "The factory's agents can't run e2e. Add or update a scenario in tests/e2e/scenarios, and the factory runs it in Flare after you finish."
+    NoFlare      = "There's no Flare on this machine. Run e2e on the Flare VM."
+}
+function Get-ChannelMessage([string]$Key) { $script:ChannelMessages[$Key] }
+
+# Why this channel may not run here, or $null. HOUSESTYLE_AGENT_CHANNELS, set in every factory job, is the agents'
+# list and is checked first. Without it, e2e needs Flare on this machine.
+function Get-ChannelRefusal([string]$Channel, [string]$AgentChannels, [bool]$HasFlare) {
+    if ($AgentChannels) {
+        $list = @($AgentChannels -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if ($list -contains $Channel) { return $null }
+        if ($Channel -eq 'e2e') { return $script:ChannelMessages.E2eForAgents }
+        return $script:ChannelMessages.NotForAgents
+    }
+    if ($Channel -eq 'e2e' -and -not $HasFlare) { return $script:ChannelMessages.NoFlare }
+    return $null
+}
+
+# True when Flare is installed here.
+function Test-FlareInstalled {
+    foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ }) {
+        if (@(Get-ChildItem (Join-Path $pf 'MadCap Software') -Filter Flare.exe -Recurse -Depth 3 -ErrorAction SilentlyContinue).Count) { return $true }
+    }
+    return $false
+}
 
 function Assert-SafeFilter([string]$Filter) {
     if ($Filter -notmatch '^[\w.~=!&|,()\- ]{1,300}$') { throw "The filter can use letters, digits and . ~ = ! & | , ( ) - only." }
@@ -104,12 +138,17 @@ function Get-ChannelCommand {
         [string]$Path,
         [string]$Scenario,
         [string]$ResultsDir,
-        [string]$HarnessRoot   # where the e2e harness comes from; the factory passes its copy from the base commit
+        [string]$HarnessRoot,   # where the e2e harness comes from; the factory passes its copy from the base commit
+        [switch]$Exact          # with full only: one test, by its exact name (the factory's repro check)
     )
     if (-not $HarnessRoot) { $HarnessRoot = $RepoRoot }
     $c = $script:Channels | Where-Object Name -eq $Channel
     if (-not $c) { throw "Unknown channel '$Channel'. Run test-channel.ps1 -List for the channels." }
     if ($Filter) { Assert-SafeFilter $Filter }
+    if ($Exact) {
+        if ($Channel -ne 'full') { throw "-Exact runs only with -Channel full." }
+        if (-not $Filter -or $Filter -match '[~=!&|,() ]') { throw "-Exact takes one test's full name: no ~ = ! & | , ( ) or space." }
+    }
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     switch ($Channel) {
         { $_ -in 'rule-fixtures', 'core', 'scenarios', 'flare-tests' } {
@@ -119,9 +158,10 @@ function Get-ChannelCommand {
             return [pscustomobject]@{ FilePath = 'dotnet'; ArgumentList = $a; WorkingDirectory = $RepoRoot }
         }
         'full' {
-            if ($Filter) { throw "The full channel runs every test; use a narrower channel to filter." }
+            if ($Filter -and -not $Exact) { throw "The full channel runs every test; use a narrower channel to filter, or -Exact for one test." }
             $a = @('test', 'FlareAI.sln', '-c', 'Release', '--nologo')
-            if ($ResultsDir) { $a += @('--logger', 'trx', '--results-directory', $ResultsDir) }
+            if ($Exact) { $a += @('--filter', "FullyQualifiedName=$Filter") }
+            if ($ResultsDir) { $a += @('--logger', 'trx;LogFileName=results.trx', '--results-directory', $ResultsDir) }
             return [pscustomobject]@{ FilePath = 'dotnet'; ArgumentList = $a; WorkingDirectory = $RepoRoot }
         }
         'bench' {
@@ -221,5 +261,5 @@ function Test-AgentCommand {
 }
 
 Export-ModuleMember -Function Test-SecretName, ConvertTo-ArgumentString, Invoke-ScrubbedProcess, Get-DefaultLockPath,
-    Enter-RunLock, Get-TestChannel, Assert-SafeFilter, Assert-SafeTestPath, Get-ChannelCommand, Test-AgentCommand,
+    Enter-RunLock, Get-TestChannel, Get-ChannelMessage, Get-ChannelRefusal, Test-FlareInstalled, Assert-SafeFilter, Assert-SafeTestPath, Get-ChannelCommand, Test-AgentCommand,
     Test-InvokesAgentScript, Get-RoleAllowList

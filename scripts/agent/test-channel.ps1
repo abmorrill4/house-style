@@ -7,6 +7,9 @@
     rule-fixtures, bench, core, scenarios, flare-tests, pester, vitest, conformance (not built yet), e2e, and full
     (the whole Release suite before a push).
   -Filter narrows the .NET channels (FullyQualifiedName~<Filter>), Pester (Describe name) and vitest (-t).
+  -Exact, with -Channel full only, runs one test by its exact name (FullyQualifiedName=<Filter>).
+  In a factory job, HOUSESTYLE_AGENT_CHANNELS lists the channels the agents may run, and is checked first: e2e,
+  conformance and vitest aren't on it. Without it, e2e runs only on a machine with Flare (the Flare VM).
   -Path is the Pester folder or file under tests/. -Scenario is one e2e scenario; AI scenarios never run here.
   -ResultsDir also writes a result file there (results.trx, or pester.json).
   Exits with the test run's exit code.
@@ -23,6 +26,7 @@ param(
     [string]$ResultsDir,
     [string]$RepoRoot,
     [string]$LockPath,
+    [switch]$Exact,
     [switch]$List,
     [switch]$DryRun
 )
@@ -40,10 +44,16 @@ if ($List) {
 }
 if (-not $Channel) { Write-Host "Name a channel with -Channel. Run with -List to see them."; exit 2 }
 
+# The agents' list first, then Flare for e2e. A dry run only prints the command, so it needs neither.
+if (-not $DryRun -or $env:HOUSESTYLE_AGENT_CHANNELS) {
+    $refused = Get-ChannelRefusal -Channel $Channel -AgentChannels $env:HOUSESTYLE_AGENT_CHANNELS -HasFlare $(if ($Channel -eq 'e2e' -and -not $env:HOUSESTYLE_AGENT_CHANNELS) { Test-FlareInstalled } else { $true })
+    if ($refused) { Write-Output $refused; exit 2 }
+}
+
 try {
-    $cmd = Get-ChannelCommand -Channel $Channel -RepoRoot $RepoRoot -Filter $Filter -Path $Path -Scenario $Scenario -ResultsDir $ResultsDir -HarnessRoot $harnessRoot
+    $cmd = Get-ChannelCommand -Channel $Channel -RepoRoot $RepoRoot -Filter $Filter -Path $Path -Scenario $Scenario -ResultsDir $ResultsDir -HarnessRoot $harnessRoot -Exact:$Exact
 } catch {
-    Write-Host $_.Exception.Message
+    Write-Output $_.Exception.Message
     exit 2
 }
 

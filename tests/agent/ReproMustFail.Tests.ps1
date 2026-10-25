@@ -159,7 +159,7 @@ Describe 'repro-must-fail.ps1 in a scratch repo (Pester channel)' {
     It 'refuses an unsupported channel' {
         $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Test 'x' -Channel e2e -RepoRoot $r
         $LASTEXITCODE | Should Be 2
-        ($out -join ' ') | Should Match 'factory VM'
+        ($out -join ' ') | Should Match 'An e2e reproduction runs on the Flare VM'
     }
     It 'cleans up its scratch worktrees' {
         (& git -C $r worktree list | Measure-Object).Count | Should Be 1

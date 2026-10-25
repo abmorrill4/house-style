@@ -7,7 +7,7 @@
   Base run: a scratch worktree at the merge base of -Base and -Head, with head's changed files under tests/ copied in.
   Head run: a scratch worktree at -Head. Each run goes through the same channel command as test-channel.ps1, with every
   secret removed from the child environment. Channels: core, scenarios, flare-tests, rule-fixtures, pester. An e2e
-  reproduction runs on the factory VM as a base batch and a head batch.
+  reproduction runs on the Flare VM as a base batch and a head batch.
 
   -BaseOnly checks only the base side, for a reproduction written before the fix: the test fails on base with an
   assertion.
@@ -46,7 +46,7 @@ function Invoke-Git {
 }
 
 if (-not (Test-ReproChannel $Channel)) {
-    Stop-Refused "The $Channel channel isn't supported here. Use core, scenarios, flare-tests, rule-fixtures or pester; an e2e reproduction runs on the factory VM."
+    Stop-Refused "The $Channel channel isn't supported here. Use core, scenarios, flare-tests, rule-fixtures or pester. An e2e reproduction runs on the Flare VM."
 }
 if ($Channel -eq 'pester') {
     if ($Test -notmatch "^[\w .,()'\-]{1,200}$") { Stop-Refused "A Pester test name uses letters, digits, spaces and . , ( ) ' - only." }

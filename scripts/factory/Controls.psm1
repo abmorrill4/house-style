@@ -85,10 +85,10 @@ $ReviewTools = "Read,Grep,Glob,Write"
 $ProtectedEdits = "scripts/**", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/**"
 $DisallowedTools = "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)," + (@($ProtectedEdits | ForEach-Object { "Edit(./$_),Write(./$_)" }) -join ",")
 
-# The files the agents' test runs depend on, which the factory copies from the base commit before each agent and
-# checks again afterwards: the agent scripts (test-channel.ps1 and the secret scrubbing in AgentCommon.psm1) and the
-# e2e harness.
-$AgentToolPaths = "scripts/agent", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui"
+# The files the agents' test runs depend on, which the factory copies from the base commit into agent-tools before the
+# jobs: the agent scripts (test-channel.ps1 and the secret scrubbing in AgentCommon.psm1). The e2e harness isn't
+# among them: the agents can't run e2e (factory-runtime spec section 4), and the Flare check runs it on the Flare VM.
+$AgentToolPaths = "scripts/agent"
 
 # Hashes of every file under $dir, path -> SHA-256, to check a copy wasn't changed. Build output (bin, obj: the e2e
 # harness restores FlaUI there) doesn't count.
@@ -316,6 +316,332 @@ function Assert-GitConfig([string]$who) {
     if ($bad.Count) { throw "$who left git settings the factory doesn't allow: $($bad -join ', ')" }
 }
 
+# ==== Agent jobs (factory-runtime spec section 2) =====================================================================
+# Every agent, build and test runs as the agent user (hsagent) in one job of the task "House Style agent", which runs
+# Start-AgentJob.ps1. The script user (factory) writes the job, starts the task, waits, sweeps, and reads back only the
+# kind's fixed files. Invoke-Factory.ps1 and Test-FactoryIsolation.ps1 start jobs only through Invoke-AgentJob.
+Import-Module (Join-Path $PSScriptRoot "Guards.psm1")
+Import-Module (Join-Path $PSScriptRoot "Egress.psm1")
+Import-Module (Join-Path $PSScriptRoot "AgentsVM.psm1")
+Import-Module (Join-Path (Split-Path $PSScriptRoot) "agent\AgentCommon.psm1")
+$AgentKinds = "triage", "cover", "fix", "review"
+$JobKinds = $AgentKinds + @("test", "restore")
+$AgentTaskName = "House Style agent"
+$MaxTurns = 200
+
+# The channels the agents may run: every one test-channel.ps1 lists, except e2e, conformance and vitest.
+function Get-AgentChannels { @(Get-TestChannel | ForEach-Object Name | Where-Object { @("e2e", "conformance", "vitest") -notcontains $_ }) }
+
+# The agents' only sign-in: the owner's Max plan token. With no token the run stops, even when an API key is set.
+function Get-AgentSignIn {
+    $t = [Environment]::GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN")
+    if (-not $t) { throw (Format-Copy NoOAuth) }
+    $t
+}
+
+# Where the jobs live and what every job shares. $Cache: this run's package cache. $Token: the sign-in, for agent kinds.
+function New-JobContext {
+    param([string]$Root = "C:\HouseStyle", [string]$AgentSid, [string]$Cache, [int]$LimitMinutes = 45, [string]$Token, [string]$TaskName = $AgentTaskName, [int]$GraceSeconds = 120)
+    [pscustomobject]@{
+        root = $Root; jobs = (Join-Path $Root "agent-jobs"); work = (Join-Path $Root "agent-work"); inbox = (Join-Path $Root "agent-in")
+        tools = (Join-Path $Root "agent-tools"); cache = $Cache; agentSid = $AgentSid; limitMinutes = $LimitMinutes; token = $Token
+        taskName = $TaskName; grace = $GraceSeconds; channels = ((Get-AgentChannels) -join ",")
+    }
+}
+
+# The base copy of test-channel.ps1 a job's agent may run, with forward slashes (the agents' shell is bash).
+function Get-JobTestChannel($ctx, [string]$base) { ((Join-Path $ctx.tools "$base\scripts\agent\test-channel.ps1") -replace '\\', '/') }
+
+# Checks a job's values and writes its folder: job.json, the inputs, and for agent kinds signin.txt with the token and
+# nothing else. Returns the job's id. $spec: kind, base, and as the kind needs channel, filter, exact, path, prompt,
+# system (cover), inputs (name -> text), patch (a file in agent-in), limitSeconds.
+function New-AgentJob($ctx, [hashtable]$spec) {
+    $kind = "" + $spec.kind
+    if ($JobKinds -cnotcontains $kind) { throw "A job's kind must be one of $($JobKinds -join ', ')." }
+    if (("" + $spec.base) -cnotmatch '^[0-9a-f]{40}$') { throw "A job's base must be a 40-character commit." }
+    $limit = if ($spec.limitSeconds) { [int]$spec.limitSeconds } else { $ctx.limitMinutes * 60 }
+    if ($limit -lt 1 -or $limit -gt $ctx.limitMinutes * 60) { throw "A job's limit must be within limits.agentMinutes ($($ctx.limitMinutes) minutes)." }
+    if ($kind -eq "test") {
+        if (@(Get-AgentChannels) -cnotcontains ("" + $spec.channel)) { throw "A test job's channel must be one the agents may run." }
+        if ($spec.filter) { Assert-SafeFilter $spec.filter }
+        if ($spec.exact) {
+            if ($spec.channel -ne "full") { throw "-Exact runs only with the full channel." }
+            if (-not $spec.filter -or $spec.filter -match '[~=!&|,() ]') { throw "An exact filter is one test's full name: no ~ = ! & | , ( ) or space." }
+        }
+        if ($spec.path) { Assert-SafeTestPath $spec.path }
+    }
+    if ($spec.patch -and (("" + $spec.patch) -notmatch '^[0-9a-f-]{36}\.patch$' -or -not (Test-Path -LiteralPath (Join-Path $ctx.inbox $spec.patch)))) { throw "A job's patch must be one the factory wrote to agent-in." }
+    $isAgent = $AgentKinds -contains $kind
+    if ($isAgent -and -not $ctx.token) { throw (Format-Copy NoOAuth) }
+
+    $id = [guid]::NewGuid().ToString()
+    $dir = Join-Path $ctx.jobs $id
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $out = Join-Path $ctx.work "$id\out"; $repoDir = Join-Path $ctx.work "$id\repo"
+    function Fill([string]$t) { $t.Replace("{{JOB}}", $dir).Replace("{{OUT}}", $out).Replace("{{REPO}}", $repoDir).Replace("{{TEST_CHANNEL}}", (Get-JobTestChannel $ctx $spec.base)) }
+    $utf8 = New-Object Text.UTF8Encoding $false
+    $tc = Get-JobTestChannel $ctx $spec.base
+    # Each kind's fixed tool list. cover keeps today's: no tools at all.
+    $tools = switch ($kind) { "triage" { Get-TriageTools $tc } "fix" { Get-FixTools $tc } "review" { $ReviewTools } default { "" } }
+    $claudeArgs = switch ($kind) {
+        "cover" { @("-p", "--output-format", "json", "--model", "sonnet", "--tools", "", "--strict-mcp-config", "--setting-sources", "user", "--max-turns", "1", "--no-session-persistence", "--system-prompt-file", "{{JOB}}\system.txt") }
+        { @("triage", "fix", "review") -contains $_ } { @("-p", "--output-format", "json", "--setting-sources", "user", "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", $DisallowedTools, "--max-turns", "$MaxTurns") }
+        default { @() }
+    }
+    if ($isAgent) { [IO.File]::WriteAllText((Join-Path $dir "prompt.txt"), (Fill ("" + $spec.prompt)), $utf8) }
+    if ($kind -eq "cover") { [IO.File]::WriteAllText((Join-Path $dir "system.txt"), (Fill ("" + $spec.system)), $utf8) }
+    foreach ($k in @(if ($spec.inputs) { $spec.inputs.Keys })) {
+        if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$' -or @("job.json", "signin.txt", "prompt.txt", "system.txt", "nuget.config") -contains $k) { throw "A job input's name '$k' isn't allowed." }
+        [IO.File]::WriteAllText((Join-Path $dir $k), (Fill ("" + $spec.inputs[$k])), $utf8)
+    }
+    if ($kind -eq "restore") {
+        # nuget.org, plus the newest locked cache as a read-only local feed.
+        $prev = Get-NewestLockedCache $ctx.root $ctx.cache
+        $feeds = "    <add key=`"nuget.org`" value=`"https://api.nuget.org/v3/index.json`" protocolVersion=`"3`" />`n"
+        if ($prev) { $feeds += "    <add key=`"previous-run`" value=`"$prev`" />`n" }
+        [IO.File]::WriteAllText((Join-Path $dir "nuget.config"), "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<configuration>`n  <packageSources>`n    <clear />`n$feeds  </packageSources>`n</configuration>`n", $utf8)
+    }
+    $job = [ordered]@{
+        id = $id; kind = $kind; base = "" + $spec.base; limitSeconds = $limit; cache = "" + $ctx.cache; channels = $ctx.channels
+        channel = "" + $spec.channel; filter = "" + $spec.filter; exact = [bool]$spec.exact; path = "" + $spec.path; patch = "" + $spec.patch
+        tools = $tools; claudeArgs = @($claudeArgs)
+    }
+    [IO.File]::WriteAllText((Join-Path $dir "job.json"), ($job | ConvertTo-Json -Depth 4), $utf8)
+    if ($isAgent) {
+        # The only way a Claude sign-in reaches the agents VM. The agent user may read it, and delete it, nothing more.
+        $s = Join-Path $dir "signin.txt"
+        [IO.File]::WriteAllText($s, $ctx.token, $utf8)
+        if ($ctx.agentSid) { & icacls.exe $s /grant "*$($ctx.agentSid):(R,D)" | Out-Null }
+    }
+    $id
+}
+
+# ---- The task -------------------------------------------------------------------------------------------------------
+function Start-AgentTask($ctx, [string]$id) {
+    [IO.File]::WriteAllText((Join-Path $ctx.jobs "next.txt"), $id)
+    $start = Get-Date
+    Start-ScheduledTask -TaskName $ctx.taskName
+    $start
+}
+function Stop-AgentTask($ctx) { Stop-ScheduledTask -TaskName $ctx.taskName -ErrorAction SilentlyContinue }
+function Get-AgentTaskState($ctx) { "" + (Get-ScheduledTask -TaskName $ctx.taskName).State }
+# One Task Scheduler event as the factory reads it (the task-events fixture): its id, task, instance and result code.
+function ConvertFrom-TaskEventXml([string]$xml) {
+    $x = ConvertFrom-TrxText $xml   # plain XML with DTDs refused; the name is the reader's, not TRX's
+    $data = @{}
+    foreach ($d in @($x.Event.EventData.Data)) { if ($d.Name) { $data[$d.Name] = $d.'#text' } }
+    [pscustomobject]@{
+        id = [int]$x.Event.System.EventID; time = [datetime]$x.Event.System.TimeCreated.SystemTime
+        task = "" + $data["TaskName"]; instance = "" + $data["InstanceId"]
+        result = $(if ($data.ContainsKey("ResultCode")) { [int64]$data["ResultCode"] } else { $null })
+    }
+}
+function Get-TaskEvents($ctx, [datetime]$since) {
+    @(Get-WinEvent -FilterHashtable @{ LogName = "Microsoft-Windows-TaskScheduler/Operational"; Id = 100, 102, 201; StartTime = $since } -ErrorAction SilentlyContinue |
+        Sort-Object TimeCreated | ForEach-Object { ConvertFrom-TaskEventXml $_.ToXml() } | Where-Object { $_.task -eq "\$($ctx.taskName)" })
+}
+# Waits for this instance's events: 100 names the instance, 201 its result, 102 its end. Past the limit plus the
+# grace period, it stops the task and checks that it stopped. Returns exit, timedOut, instance and stopFailed.
+function Wait-AgentTask($ctx, [datetime]$start, [int]$limitSeconds, [int]$pollSeconds = 5) {
+    $deadline = $start.AddSeconds($limitSeconds + $ctx.grace)
+    $instance = $null
+    while ($true) {
+        $ev = @(Get-TaskEvents $ctx $start)
+        if (-not $instance) { $first = @($ev | Where-Object id -eq 100 | Select-Object -First 1); if ($first.Count) { $instance = $first[0].instance } }
+        if ($instance) {
+            $mine = @($ev | Where-Object instance -eq $instance)
+            if (@($mine | Where-Object id -eq 102).Count) {
+                $res = @($mine | Where-Object id -eq 201 | Select-Object -Last 1)
+                return [pscustomobject]@{ exit = $(if ($res.Count) { $res[0].result } else { $null }); timedOut = $false; instance = $instance; stopFailed = $false }
+            }
+        }
+        if ((Get-Date) -gt $deadline) { break }
+        Start-Sleep -Seconds $pollSeconds
+    }
+    Stop-AgentTask $ctx
+    $until = (Get-Date).AddSeconds(30)
+    while ((Get-AgentTaskState $ctx) -eq "Running" -and (Get-Date) -lt $until) { Start-Sleep -Seconds 2 }
+    [pscustomobject]@{ exit = 259; timedOut = $true; instance = $instance; stopFailed = ((Get-AgentTaskState $ctx) -eq "Running") }
+}
+
+# ---- The sweep ------------------------------------------------------------------------------------------------------
+# Removes the agent user's own scheduled tasks and BITS jobs (never the agent task itself).
+function Remove-AgentTasksAndBits($ctx) {
+    $name = (New-Object Security.Principal.SecurityIdentifier $ctx.agentSid).Translate([Security.Principal.NTAccount]).Value
+    foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne $ctx.taskName -and ("" + $_.Principal.UserId) -match "(^|\\)$([regex]::Escape($name.Split('\')[-1]))$" })) {
+        Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    foreach ($b in @(Get-BitsTransfer -AllUsers -ErrorAction SilentlyContinue | Where-Object { ("" + $_.OwnerAccount) -eq $name })) { Remove-BitsTransfer $b -ErrorAction SilentlyContinue }
+}
+# Deletes everything under agent-jobs, and under agent-work except $keep, without following links. True when all gone.
+function Clear-JobFolders($ctx, [string]$keep) {
+    $ok = $true
+    foreach ($d in @(@(Get-ChildItem -LiteralPath $ctx.jobs -Force -ErrorAction SilentlyContinue) + @(Get-ChildItem -LiteralPath $ctx.work -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $keep }))) {
+        if (-not (Remove-LinkSafe $d.FullName)) { $ok = $false }
+    }
+    $ok
+}
+# The profile: unload the hive (forced after 60 seconds), rename it aside, restore it from the template, check
+# ProfileList and NTUSER.DAT's owner, and delete the old copy without following links. Returns $null or what failed.
+function Reset-AgentProfile($ctx) {
+    $sid = $ctx.agentSid
+    $key = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
+    $path = (Get-ItemProperty $key -ErrorAction SilentlyContinue).ProfileImagePath
+    if (-not $path) { return "the agent user's profile isn't in ProfileList" }
+    if (-not (Dismount-AgentHive $sid)) { return "the agent user's hive wouldn't unload" }
+    $aside = "$path.old-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    try { [IO.Directory]::Move($path, $aside) } catch { return "the agent user's profile couldn't be moved aside" }
+    try { Restore-AgentProfile (Join-Path $ctx.root "profile-template") $path $sid | Out-Null } catch { return "the agent user's profile couldn't be restored" }
+    if ((Get-ItemProperty $key -ErrorAction SilentlyContinue).ProfileImagePath -ne $path) { return "ProfileList changed" }
+    $owner = try { ([IO.File]::GetAccessControl((Join-Path $path "NTUSER.DAT"), "Owner")).GetOwner([Security.Principal.SecurityIdentifier]).Value } catch { $null }
+    if ($owner -ne $sid) { return "NTUSER.DAT isn't the agent user's" }
+    if (-not (Remove-LinkSafe $aside)) { return "the old profile couldn't be deleted" }
+    $null
+}
+# The sweep, elevated, as the script user. Returns $null, or the factory string for what failed (all blocked:vm).
+function Invoke-Sweep($ctx, [string]$keep) {
+    if (Stop-AgentProcesses $ctx.agentSid) { return "SweepFailed" }
+    Remove-AgentTasksAndBits $ctx
+    Remove-RestoreRule
+    if (Test-RestoreRule) { return "RestoreLeftOpen" }
+    if (-not (Clear-JobFolders $ctx $keep)) { return "SweepFailed" }
+    if (Reset-AgentProfile $ctx) { return "SweepFailed" }
+    if (@(Get-AgentProcesses $ctx.agentSid).Count) { return "SweepFailed" }
+    $null
+}
+
+# ---- The read -------------------------------------------------------------------------------------------------------
+# Each kind's fixed files, under out\, with their size caps. Required ones must be there.
+$JobFiles = @{
+    common  = @(@{ name = "launcher.json"; max = 16KB; required = $true }, @{ name = "stdout.txt"; max = 4MB; required = $true }, @{ name = "stderr.txt"; max = 1MB; required = $true })
+    triage  = @(@{ name = "result.json"; max = 64KB; required = $true })
+    cover   = @()
+    fix     = @(@{ name = "result.json"; max = 64KB; required = $true }, @{ name = "fix.patch"; max = 1MB; required = $true }, @{ name = "commits.txt"; max = 64KB; required = $true }, @{ name = "status.txt"; max = 64KB; required = $true })
+    review  = @(@{ name = "result.json"; max = 64KB; required = $true })
+    test    = @(@{ name = "results\results.trx"; max = 8MB; required = $false }, @{ name = "results\pester.json"; max = 8MB; required = $false })
+    restore = @()
+}
+# Reads the job's fixed files through Read-GuardedFile, and refuses any that holds the token. Returns files (name ->
+# text, by leaf name) and refused (why, or $null).
+function Read-JobOutput($ctx, [string]$id, [string]$kind) {
+    $out = Join-Path $ctx.work "$id\out"
+    $files = @{}
+    foreach ($f in @($JobFiles.common) + @($JobFiles[$kind])) {
+        $p = Join-Path $out $f.name
+        if (-not $f.required -and -not (Test-Path -LiteralPath $p)) { continue }
+        $r = Read-GuardedFile $p $ctx.work $ctx.agentSid $f.max
+        if (-not $r.ok) { return [pscustomobject]@{ files = $files; refused = $r.why } }
+        if ($ctx.token -and (Test-TokenText $r.text $ctx.token)) { return [pscustomobject]@{ files = $files; refused = "$($f.name) holds the sign-in token" } }
+        $files[(Split-Path $f.name -Leaf)] = $r.text
+    }
+    [pscustomobject]@{ files = $files; refused = $null }
+}
+
+# ---- One job --------------------------------------------------------------------------------------------------------
+# Sweep, the restore rule for a restore job only, New-AgentJob, start, wait, sweep, read. Returns id, kind, exit,
+# timedOut, files, refused (a refused read: agent-output) and stuck (a factory string for an agents VM failure, which
+# leaves the report blocked:vm).
+function Invoke-AgentJob($ctx, [hashtable]$spec) {
+    $r = [pscustomobject]@{ id = $null; kind = "" + $spec.kind; exit = $null; timedOut = $false; files = @{}; refused = $null; stuck = $null }
+    $why = Invoke-Sweep $ctx
+    if ($why) { $r.stuck = $why; return $r }
+    if ($spec.kind -eq "restore") {
+        New-EgressRule (Get-RestoreRule $ctx.agentSid (Resolve-NuGetAddresses))
+    }
+    elseif ((Test-RestoreRule) -or (Test-CacheWritable $ctx.cache $ctx.agentSid)) { $r.stuck = "RestoreLeftOpen"; return $r }
+    try { $r.id = New-AgentJob $ctx $spec }
+    catch { Invoke-Sweep $ctx | Out-Null; throw }
+    $limit = [int]$(if ($spec.limitSeconds) { $spec.limitSeconds } else { $ctx.limitMinutes * 60 })
+    $start = Start-AgentTask $ctx $r.id
+    $wait = Wait-AgentTask $ctx $start $limit
+    $r.timedOut = [bool]$wait.timedOut
+    $r.exit = $wait.exit
+    if ($wait.stopFailed) { Invoke-Sweep $ctx $r.id | Out-Null; $r.stuck = "TaskDidntStop"; return $r }
+    $why = Invoke-Sweep $ctx $r.id
+    if ($why) { $r.stuck = $why; return $r }
+    if ($spec.kind -eq "restore" -and (Test-RestoreRule)) { $r.stuck = "RestoreLeftOpen"; return $r }
+    $read = Read-JobOutput $ctx $r.id $spec.kind
+    $r.files = $read.files; $r.refused = $read.refused
+    # The launcher's own record of the child's exit code, when the task's events didn't give one.
+    if ($null -eq $r.exit -and $read.files["launcher.json"]) { try { $r.exit = [int](($read.files["launcher.json"] | ConvertFrom-Json).exit) } catch { } }
+    $r
+}
+
+# ==== The package cache (factory-runtime spec section 2) =============================================================
+# C:\HouseStyle\nuget\<run id>\: made writable for the agent user for the restore job alone, then scanned for links
+# and locked: Administrators own it and the agent user only reads. At most two caches stay on disk: this run's and the
+# newest one before it. Run ids sort by time.
+function New-RunId { (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss") + "-" + [guid]::NewGuid().ToString("N").Substring(0, 6) }
+function Get-CacheFolders([string]$root) { @(Get-ChildItem -LiteralPath (Join-Path $root "nuget") -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{14}-[0-9a-f]{6}$' } | Sort-Object Name) }
+# A locked cache: owned by Administrators, and nothing in its own ACL lets the agent user write.
+function Test-CacheLocked([string]$path, [string]$agentSid) {
+    try { $acl = [IO.Directory]::GetAccessControl($path, "Access, Owner") } catch { return $false }
+    if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne "S-1-5-32-544") { return $false }
+    -not @(Get-WriteRights $acl.GetSecurityDescriptorSddlForm("Access, Owner") (Get-AgentSids $agentSid) "dir").Count
+}
+function Test-CacheWritable([string]$path, [string]$agentSid) { if (-not $path) { return $false }; -not (Test-CacheLocked $path $agentSid) }
+function Get-NewestLockedCache([string]$root, [string]$except, [string]$agentSid) {
+    if (-not $agentSid) { $agentSid = try { (New-Object Security.Principal.NTAccount $AgentUser).Translate([Security.Principal.SecurityIdentifier]).Value } catch { "" } }
+    $c = @(Get-CacheFolders $root | Where-Object { $_.FullName -ne $except -and (Test-CacheLocked $_.FullName $agentSid) })
+    if ($c.Count) { $c[-1].FullName } else { $null }
+}
+# Step 1, before the ready check: every cache that isn't locked goes. Returns what couldn't be deleted.
+function Remove-UnlockedCaches([string]$root, [string]$agentSid) {
+    @(foreach ($c in (Get-CacheFolders $root)) { if (-not (Test-CacheLocked $c.FullName $agentSid) -and -not (Remove-LinkSafe $c.FullName)) { $c.FullName } })
+}
+# Step 2: this run's cache, with modify for the agent user.
+function New-RunCache([string]$root, [string]$agentSid) {
+    if (-not $agentSid) { $agentSid = (New-Object Security.Principal.NTAccount $AgentUser).Translate([Security.Principal.SecurityIdentifier]).Value }
+    $p = Join-Path $root "nuget\$(New-RunId)"
+    New-Item -ItemType Directory -Force $p | Out-Null
+    & icacls.exe $p /grant "*${agentSid}:(OI)(CI)M" /Q | Out-Null
+    if ($LASTEXITCODE) { throw "Couldn't make the run's package cache." }
+    $p
+}
+# Step 4: a reparse point, or a file with more than one link, anywhere in the cache. Returns what was found.
+function Test-CacheLinks([string]$path) {
+    @(foreach ($o in (Get-FileSystemObjects $path -Files)) {
+        if ($o.Attributes -band [IO.FileAttributes]::ReparsePoint) { "$($o.FullName) is a link"; continue }
+        if ($o -is [IO.FileInfo]) {
+            $h = $null
+            try { $h = [HsGuardedFile]::Open($o.FullName, $false); if (([HsGuardedFile]::Get($h)).Links -ne 1) { "$($o.FullName) has more than one link" } }
+            catch { "$($o.FullName) can't be checked" }
+            finally { if ($h) { $h.Dispose() } }
+        }
+    })
+}
+# Step 5: Administrators own everything (icacls /setowner /T /L, which never follows a link) and the ACL reads only for
+# the agent user. Only the readback decides: every object's owner and ACL. Returns what's wrong, empty when locked.
+function Lock-RunCache($ctx) {
+    $p = $ctx.cache
+    $scriptSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $p /setowner "*S-1-5-32-544" /T /L /C /Q 2>$null | Out-Null
+    & icacls.exe $p /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*${scriptSid}:(OI)(CI)F" "*$($ctx.agentSid):(OI)(CI)RX" /L /C /Q 2>$null | Out-Null
+    & icacls.exe "$p\*" /reset /T /L /C /Q 2>$null | Out-Null
+    $sids = Get-AgentSids $ctx.agentSid
+    $problems = @(foreach ($o in (Get-FileSystemObjects $p -Files)) {
+        $acl = try { $o.GetAccessControl("Access, Owner") } catch { $null }
+        if (-not $acl) { "$($o.FullName) can't be read back"; continue }
+        if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne "S-1-5-32-544") { "$($o.FullName) isn't owned by Administrators"; continue }
+        $kind = if ($o -is [IO.DirectoryInfo]) { "dir" } else { "file" }
+        if (@(Get-WriteRights $acl.GetSecurityDescriptorSddlForm("Access, Owner") $sids $kind).Count) { "$($o.FullName) is still writable for the agent user" }
+    })
+    @($problems | Select-Object -First 20)
+}
+# Step 6: every locked cache but this run's and the newest one before it. Returns what couldn't be deleted.
+function Remove-OldCaches([string]$root, [string]$current, [string]$agentSid) {
+    if (-not $agentSid) { $agentSid = (New-Object Security.Principal.NTAccount $AgentUser).Translate([Security.Principal.SecurityIdentifier]).Value }
+    $keep = Get-NewestLockedCache $root $current $agentSid
+    @(foreach ($c in (Get-CacheFolders $root)) {
+        if ($c.FullName -eq $current -or $c.FullName -eq $keep -or -not (Test-CacheLocked $c.FullName $agentSid)) { continue }
+        if (-not (Remove-LinkSafe $c.FullName)) { $c.FullName }
+    })
+}
+
+# ==== Text from the agents VM =========================================================================================
+# Everything the script logs or posts from a job is checked for the token first. A hit is an agent-output refusal.
+function Test-AgentText([string]$text, [string]$token) { -not ($token -and (Test-TokenText $text $token)) }
+
 # ==== Holdout scenarios ===============================================================================================
 # e2e scenarios kept in the private reports repo (holdout/*.ps1). The factory fetches them only after the fix agent has
 # finished, into a folder outside the checkout, and runs them with the public suite. $list returns the folder's
@@ -451,4 +777,7 @@ function Format-Scorecard($s) {
 Export-ModuleMember -Function Get-FactoryMode, Join-ProcessArguments, Invoke-AgentProcess, ConvertFrom-AgentOutput, Get-AgentStop, New-LedgerEntry,
     Format-LedgerComment, ConvertFrom-LedgerComment, Get-RunsToday, Test-RunBudget, Get-OpenFactoryPrCount, Test-WipFull, Get-BlockedCause,
     Save-Holdout, Get-OwnerWaits, Get-Median, Get-Scorecard, Format-Scorecard, Get-TestChannelTool, Get-TriageTools, Get-FixTools, Get-TreeHashes,
-    Test-SameHashes, ConvertFrom-FlareCheckResult, Read-FlareCheckResult, ConvertFrom-TrialJson, Test-GitConfigScopes, Assert-GitConfig, Format-Copy -Variable FactoryCopy, FactoryModes, FlareOutcomes, FlareVmKinds, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths
+    Test-SameHashes, ConvertFrom-FlareCheckResult, Read-FlareCheckResult, ConvertFrom-TrialJson, Test-GitConfigScopes, Assert-GitConfig, Format-Copy, Get-AgentChannels, Get-AgentSignIn, New-JobContext, Get-JobTestChannel, New-AgentJob, Start-AgentTask, Stop-AgentTask,
+    Get-AgentTaskState, ConvertFrom-TaskEventXml, Get-TaskEvents, Wait-AgentTask, Remove-AgentTasksAndBits, Clear-JobFolders, Reset-AgentProfile, Invoke-Sweep,
+    Read-JobOutput, Invoke-AgentJob, New-RunId, Get-CacheFolders, Test-CacheLocked, Test-CacheWritable, Get-NewestLockedCache, Remove-UnlockedCaches,
+    New-RunCache, Test-CacheLinks, Lock-RunCache, Remove-OldCaches, Test-AgentText -Variable FactoryCopy, FactoryModes, AgentKinds, JobKinds, AgentTaskName, JobFiles, FlareOutcomes, FlareVmKinds, LedgerMarker, ReviewTools, DisallowedTools, ProtectedEdits, AgentToolPaths

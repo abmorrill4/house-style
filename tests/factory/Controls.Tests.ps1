@@ -138,7 +138,7 @@ Describe 'The agents run no build, test or e2e command of their own' {
         $factoryScript | Should Match 'git diff --name-only \$base -- @AgentToolPaths'
         $factoryScript | Should Match 'Test-SameHashes \$script:toolsHashes \(Get-TreeHashes \$toolsDir\)'
         $factoryScript | Should Match '\$env:HOUSESTYLE_TEST_REPO = \$here'
-        @($AgentToolPaths) -join ',' | Should Be "scripts/agent,tests/e2e/Run-FlareE2E.ps1,tests/e2e/FlareE2E.psm1,tests/e2e/flaui"
+        @($AgentToolPaths) -join ',' | Should Be "scripts/agent"   # the agents run no e2e (factory-runtime spec section 4)
     }
     It 'a changed copy is caught, build output aside' {
         $d = Join-Path $TestDrive 'copy'; New-Item -ItemType Directory -Force (Join-Path $d 'scripts\agent'), (Join-Path $d 'flaui\bin') | Out-Null

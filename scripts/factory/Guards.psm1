@@ -146,7 +146,126 @@ function Test-TokenText([string]$text, [string]$token) {
     $false
 }
 
+# ==== Git safety =====================================================================================================
+# Every git call the factory makes runs with no hooks (core.hooksPath at an empty folder), no fsmonitor and no replace
+# objects, through the GIT_CONFIG_* environment, which every child git inherits. Returns the names it set, so a caller
+# can put them back.
+function Set-GitSafety([string]$emptyHooks) {
+    if (-not $emptyHooks) { $emptyHooks = Join-Path ([IO.Path]::GetTempPath()) "hs-no-hooks" }
+    New-Item -ItemType Directory -Force $emptyHooks | Out-Null
+    if (@(Get-ChildItem -LiteralPath $emptyHooks -Force).Count) { throw "The empty hooks folder $emptyHooks isn't empty." }
+    $env:GIT_CONFIG_COUNT = "2"
+    $env:GIT_CONFIG_KEY_0 = "core.hooksPath"; $env:GIT_CONFIG_VALUE_0 = $emptyHooks
+    $env:GIT_CONFIG_KEY_1 = "core.fsmonitor"; $env:GIT_CONFIG_VALUE_1 = "false"
+    $env:GIT_NO_REPLACE_OBJECTS = "1"
+    @("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", "GIT_NO_REPLACE_OBJECTS")
+}
+
+# ==== Files written by code the factory doesn't trust ================================================================
+# Opening without following links, and reading from the same handle, so a file can't be swapped between the check and
+# the read. Every part of the path is opened with FILE_FLAG_OPEN_REPARSE_POINT and checked; the file must have one link
+# and be owned by the expected account.
+if (-not ("HsGuardedFile" -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class HsGuardedFile {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)] public struct Info {
+        public uint Attributes; public long Created; public long Accessed; public long Written; public uint Volume;
+        public uint SizeHigh; public uint SizeLow; public uint Links; public uint IndexHigh; public uint IndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr sa, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetFileInformationByHandle(SafeFileHandle h, out Info info);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern uint GetSecurityInfo(SafeFileHandle h, int type, int info, out IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl, out IntPtr sd);
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool ConvertSidToStringSidW(IntPtr sid, out IntPtr str);
+    [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
+    const uint READ = 0x80000000, READ_ATTRIBUTES = 0x80, READ_CONTROL = 0x20000;
+    const uint SHARE_ALL = 7, OPEN_EXISTING = 3, OPEN_REPARSE = 0x00200000, BACKUP = 0x02000000;
+    public const uint REPARSE = 0x400, DIRECTORY = 0x10;
+    // Opens one path part without following a link. Throws when it can't.
+    public static SafeFileHandle Open(string path, bool forRead) {
+        SafeFileHandle h = CreateFileW(path, (forRead ? READ : READ_ATTRIBUTES) | READ_CONTROL, SHARE_ALL, IntPtr.Zero, OPEN_EXISTING, OPEN_REPARSE | BACKUP, IntPtr.Zero);
+        if (h.IsInvalid) throw new IOException("Can't open " + path + " (" + Marshal.GetLastWin32Error() + ")");
+        return h;
+    }
+    public static Info Get(SafeFileHandle h) {
+        Info i; if (!GetFileInformationByHandle(h, out i)) throw new IOException("Can't read the file's information (" + Marshal.GetLastWin32Error() + ")");
+        return i;
+    }
+    public static string Owner(SafeFileHandle h) {
+        IntPtr owner, sd, str;
+        uint r = GetSecurityInfo(h, 1, 1, out owner, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out sd);
+        if (r != 0) throw new IOException("Can't read the file's owner (" + r + ")");
+        try { if (!ConvertSidToStringSidW(owner, out str)) throw new IOException("Can't read the owner's SID"); string s = Marshal.PtrToStringUni(str); LocalFree(str); return s; }
+        finally { LocalFree(sd); }
+    }
+}
+"@
+}
+
+# Reads one file the agent user's job wrote: every part of $path below $trustedRoot is opened without following links
+# and must be a plain folder or file, the file must have exactly one link and be owned by $ownerSid, and its content
+# comes from the same handle, at most $maxBytes. Returns ok, why and text.
+function Read-GuardedFile([string]$path, [string]$trustedRoot, [string]$ownerSid, [int]$maxBytes = 1048576) {
+    function No($why) { [pscustomobject]@{ ok = $false; why = $why; text = $null } }
+    $root = [IO.Path]::GetFullPath($trustedRoot).TrimEnd('\')
+    $full = [IO.Path]::GetFullPath($path)
+    if (-not $full.StartsWith($root + "\", [StringComparison]::OrdinalIgnoreCase)) { return No "$path isn't under $trustedRoot" }
+    $parts = @($full.Substring($root.Length).Trim('\').Split('\'))
+    $cur = $root
+    for ($i = 0; $i -lt $parts.Count; $i++) {
+        $cur = $cur + "\" + $parts[$i]
+        $last = $i -eq $parts.Count - 1
+        $h = $null
+        try {
+            try { $h = [HsGuardedFile]::Open($cur, $last) } catch { return No "$cur is missing or can't be opened" }
+            $info = [HsGuardedFile]::Get($h)
+            if ($info.Attributes -band [HsGuardedFile]::REPARSE) { return No "$cur is a link" }
+            if (-not $last) { if (-not ($info.Attributes -band [HsGuardedFile]::DIRECTORY)) { return No "$cur isn't a folder" }; continue }
+            if ($info.Attributes -band [HsGuardedFile]::DIRECTORY) { return No "$cur is a folder" }
+            if ($info.Links -ne 1) { return No "$cur has $($info.Links) links" }
+            $owner = [HsGuardedFile]::Owner($h)
+            if ($ownerSid -and $owner -ne $ownerSid) { return No "$cur isn't owned by the agent user" }
+            $size = ([int64]$info.SizeHigh -shl 32) + [int64]$info.SizeLow
+            if ($size -gt $maxBytes) { return No "$cur is over $maxBytes bytes" }
+            $fs = New-Object IO.FileStream($h, [IO.FileAccess]::Read)
+            $buf = New-Object byte[] ([int]$size + 1)
+            $n = 0; while ($n -lt $buf.Length) { $k = $fs.Read($buf, $n, $buf.Length - $n); if ($k -le 0) { break }; $n += $k }
+            if ($n -gt $maxBytes) { return No "$cur grew past $maxBytes bytes" }
+            return [pscustomobject]@{ ok = $true; why = $null; text = (New-Object Text.UTF8Encoding $false).GetString($buf, 0, $n).TrimStart([char]0xFEFF) }
+        }
+        finally { if ($h) { $h.Dispose() } }
+    }
+    No "$path names no file"
+}
+
+# A TRX file as XML, with DTDs refused, so the file can't pull anything in.
+function ConvertFrom-TrxText([string]$text) {
+    $s = New-Object Xml.XmlReaderSettings
+    $s.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+    $s.XmlResolver = $null
+    $r = [Xml.XmlReader]::Create((New-Object IO.StringReader $text), $s)
+    try { $x = New-Object Xml.XmlDocument; $x.XmlResolver = $null; $x.Load($r); $x } finally { $r.Dispose() }
+}
+
+# ==== Deletes that never follow a link ===============================================================================
+# cmd's rmdir /s /q removes a junction without entering it. Its exit code can be 0 after a partial failure, so success
+# is only ever the path being gone afterwards (the rmdir-icacls fixture).
+function Remove-LinkSafe([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $true }
+    $ErrorActionPreference = "Continue"   # cmd's complaints go to stderr; only the readback decides
+    $item = Get-Item -LiteralPath $path -Force
+    if ($item.PSIsContainer) { & cmd.exe /c rmdir /s /q $path 2>&1 | Out-Null }
+    else { & cmd.exe /c del /f /q /a $path 2>&1 | Out-Null }
+    -not (Test-Path -LiteralPath $path)
+}
+
 # git diff --numstat lines for a checked patch (added, removed, path), so Get-DiffFacts reads the patch itself.
 function ConvertTo-Numstat($check) { @($check.files | ForEach-Object { "$($_.added)`t$($_.removed)`t$($_.path)" }) }
 
-Export-ModuleMember -Function Import-PatchRules, Test-PatchPath, Test-PatchText, Get-TokenForms, Test-TokenText, ConvertTo-Numstat
+Export-ModuleMember -Function Import-PatchRules, Test-PatchPath, Test-PatchText, Get-TokenForms, Test-TokenText, ConvertTo-Numstat, Set-GitSafety,
+    Read-GuardedFile, ConvertFrom-TrxText, Remove-LinkSafe
