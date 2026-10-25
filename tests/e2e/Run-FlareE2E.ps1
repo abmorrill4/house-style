@@ -7,6 +7,8 @@ A watchdog ends a scenario that runs past -ScenarioMinutes: it saves a screensho
 kills Flare, which also frees a UI Automation call stuck on an unresponsive window.
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
+.EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -RepoRoot C:\HouseStyle\check\fix -PrepareOnly
+-PrepareOnly builds and installs the plugin from -RepoRoot without starting Flare: the Flare check's step 6, offline.
 #>
 param(
     [string[]]$Scenario,                      # names without .ps1; default all
@@ -16,6 +18,7 @@ param(
     [string]$RepoRoot,                        # the checkout to build and test, when this harness runs from a copy (the factory)
     [string]$OutDir,
     [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
+    [switch]$PrepareOnly,                     # build and install from -RepoRoot, then stop before starting Flare
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
 )
 $ErrorActionPreference = "Stop"
@@ -26,11 +29,12 @@ $repo = if ($RepoRoot) { Resolve-Path $RepoRoot } else { Resolve-Path (Join-Path
 if (-not $Fixture) { $Fixture = Join-Path $repo "corpus\DigitalBanking" }
 $Fixture = Resolve-Path $Fixture
 
-if ($Install) {
+if ($Install -or $PrepareOnly) {
     Get-Process Flare -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru | Wait-Process -Timeout 30
     & (Join-Path $repo "scripts\install-plugin.ps1")
     if ($LASTEXITCODE) { throw "install-plugin.ps1 failed" }
 }
+if ($PrepareOnly) { Write-Host "Built and installed from $repo. Flare wasn't started (-PrepareOnly)."; exit 0 }
 
 $files = @(Get-ChildItem (Join-Path $repo "tests\e2e\scenarios") -Filter *.ps1) + @(foreach ($d in $ScenarioDir) { if ($d) { Get-ChildItem $d -Filter *.ps1 } }) |
     Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }

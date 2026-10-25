@@ -1,82 +1,75 @@
 <#
-.SYNOPSIS Runs on the host every 5 minutes: starts the factory VM if it's off, and restarts it if its GitHub runner has
-been offline for -OfflineMinutes (a VM stuck at the sign-in screen, a runner that exited).
-.DESCRIPTION Leaves the VM alone while E:\HouseStyle\vm\maintenance exists (checkpoint merges, rebuilds), while it is
-still booting, and for 30 minutes after its own last restart. Logs each action to watch-factory.log next to the VM.
-Uses the owner's gh sign-in to read the runner's status. Elevated, because Hyper-V needs it.
-.EXAMPLE scripts\factory\Watch-Factory.ps1 -Install   # registers the scheduled task (elevated PowerShell)
+.SYNOPSIS Runs on the host every 5 minutes and keeps both VMs' runners up (factory-runtime spec section 11).
+.DESCRIPTION For each VM: starts it if it's off, and reboots the guest if its GitHub runner has been offline for
+-OfflineMinutes. A guest reboot through Hyper-V, never a hard reset, and at most one every 30 minutes, never while the
+VM is still booting. Logs each action to vm\host.log.
+- The Flare VM (HSFACTORY), as before: nothing while maintenance-HSFACTORY, the check lock, the in-use flag or the
+  failed-reset marker exists (it forgets an offline time while the check lock holds the VM), and the not-ready note
+  the last e2e job left (C:\HouseStyle\not-ready.txt) is answered with a reboot.
+- The agents VM (HSAGENTS): only start and reboot, from the runner's state on GitHub, and nothing at all while
+  maintenance-HSAGENTS exists. It never runs a command inside the agents VM.
+Uses the owner's gh sign-in. Registered by Install-HostTasks.ps1.
 #>
 param(
-    [string]$Name = "HSFACTORY",
     [string]$Repo = "abmorrill4/house-style",
     [string]$Root = "E:\HouseStyle\vm",
-    [int]$OfflineMinutes = 10,
-    [switch]$Install
+    [int]$OfflineMinutes = 10
 )
+$script:Dot = $MyInvocation.InvocationName -eq '.'
 $ErrorActionPreference = "Stop"
-
-if ($Install) {
-    # conhost --headless: no console window flashing on the owner's desktop every 5 minutes.
-    $action = New-ScheduledTaskAction -Execute conhost.exe -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-    # Interactive: runs while the owner is signed in, with their gh sign-in (gh keeps it in Credential Manager, which a
-    # task that runs signed out can't read).
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 4)
-    Register-ScheduledTask "House Style factory watch" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-    Write-Host "Registered 'House Style factory watch' (every 5 minutes). Log: $Root\watch-factory.log"
-    return
+Import-Module (Join-Path $PSScriptRoot "FactoryVM.psm1") -Force
+Set-FactoryVMRoot $Root
+function Get-HostNow { Get-Date }
+function Get-VMUptimeMinutes([string]$vm) { (Get-VM -Name $vm).Uptime.TotalMinutes }
+# The last e2e job's not-ready note in the Flare VM, removed as it's read. The Flare VM only.
+function Read-NotReadyNote {
+    $r = Invoke-VMCall $FlareVMName { $f = "$env:SystemDrive\HouseStyle\not-ready.txt"; if (Test-Path $f) { Get-Content $f -Raw; Remove-Item $f } } @() 60
+    if ($r.ok) { "" + (@($r.output) -join " ") } else { "" }
 }
 
-$log = Join-Path $Root "watch-factory.log"
-$statePath = Join-Path $Root "watch-factory.json"
-function Log($t) { "$(Get-Date -Format s) $t" | Add-Content $log }
-if (Test-Path (Join-Path $Root "maintenance")) { return }
-
-$state = $null
-try { $state = Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json } catch { }   # missing or half-written: start fresh
-if (-not $state) { $state = [pscustomobject]@{} }
-foreach ($p in "offlineSince", "lastRestart", "lastSeen") { if (-not ($state.PSObject.Properties.Name -contains $p)) { $state | Add-Member $p $null } }
-function Save { $state.lastSeen = (Get-Date).ToString("o"); $state | ConvertTo-Json | Set-Content $statePath }
-# An offline time from before a gap in watching (gh failing, the host asleep) says nothing about now.
-if ($state.lastSeen -and ((Get-Date) - [datetime]$state.lastSeen).TotalMinutes -gt 15) { $state.offlineSince = $null }
-$sinceRestart = if ($state.lastRestart) { (Get-Date) - [datetime]$state.lastRestart } else { [timespan]::MaxValue }
-
-# A guest reboot, through Hyper-V's integration services: never a hard reset, which could break a Windows update.
-function Reboot($why) {
-    Log "$why; rebooting the VM."
-    try { Restart-VM $Name -Type Reboot -Force } catch { Log "Reboot failed ($($_.Exception.Message)); leaving it for the owner."; return }
-    $state.offlineSince = $null; $state.lastRestart = (Get-Date).ToString("o"); Save
+function Get-WatchState([string]$vm) {
+    $s = Read-HostJson (Get-HostPath "watch-$vm.json")
+    if (-not $s) { $s = [pscustomobject]@{} }
+    foreach ($p in "offlineSince", "lastRestart", "lastSeen") { if (-not ($s.PSObject.Properties.Name -contains $p)) { $s | Add-Member $p $null } }
+    $s
 }
+function Save-WatchState([string]$vm, $s) { $s.lastSeen = (Get-HostNow).ToString("o"); Write-HostJson (Get-HostPath "watch-$vm.json") $s }
 
-$vm = Get-VM $Name
-if ($vm.State -ne "Running") { Log "VM was $($vm.State); starting it."; Start-VM $Name; $state.offlineSince = $null; $state.lastRestart = (Get-Date).ToString("o"); Save; return }
-
-# Filtered here, not in --jq: Windows PowerShell strips the quotes a jq string literal needs.
-$ErrorActionPreference = "Continue"   # gh's stderr would otherwise throw
-$runners = & gh.exe api "repos/$Repo/actions/runners" 2>$null
-$ok = -not $LASTEXITCODE
-$ErrorActionPreference = "Stop"
-$status = if ($ok) { (($runners | Out-String | ConvertFrom-Json).runners | Where-Object name -eq $Name).status }
-if (-not $status) { return }   # GitHub unreachable, gh signed out or runner unknown: no evidence either way
-
-if ($status -eq "online") {
-    if ($state.offlineSince) { Log "Runner back online."; $state.offlineSince = $null }
-    Save
-    # Online but unusable: Test-FactoryReady leaves a note when the desktop is locked or disconnected, which only a
-    # reboot (and the auto-logon after it) fixes.
-    if ($sinceRestart.TotalMinutes -lt 30) { return }
-    $cred = Import-Clixml (Join-Path $Root "factory-credential.xml")
-    $note = Invoke-Command -VMName $Name -Credential $cred -ErrorAction SilentlyContinue -ScriptBlock {
-        $f = "$env:SystemDrive\HouseStyle\not-ready.txt"
-        if (Test-Path $f) { Get-Content $f -Raw; Remove-Item $f }
+# One VM. Returns what it did.
+function Invoke-WatchVM([string]$vm) {
+    if (Test-Path -LiteralPath (Get-FlagPath $vm)) { return "maintenance" }
+    $flare = $vm -eq $FlareVMName
+    $s = Get-WatchState $vm
+    if ($flare -and ((Test-InUseFlag) -or (Test-FailedResetMarker))) { return "held" }
+    if ($flare -and (Get-CheckLock)) { $s.offlineSince = $null; Save-WatchState $vm $s; return "checking" }   # the Flare check owns it; its offline time means nothing
+    # An offline time from before a gap in watching (gh failing, the host asleep) says nothing about now.
+    if ($s.lastSeen -and ((Get-HostNow) - [datetime]$s.lastSeen).TotalMinutes -gt 15) { $s.offlineSince = $null }
+    $sinceRestart = if ($s.lastRestart) { (Get-HostNow) - [datetime]$s.lastRestart } else { [timespan]::MaxValue }
+    $state = Get-VMStateName $vm
+    if ($state -ne "Running") { Write-HostLog "$vm was $state; starting it."; Start-VMPlain $vm; $s.offlineSince = $null; $s.lastRestart = (Get-HostNow).ToString("o"); Save-WatchState $vm $s; return "started" }
+    $runner = Get-RunnerState $vm $Repo
+    if ($runner -eq "unknown") { return "unknown" }   # GitHub unreachable, gh signed out or runner unknown: no evidence either way
+    if ($runner -ne "offline") {
+        if ($s.offlineSince) { Write-HostLog "$vm's runner is back online."; $s.offlineSince = $null }
+        Save-WatchState $vm $s
+        if (-not $flare -or $sinceRestart.TotalMinutes -lt 30) { return "online" }
+        # Online but unusable: the e2e job's ready check leaves a note when the desktop is locked or disconnected.
+        $note = Read-NotReadyNote
+        if ($note.Trim()) { return (Invoke-GuestReboot $vm $s "The last job found the VM not ready ($($note.Trim()))") }
+        return "online"
     }
-    if ($note) { Reboot "The last job found the VM not ready ($("$note".Trim()))" }
-    return
+    if (-not $s.offlineSince) { $s.offlineSince = (Get-HostNow).ToString("o"); Save-WatchState $vm $s; Write-HostLog "$vm's runner is offline."; return "offline" }
+    Save-WatchState $vm $s
+    $down = (Get-HostNow) - [datetime]$s.offlineSince
+    if ($down.TotalMinutes -lt $OfflineMinutes -or (Get-VMUptimeMinutes $vm) -lt $OfflineMinutes -or $sinceRestart.TotalMinutes -lt 30) { return "waiting" }
+    Invoke-GuestReboot $vm $s "$vm's runner has been offline for $([int]$down.TotalMinutes) minutes"
+}
+# A guest reboot through Hyper-V's integration services: never a hard reset, which could break a Windows update.
+function Invoke-GuestReboot([string]$vm, $s, [string]$why) {
+    Write-HostLog "$why; rebooting $vm."
+    try { Restart-VMGuest $vm } catch { Write-HostLog "Rebooting $vm failed ($($_.Exception.Message)); leaving it for the owner."; return "reboot-failed" }
+    $s.offlineSince = $null; $s.lastRestart = (Get-HostNow).ToString("o"); Save-WatchState $vm $s
+    "rebooted"
 }
 
-if (-not $state.offlineSince) { $state.offlineSince = (Get-Date).ToString("o"); Save; Log "Runner offline."; return }
-Save
-$down = (Get-Date) - [datetime]$state.offlineSince
-if ($down.TotalMinutes -lt $OfflineMinutes -or $vm.Uptime.TotalMinutes -lt $OfflineMinutes -or $sinceRestart.TotalMinutes -lt 30) { return }
-Reboot "Runner offline for $([int]$down.TotalMinutes) min"
+if (-not $script:Dot) { foreach ($vm in $FlareVMName, $AgentsVMName) { try { Invoke-WatchVM $vm | Out-Null } catch { Write-HostLog "Watching $vm failed: $($_.Exception.Message)" } } }
