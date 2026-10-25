@@ -157,7 +157,8 @@ Invoke-Command -VMName $Name -Credential $cred -ArgumentList $pins, $AgentLogon,
     }
 
     if (-not $scanOnly) {
-        Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+        # The session's own Bypass (set above) makes this report an override, though the machine setting is saved.
+        try { Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force } catch { if ((Get-ExecutionPolicy -Scope LocalMachine) -ne "RemoteSigned") { throw } }
         cscript //nologo C:\Windows\System32\slmgr.vbs /ato | Out-Host
 
         # ---- the pinned tools ---------------------------------------------------------------------------------------
