@@ -65,6 +65,10 @@ Describe 'FACTORY_MODE (the kill switch)' {
         $build = $f.IndexOf('$route.build = $false')
         $build | Should BeGreaterThan 0
         $f.IndexOf('if ($route.build -and $wipFull)') | Should BeGreaterThan $build
+        $f.IndexOf('$mode = $pick.Mode') | Should BeGreaterThan $f.IndexOf('if ($pick -and $pick.Mode -eq "fix") { $pick = $null }')
+        $stop = $f.IndexOf('throw "Triage only. The fix path is off."')
+        $stop | Should BeGreaterThan $build
+        foreach ($act in 'Invoke-ReproCheck $reproTest', 'push -q -f origin', 'Gh pr create', 'Gh pr merge') { $f.IndexOf($act, $stop) | Should BeGreaterThan $stop }
     }
     It 'nothing reads the old FACTORY_ROUTE_MODE any more' {
         foreach ($f in 'scripts\factory\Invoke-Factory.ps1', '.github\workflows\factory.yml', 'scripts\factory\README.md', '.claude\skills\triage\SKILL.md') {

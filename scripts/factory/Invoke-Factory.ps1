@@ -571,6 +571,8 @@ try {
         Write-Report
     }
 
+    # Triage only (owner decision 2026-10-26): the second stop, should the pick guard or the build reset above ever move.
+    throw "Triage only. The fix path is off."
     # ---- fix: only for a route this run computed, or the owner's decision:fix -----------------------------------
     if ($routed) {
         $gate = Test-FixAllowed $routed (Get-Labels $r) @() $owner
