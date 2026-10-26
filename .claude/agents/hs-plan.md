@@ -26,7 +26,8 @@ may change.
 3. For each chunk, write the facts the builder needs: the types, method names, signatures and patterns to follow,
    with `path:line`. Give enough to work from, not the whole file.
 4. Name a test only where the spec's verification plan asks for one: its full name, and the cheapest channel that can
-   run it (`scripts/agent/test-channel.ps1 -List`). A Flare scenario only for something visible in Flare.
+   run it: `rule-fixtures`, `core`, `scenarios`, `flare-tests`, `pester` or `vitest`. A Flare scenario
+   (`tests/e2e`) only for something visible in Flare; give that chunk `"test": null`, because CI runs it on the VM.
 5. Pick each chunk's model: `haiku` for work a careful junior could do from the card, `sonnet` when it needs design
    judgment the card can't carry.
 6. If the work needs more than 8 chunks, or any file under `src/FlareAI.Core/{Update,Settings,Llm,Editing,Feedback}`,

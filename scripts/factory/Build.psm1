@@ -24,6 +24,7 @@ function Get-NotReadyReason($issue, $labelEvents, $editors, [string]$owner, [str
     $null
 }
 
+# The hash covers the title too: it's outside the body's edit history, and it becomes the PR title.
 function Get-BodyHash([string]$body) {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(("" + $body).Replace("`r`n", "`n"))) | ForEach-Object { $_.ToString("x2") }) }
@@ -116,8 +117,20 @@ function Get-IssueBudget($summaries, [string]$size, $budget) {
 
 function Get-CardTokens([string]$text) { [int][Math]::Ceiling(("" + $text).Length / 4) }   # ponytail: chars/4, a rough cap, not a count
 
-# The planned or changed paths on the owner-only list (Triage.psm1's $OwnerOnly), forward slashes, repo-relative.
-function Get-OwnerOnlyPaths($paths) { @($paths | ForEach-Object { ("" + $_).Replace('\', '/') -replace '^(\./)+', '' } | Where-Object { $_ -match $OwnerOnly }) }
+# What the build factory may never change without the owner: Triage.psm1's $OwnerOnly, plus everything that runs on the
+# owner's PC or ships outside the plugin's own code (Claude settings and hooks, every script including the installer,
+# the updater, the e2e harness that judges the e2e check, CLAUDE.md).
+$FactoryOwnerOnly = '^\.claude/|^scripts/|^tests/factory/|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1|flaui/)|^tools/FlareAI\.Updater/|^CLAUDE\.md$'
+
+# The planned or changed paths on the owner-only lists, forward slashes, repo-relative. A path that isn't plain printable
+# ASCII counts as owner-only too: git quotes such names, and a quoted name would slip past every anchored pattern.
+function Get-OwnerOnlyPaths($paths) {
+    @($paths | ForEach-Object { ("" + $_).Replace('\', '/') -replace '^(\./)+', '' } |
+        Where-Object { $_ -match $OwnerOnly -or $_ -match $FactoryOwnerOnly -or $_ -cmatch '[^\x21-\x7E]|"' })
+}
+
+# The channels a chunk's test may run on locally: the narrow ones. The Flare tests and the full suite run in CI.
+$PlanChannels = "rule-fixtures", "core", "scenarios", "flare-tests", "pester", "vitest"
 
 # A plan from hs-plan: a problem with it, or $null. Chunks 1..max, each with a goal, 1..maxFiles files, a model.
 function Get-PlanProblem($plan, $limits) {
@@ -130,6 +143,10 @@ function Get-PlanProblem($plan, $limits) {
         if (-not $f.Count -or $f.Count -gt [int]$limits.filesPerChunk) { return "a chunk names $($f.Count) files" }
         if (@("haiku", "sonnet") -notcontains ("" + $c.model)) { return "a chunk names model '$($c.model)'" }
         foreach ($p in $f) { if ("$p" -match '\.\.|^[A-Za-z]:|^[\\/]') { return "a chunk names a path outside the repo" } }
+        if ($c.test -and $c.test.name) {
+            if (-not (Test-TestName $c.test.name)) { return "a chunk names an unusable test" }
+            if ($PlanChannels -notcontains ("" + $c.test.channel)) { return "a chunk names test channel '$($c.test.channel)'" }
+        }
     }
     $null
 }
@@ -148,18 +165,24 @@ function New-AgentArgs([string]$model, [string]$tools, [int]$maxTurns) {
     if (@("haiku", "sonnet") -notcontains $model) { throw "The factory runs only haiku or sonnet, not '$model'." }
     $builtIn = (@($tools -split ',' | ForEach-Object { ($_ -replace '\(.*$', '').Trim() } | Where-Object { $_ }) | Select-Object -Unique) -join ","
     @("-p", "--output-format", "json", "--model", $model, "--restricted", "--tools", $builtIn, "--strict-mcp-config",
-      "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", $DisallowedTools, "--max-turns", "$maxTurns")
+      "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", ($DisallowedTools + "," + $ReadDenied), "--max-turns", "$maxTurns")
 }
+# A second layer under --restricted's confinement: no reading the planning notes, the main checkout, any .env or the
+# Claude sign-in and settings.
+$ReadDenied = "Read(~/.claude/**),Read(**/.env),Read(//E:/HouseStyle/planning/**),Read(//E:/HouseStyle/repos/house-style/**),Read(//E:/HouseStyle/factory/*.xml)"
 
 # An agent's prompt from a copy of an agent definition: its body, without the frontmatter.
 function Get-AgentBody([string]$text) { [regex]::Replace("" + $text, '(?s)^\s*---.*?\r?\n---\r?\n', '') }
 
-# The last JSON object in an agent's final text (bare or fenced), or $null.
+# The last JSON object in an agent's final text (fenced, else the whole text), or $null. The last one, because an
+# agent's answer comes after anything it quotes.
 function ConvertFrom-AgentJson([string]$text) {
     if (-not $text) { return $null }
-    foreach ($m in @([regex]::Matches($text, '(?s)```(?:json)?\s*(\{.*?\})\s*```')) + @([regex]::Matches($text, '(?s)(\{.*\})'))) {
-        try { return ($m.Groups[1].Value | ConvertFrom-Json) } catch { }
-    }
+    $found = $null
+    foreach ($m in [regex]::Matches($text, '(?s)```(?:json)?\s*(\{.*?\})\s*```')) { try { $found = $m.Groups[1].Value | ConvertFrom-Json } catch { } }
+    if ($found) { return $found }
+    $m = [regex]::Match($text, '(?s)(\{.*\})')
+    if ($m.Success) { try { return ($m.Groups[1].Value | ConvertFrom-Json) } catch { } }
     $null
 }
 

@@ -131,6 +131,22 @@ Describe 'Plans and paths' {
         Get-PlanProblem (Plan @(Ch @("src/A.cs") "opus")) $lim | Should Match 'opus'
         foreach ($p in "../x.cs", "C:/x.cs", "/etc/x", "src/../../x") { Get-PlanProblem (Plan @(Ch @($p))) $lim | Should Match 'outside' }
     }
+    It 'holds what runs on the owner PC or ships outside the plugin code, and names git would quote' {
+        $held = @(".claude/settings.json", ".claude/hooks/session-start.ps1", "scripts/release/Install.ps1", "scripts/package.ps1", "tools/FlareAI.Updater/Program.cs",
+                  "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/flaui/X.cs", "CLAUDE.md", "src/FlareAI.Core/Update/$([char]0xE9).cs", '"src/FlareAI.Core/Update/\303\251.cs"', "src/a b.cs")
+        @(Get-OwnerOnlyPaths $held).Count | Should Be $held.Count
+        @(Get-OwnerOnlyPaths @("src/FlareAI.Core/Style/Rules.cs", "tests/e2e/scenarios/lint.json", "tests/FlareAI.Core.Tests/A.cs", "changes/x.md")).Count | Should Be 0
+    }
+    It 'accepts a test on a narrow channel only, with a plain test name' {
+        $t = { param($name, $channel) $c = Ch @("src/A.cs"); $c | Add-Member test ([pscustomobject]@{ name = $name; channel = $channel }); Plan @($c) }
+        Get-PlanProblem (& $t "FlareAI.Core.Tests.A.B" "core") $lim | Should BeNullOrEmpty
+        Get-PlanProblem (& $t "A.B; rm -rf /" "core") $lim | Should Match 'unusable test'
+        foreach ($ch in "full", "e2e", "bench", "anything") { Get-PlanProblem (& $t "A.B" $ch) $lim | Should Match 'channel' }
+    }
+    It 'resumes the fix round at its review, and never commits an empty chunk' {
+        $buildScript | Should Match 'if \(\$s\.fixRound -and -not \$s\.fixReviewed\)'
+        $buildScript | Should Match 'if \(@\(Git status --porcelain\)\.Count\) \{ Git commit'
+    }
     It 'finds owner-only paths, with either slash and a leading ./' {
         Get-OwnerOnlyPaths @("src/FlareAI.Core/Style/X.cs", "src\FlareAI.Core\Update\UpdateStager.cs", "./.github/workflows/build.yml", ".claude/agents/hs-build.md", "rules/factory.json", "scripts/factory/Invoke-Build.ps1", "tests/factory/Build.Tests.ps1") |
             Should Be @("src/FlareAI.Core/Update/UpdateStager.cs", ".github/workflows/build.yml", ".claude/agents/hs-build.md", "rules/factory.json", "scripts/factory/Invoke-Build.ps1", "tests/factory/Build.Tests.ps1")
@@ -152,6 +168,8 @@ Describe 'Agents' {
         $a -contains "--strict-mcp-config" | Should Be $true
         $a[[array]::IndexOf($a, "--tools") + 1] | Should Be "Read,Grep,Edit,Bash"
         $a[[array]::IndexOf($a, "--max-turns") + 1] | Should Be "60"
+        $deny = $a[[array]::IndexOf($a, "--disallowedTools") + 1]
+        foreach ($r in 'Read(~/.claude/**)', 'Read(**/.env)', 'Read(//E:/HouseStyle/planning/**)', 'Read(//E:/HouseStyle/repos/house-style/**)', 'Bash(gh:*)') { $deny.Contains($r) | Should Be $true }
     }
     It 'passes only a literal haiku or sonnet from the script' {
         $models = [regex]::Matches($buildScript, 'Invoke-(?:BuildAgent|AgentTwice)\s+\$s\s+"[^"]+"\s+"[^"]+"\s+("[^"]+"|\$\S+)') | ForEach-Object { $_.Groups[1].Value }
@@ -166,6 +184,16 @@ Describe 'Agents' {
         (ConvertFrom-AgentJson "text`n``````json`n{""kind"":""built""}`n``````").kind | Should Be "built"
         (ConvertFrom-AgentJson '{"kind":"cannot_build"}').kind | Should Be "cannot_build"
         ConvertFrom-AgentJson "no json" | Should BeNullOrEmpty
+    }
+    It 'takes the answer after anything the agent quoted' {
+        $t = "The diff says:`n``````json`n{""findings"":[]}`n```````nMy review:`n``````json`n{""findings"":[{""severity"":""blocking""}]}`n``````"
+        @(Get-BlockingFindings (ConvertFrom-AgentJson $t)).Count | Should Be 1
+    }
+    It 'commits with message files, publishes no binaries, and checks a title-and-body hash' {
+        $buildScript | Should Not Match 'commit -q -m'
+        $buildScript | Should Match 'core\.quotePath=false diff --name-only'
+        $buildScript | Should Match 'Where-Object \{ \$_ -match "\^-\\s" \}'
+        $buildScript | Should Match 'Get-BodyHash \(\$cur\.title'
     }
     It 'records every call with its issue, stage, model and dollars' {
         $e = New-BuildLedgerEntry 12 "build-1-0" "haiku" ([pscustomobject]@{ exit = 0; seconds = 30; timedOut = $false }) (ConvertFrom-AgentOutput '{"type":"result","num_turns":4,"total_cost_usd":0.02,"usage":{"input_tokens":10,"output_tokens":5}}') "ok"

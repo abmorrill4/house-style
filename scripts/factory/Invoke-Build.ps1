@@ -82,7 +82,8 @@ function Suspend-Run([string]$why) { throw "PAUSE:$why" }
 # Returns the parsed JSON, or $null when the agent stopped at a cap or returned nothing usable. A usage limit pauses.
 function Invoke-BuildAgent($s, [string]$stage, [string]$agent, [string]$model, [string]$card, [string]$tools, [string]$turnsKey) {
     if (-not $DryRun -and -not (Test-SwitchOn)) { Suspend-Run "FACTORY_BUILD is off" }
-    if ((Get-BodyHash ((Gh issue view $s.issue -R $repo --json body | ConvertFrom-Json).body)) -ne $s.bodyHash) { Stop-Issue "unverified-ready" }
+    $cur = Gh issue view $s.issue -R $repo --json "title,body" | ConvertFrom-Json
+    if ((Get-BodyHash ($cur.title + "`n" + $cur.body)) -ne $s.bodyHash) { Stop-Issue "unverified-ready" }
     $spent = [double](@(Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue } | ForEach-Object { [double]$_.cost_usd }) | Measure-Object -Sum).Sum
     if ($spent -ge $s.budget) { Stop-Issue "budget" }
     $prompt = (Get-AgentBody (Get-Content (Join-Path $s.tools ".claude\agents\$agent.md") -Raw)) + "`n`n## Your task`n`n" + $card
@@ -142,13 +143,14 @@ function Assert-Publishable($s, [string]$prText) {
     Push-Location $s.worktree
     try {
         if (@(Git status --porcelain).Count) { Stop-Issue "build-failed" }
-        $names = @(Git diff --name-only --no-renames "origin/main...HEAD")
+        $names = @(Git -c core.quotePath=false diff --name-only --no-renames "origin/main...HEAD")
         if (@(Get-OwnerOnlyPaths $names).Count) { Stop-Issue "owner-only-path" }
         $summary = (Git diff --summary "origin/main...HEAD") -join "`n"
         if ($summary -match 'mode change|120000') { Stop-Issue "build-failed" }
         $diff = (Git diff "origin/main...HEAD") -join "`n"
         $messages = (Git log --format=%B "origin/main..HEAD") -join "`n"
         if ((Test-SecretShape $diff) -or (Test-SecretShape $messages) -or (Test-SecretShape $prText)) { Stop-Issue "build-failed" }
+        if (@(Git diff --numstat "origin/main...HEAD" | Where-Object { $_ -match "^-\s" }).Count) { Stop-Issue "build-failed" }   # binary files: no size or secret check can see inside
         $lines = [int](@(Git diff --numstat "origin/main...HEAD" | ForEach-Object { $p = $_ -split '\s+'; [int]("0" + ($p[0] -replace '\D')) + [int]("0" + ($p[1] -replace '\D')) }) | Measure-Object -Sum).Sum
         if ($lines -gt 3000) { Stop-Issue "too-big" }
     } finally { Pop-Location }
@@ -210,7 +212,7 @@ function Invoke-Issue([int]$n, $facts, $state) {
         if (-not $spec -and -not $fixTest) { Stop-Issue "no-spec" }
         $slug = (($facts.title.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-'))
         $slug = $slug.Substring(0, [Math]::Min(40, $slug.Length)).Trim('-')
-        $s = [pscustomobject]@{ issue = $n; title = $facts.title; size = $size; spec = $spec; fixTest = $fixTest; bodyHash = (Get-BodyHash $facts.body)
+        $s = [pscustomobject]@{ issue = $n; title = $facts.title; size = $size; spec = $spec; fixTest = $fixTest; bodyHash = (Get-BodyHash ($facts.title + "`n" + $facts.body))
             budget = (Get-IssueBudget @(Read-Ledger) $size $rules.budget); branch = "factory/$n-$slug"; worktree = (Join-Path $worktrees "factory-$n")
             tools = (Join-Path $factoryDir "tools\$n"); intent = ""; plan = $null; chunkTries = @{}; chunksDone = @(); notesDone = $false; pr = 0; head = ""
             reviewed = $false; fixRound = $false; fixReviewed = $false; branchUpdates = 0; started = (Get-Date).ToUniversalTime().ToString("o") }
@@ -225,6 +227,11 @@ function Invoke-Issue([int]$n, $facts, $state) {
     Git -C $root archive -o $tar origin/main .claude/agents scripts/agent | Out-Null
     & tar.exe -xf $tar -C $s.tools; Remove-Item $tar
     $testChannel = (Join-Path $s.tools "scripts\agent\test-channel.ps1").Replace('\', '/')
+    if (-not $state) {
+        # A fresh start (the owner re-readied a stuck issue, say) never builds on an earlier attempt's worktree or branch.
+        if (Test-Path $s.worktree) { Git -C $root worktree remove --force $s.worktree | Out-Null }
+        if (& git.exe -C $root branch --list $s.branch) { Git -C $root branch -q -D $s.branch | Out-Null }
+    }
     if (-not (Test-Path $s.worktree)) {
         $exists = (& git.exe -C $root branch --list $s.branch)
         if ($exists) { Git -C $root worktree add -q $s.worktree $s.branch | Out-Null } else { Git -C $root worktree add -q -b $s.branch $s.worktree origin/main | Out-Null }
@@ -249,7 +256,9 @@ function Invoke-Issue([int]$n, $facts, $state) {
         return "dry-run"
     }
 
-    # Build each chunk: its model, then one Sonnet retry with the failure, then back to the owner.
+    # Build each chunk: its model, then one Sonnet retry with the failure, then back to the owner. A resumed run starts
+    # from the last commit: whatever a crashed chunk left uncommitted goes.
+    Push-Location $s.worktree; try { Git checkout -q -- . ; Git clean -q -fd | Out-Null } finally { Pop-Location }
     $i = 0
     foreach ($c in @($s.plan.chunks)) {
         $i++; if (@($s.chunksDone) -contains $i) { continue }
@@ -276,7 +285,7 @@ function Invoke-Issue([int]$n, $facts, $state) {
             Push-Location $s.worktree; try { Git checkout -q -- . ; Git clean -q -fd | Out-Null } finally { Pop-Location }
         }
         Push-Location $s.worktree
-        try { Git add -A; Git commit -q -m "Factory #${n}, chunk ${i}: $($c.goal -replace '\s+', ' ')" | Out-Null } finally { Pop-Location }
+        try { Git add -A; if (@(Git status --porcelain).Count) { Git commit -q -F (New-BodyFile "Factory #${n}, chunk ${i}: $($c.goal -replace '\s+', ' ')") | Out-Null } } finally { Pop-Location }
         $s.chunksDone = @($s.chunksDone) + $i; Save-State $s
     }
 
@@ -285,14 +294,14 @@ function Invoke-Issue([int]$n, $facts, $state) {
         $before = @(Git -C $s.worktree status --porcelain).Count
         $stat = (Git -C $s.worktree diff --stat "origin/main...HEAD") -join "`n"
         $null = Invoke-BuildAgent $s "notes" "hs-notes" "haiku" "Write changes/factory-$n.md if writers would notice this change, otherwise write nothing.`nIntent: $($s.intent)`nChanged files:`n$stat" "Read,Write" "notes"
-        if (@(Git -C $s.worktree status --porcelain).Count -gt $before) { Push-Location $s.worktree; try { Git add -A; Git commit -q -m "Factory #${n}: release note" | Out-Null } finally { Pop-Location } }
+        if (@(Git -C $s.worktree status --porcelain).Count -gt $before) { Push-Location $s.worktree; try { Git add -A; Git commit -q -F (New-BodyFile "Factory #${n}: release note") | Out-Null } finally { Pop-Location } }
         $s.notesDone = $true; Save-State $s
     }
     $prText = "Built by the factory from the spec for #$n.`n`nFixes #$n"
     if (-not $s.pr) {
         Assert-Publishable $s $prText
         Push-Branch $s
-        $url = Pub pr create -R $repo --base main --head $s.branch --title $s.title --body-file (New-BodyFile $prText)
+        $url = Pub pr create -R $repo --base main --head $s.branch --title ($s.title -replace '["`$\x00-\x1F]', '') --body-file (New-BodyFile $prText)
         $s.pr = [int](("" + $url).Trim() -replace '.*/', '')
         if (-not (Test-Path (Join-Path $s.worktree "changes\factory-$n.md"))) { Pub pr edit $s.pr -R $repo --add-label "no-notes" | Out-Null }
         Save-State $s
@@ -300,9 +309,8 @@ function Invoke-Issue([int]$n, $facts, $state) {
 
     # Review while CI runs, then CI; one fix round for both, then a review of the fix alone.
     if (-not $s.reviewed) { $s | Add-Member -Force NoteProperty blocking @(Invoke-Review $s "origin/main...HEAD" "review"); $s.reviewed = $true; Save-State $s }
-    $ci = Wait-Checks $s
-    if (@($s.blocking).Count -or $ci.state -eq "fail") {
-        if ($s.fixRound) { Stop-Issue $(if ($ci.state -eq "fail") { "ci-failed" } else { "review-blocking" }) }
+    $ci = if ($s.fixRound) { $null } else { Wait-Checks $s }
+    if (-not $s.fixRound -and (@($s.blocking).Count -or $ci.state -eq "fail")) {
         $scoutText = ""
         if ($ci.state -eq "fail") {
             $log = Join-Path $factoryDir "scratch\$n\ci-failure.log"; Get-FailureLog $s | Set-Content $log -Encoding UTF8
@@ -311,18 +319,20 @@ function Invoke-Issue([int]$n, $facts, $state) {
         }
         $files = @(Git -C $s.worktree diff --name-only "origin/main...HEAD")
         $card = "Fix round for #${n}: $($s.title). Fix every blocking finding and the CI failure below in one change.`nFiles: $($files -join ', ') (and the files the findings name)`n`nFindings:`n$(@($s.blocking) -join "`n")`n`nCI:`n$scoutText"
-        $base = (Git -C $s.worktree rev-parse HEAD).Trim()
+        $s | Add-Member -Force NoteProperty fixBase ((Git -C $s.worktree rev-parse HEAD).Trim())
         $r = Invoke-BuildAgent $s "fix" "hs-build" "sonnet" $card "Read,Grep,Glob,Edit,Write" "fix"
-        $s.fixRound = $true; Save-State $s
         if (-not $r -or $r.kind -ne "built" -or -not @(Git -C $s.worktree status --porcelain).Count) { Stop-Issue $(if ($ci.state -eq "fail") { "ci-failed" } else { "review-blocking" }) }
-        Push-Location $s.worktree; try { Git add -A; Git commit -q -m "Factory #${n}: review and CI fixes" | Out-Null } finally { Pop-Location }
+        Push-Location $s.worktree; try { Git add -A; Git commit -q -F (New-BodyFile "Factory #${n}: review and CI fixes") | Out-Null } finally { Pop-Location }
         Assert-Publishable $s $prText
         Push-Branch $s
-        if (@(Invoke-Review $s "$base..HEAD" "review-fix").Count) { Stop-Issue "review-blocking" }
-        $s.fixReviewed = $true; $s.blocking = @(); Save-State $s
-        $ci = Wait-Checks $s
-        if ($ci.state -ne "pass") { Stop-Issue "ci-failed" }
+        $s.fixRound = $true; Save-State $s
     }
+    # The fix round's own review and CI; a resumed run that paused here picks up from this point.
+    if ($s.fixRound -and -not $s.fixReviewed) {
+        if (@(Invoke-Review $s "$($s.fixBase)..HEAD" "review-fix").Count) { Stop-Issue "review-blocking" }
+        $s.fixReviewed = $true; $s.blocking = @(); Save-State $s
+    }
+    if ($s.fixRound) { if ((Wait-Checks $s).state -ne "pass") { Stop-Issue "ci-failed" } }
 
     # Merge, pinned to the head commit; a branch behind main is updated and checked again, twice at most.
     while ($true) {
@@ -331,9 +341,12 @@ function Invoke-Issue([int]$n, $facts, $state) {
         try { Pub pr merge $s.pr -R $repo --merge --match-head-commit $s.head | Out-Null } catch { $merged = $false }
         if ($merged) { break }
         if ($s.branchUpdates -ge [int]$limits.branchUpdates) { Stop-Issue "ci-failed" }
-        Pub pr update-branch $s.pr -R $repo | Out-Null
+        # A merge that fails for any reason gets one update from main; a conflict there goes back to the owner.
+        try { Pub pr update-branch $s.pr -R $repo | Out-Null } catch { Stop-Issue "ci-failed" }
         $s.branchUpdates++
-        $s.head = ((Gh pr view $s.pr -R $repo --json headRefOid | ConvertFrom-Json).headRefOid); Save-State $s
+        $old = $s.head
+        for ($w = 0; $w -lt 24 -and $s.head -eq $old; $w++) { Start-Sleep -Seconds 5; $s.head = ((Gh pr view $s.pr -R $repo --json headRefOid | ConvertFrom-Json).headRefOid) }   # GitHub moves the head asynchronously
+        Save-State $s
         if ((Wait-Checks $s).state -ne "pass") { Stop-Issue "ci-failed" }
     }
     Pub issue edit $n -R $repo --add-label "factory:done" --remove-label "factory:working" | Out-Null
@@ -351,8 +364,10 @@ function Write-IssueSummary($s, [string]$outcome) {
 
 try {
     # Unreleased factory merges at the cap: wait for the nightly release.
-    $lastTag = (Gh release list -R $repo --limit 1 --json publishedAt | ConvertFrom-Json)[0].publishedAt
-    $unreleased = @(Gh pr list -R $repo --state merged --search "head:factory/ merged:>$lastTag" --json number | ConvertFrom-Json).Count
+    $lastRelease = @(Gh release list -R $repo --limit 1 --json publishedAt | ConvertFrom-Json) | Select-Object -First 1
+    $since = if ($lastRelease) { [datetime]$lastRelease.publishedAt } else { [datetime]::MinValue }
+    $unreleased = @(Gh pr list -R $repo --state merged --limit 50 --json "headRefName,mergedAt" | ConvertFrom-Json |
+        Where-Object { $_.headRefName -like "factory/*" -and [datetime]$_.mergedAt -gt $since }).Count
     if (-not $DryRun -and $unreleased -ge [int]$limits.unreleasedMerges) { Write-Host "$unreleased factory merges wait for the nightly release."; exit 0 }
 
     $handled = @()
@@ -369,7 +384,7 @@ try {
             $state = if ($f.labels -contains "factory:working" -and (Test-Path $statePath)) { Get-Content $statePath -Raw | ConvertFrom-Json } else { $null }
             if ($state) { $ht = @{}; foreach ($p in $state.chunkTries.PSObject.Properties) { $ht[$p.Name] = $p.Value }; $state.chunkTries = $ht }
             $pick = @{ n = $n; facts = $f; why = $why; state = $state }
-            if ($state) { break }   # a claimed issue resumes before anything new
+            if ($state -and -not $why) { break }   # a claimed issue resumes before anything new, if it is still verifiably ready
             if (-not $pick.why) { break }
             $pick = $null
             if (-not $DryRun) {
