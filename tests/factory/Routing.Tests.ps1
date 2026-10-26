@@ -512,7 +512,7 @@ Describe 'Public text and the route comment' {
     It 'carries a routing record that parses back to the input' {
         $in = New-Input
         $c = Format-RouteComment (Get-Route $in $rules) $in "shadow" "Next."
-        $c | Should Match 'Shadow mode'
+        $c | Should Match "Triage only"
         $json = [regex]::Match($c, '(?s)```json\r?\n(.+?)\r?\n```').Groups[1].Value
         $rec = $json | ConvertFrom-Json
         $rec.route | Should Be "auto-fix"; $rec.input.repro_test | Should Be $in.repro_test; $rec.mode | Should Be "shadow"

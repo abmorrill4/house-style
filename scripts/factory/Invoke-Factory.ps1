@@ -1,7 +1,7 @@
 ﻿<#
-.SYNOPSIS The code factory: takes one open tester report. A new one is triaged into a brief and routed by a fixed
-decision matrix (Get-Route in Triage.psm1). A clear-cut bug is fixed and checked in the same run. A report the owner
-marked decision:fix is fixed too.
+.SYNOPSIS The factory's triage: takes one new tester report, triages it into a brief and routes it by a fixed decision
+matrix (Get-Route in Triage.psm1). It builds no fixes (owner decision 2026-10-26): the owner approves roadmap issues
+and Claude builds them through the work loop. The fix path below no longer runs and is kept until it's removed.
 .DESCRIPTION Runs on the factory VM's runner. FACTORY_MODE is the kill switch: off (also unset or anything unreadable)
 stops before anything else, shadow posts the computed route on the private report and pushes, merges and posts nothing
 public for it, and live acts on the routes.
@@ -391,6 +391,8 @@ if ($wipFull) {
     foreach ($w in @(Get-WipWaiting $all $owner)) { Label $w.number "factory:wip-limit" $null }   # approved fixes wait, labeled for the command center
 }
 $pick = Select-Report $all $owner $Issue (Get-CapLeft $pickRules) $wipFull
+# Triage only (owner decision 2026-10-26): a decision:fix pick builds nothing. Fixes come from approved roadmap issues.
+if ($pick -and $pick.Mode -eq "fix") { $pick = $null }
 if (-not $pick) { Write-Host "Nothing to triage and no fix approved."; exit 0 }
 $r = $pick.Report; $mode = $pick.Mode; $n = $r.number
 $stale = @(Get-StaleLabels $r) + "factory:working"   # what a new route replaces
@@ -499,6 +501,7 @@ try {
         }
         "$(Get-Date -Format o) triage route: $($route | ConvertTo-Json -Depth 5 -Compress)" | Add-Content (Join-Path $logs "report-$n-route.log")
         $triageLabel = Get-TriageLabel $route   # from the route: the pile is triage:noise, the rest triage:ready
+        $route.build = $false   # triage only: a fix route is a proposal for the owner, never a build in this run
 
         # Evidence for every ask an open issue covers, whatever the route, including a fix: the covered ask doesn't wait
         # on the fix. Live mode only, and never for a hold at triage. A retry finds its marker and posts nothing twice.
@@ -526,7 +529,7 @@ try {
             $waiting = Get-WaitingReason $route $routeMode
             $add = @($triageLabel, "route:$($route.route)") + $(if ($waiting) { @("waiting:$waiting") } else { @() })
             if (-not $live) {
-                Say $n (Format-RouteComment $route $in $routeMode "Live mode would go on like this. $($NextSteps[$route.route])")
+                Say $n (Format-RouteComment $route $in $routeMode "You decide this one when you plan the roadmap.")
                 Label $n $add $stale
                 return
             }

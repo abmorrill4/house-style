@@ -804,7 +804,7 @@ $RouteNames = @{ "hold" = "Hold"; "evidence" = "Evidence"; "auto-fix" = "Auto-fi
 function Format-RouteComment($route, $in, [string]$mode, [string]$next) {
     $name = $RouteNames[$route.route]
     $head = "**Route:** $name$(if ($route.regression) { ", as a regression of #$($route.regression)" })."
-    if ($mode -ne "live") { $head += " Shadow mode, so nothing public happened and you still decide this one." }
+    if ($mode -ne "live") { $head += " Triage only, so nothing public happened and you decide this one." }
     $record = [ordered]@{ route = $route.route; row = $route.row; mode = $mode; reasons = @($route.reasons); input = $in }
     $json = $record | ConvertTo-Json -Depth 6 -Compress
     @($head, "", "**Why.** $((@($route.reasons) | ForEach-Object { $_.Substring(0,1).ToUpperInvariant() + $_.Substring(1) }) -join '. ').",

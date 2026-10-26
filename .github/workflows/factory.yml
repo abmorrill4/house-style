@@ -1,7 +1,7 @@
-# The code factory: every 30 minutes, work through the waiting tester reports in the private reports repo, one at a time. A new report is triaged
-# and routed (scripts/factory/README.md). A clear-cut bug, or a report the owner marked decision:fix, is fixed (test,
-# fix, retest in Flare, second-agent review, PR, merge). The FACTORY_MODE variable is the kill switch: off, unset or
-# anything else means no run at all, shadow posts routes on the private report only, live acts on them.
+# The factory: every 30 minutes, triage the new tester reports in the private reports repo, one at a time, and post
+# each brief and proposed route on the private report (scripts/factory/README.md). It builds no fixes: the owner
+# approves roadmap issues and Claude builds them through the work loop (owner decision 2026-10-26). The FACTORY_MODE
+# variable is the kill switch: shadow runs triage, off, unset or anything else means no run at all.
 # Scheduled and manual runs only, on the factory VM's runner. Guards: scripts/factory/README.md.
 name: factory
 on:
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   factory:
     # Fails closed: only shadow or live (any case) starts the job, and the script checks again before anything else.
-    if: github.repository == 'abmorrill4/house-style' && (vars.FACTORY_MODE == 'shadow' || vars.FACTORY_MODE == 'live')
+    if: github.repository == 'abmorrill4/house-style' && vars.FACTORY_MODE == 'shadow'
     runs-on: [self-hosted, windows, flare]
     # A routed bug is triaged, fixed, tested in Flare and reviewed in one run: three agents at most 45 minutes each
     # (limits.agentMinutes in rules/routing.json), the tests, and up to an hour waiting for CI.
@@ -47,7 +47,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE: ${{ inputs.issue }}
           DRY_RUN: ${{ inputs.dry_run }}
-          # off, shadow or live. Unset or anything else is off, and the script stops before it reads or writes anything.
+          # off or shadow. Unset or anything else is off, and the script stops before it reads or writes anything.
           FACTORY_MODE: ${{ vars.FACTORY_MODE }}
         run: |
           git config user.name "House Style factory"

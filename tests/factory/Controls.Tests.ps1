@@ -19,9 +19,9 @@ Describe 'FACTORY_MODE (the kill switch)' {
         Get-FactoryMode " shadow" | Should Be "off"
         Get-FactoryMode "OFF" | Should Be "off"
     }
-    It 'reads shadow and live in any case' {
-        Get-FactoryMode "shadow" | Should Be "shadow"
-        Get-FactoryMode "Live" | Should Be "live"
+    It 'reads shadow in any case, and the retired live mode as off' {
+        Get-FactoryMode "Shadow" | Should Be "shadow"
+        Get-FactoryMode "Live" | Should Be "off"
     }
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $script = Join-Path $root 'scripts\factory\Invoke-Factory.ps1'
@@ -33,14 +33,14 @@ Describe 'FACTORY_MODE (the kill switch)' {
         finally { foreach ($v in $saved.Keys) { [Environment]::SetEnvironmentVariable($v, $saved[$v]) } }
     }
     It 'Invoke-Factory.ps1 stops at once, successfully, when off, unset or unreadable' {
-        foreach ($m in $null, "off", "garbage") {
+        foreach ($m in $null, "off", "garbage", "live") {
             $r = Invoke-WithMode $m
             $r.code | Should Be 0
             $r.out | Should Match 'FACTORY_MODE is off or unset'
         }
     }
-    It 'Invoke-Factory.ps1 goes past the switch in shadow and live (here it then stops for want of a sign-in)' {
-        foreach ($m in "shadow", "live") {
+    It 'Invoke-Factory.ps1 goes past the switch in shadow (here it then stops for want of a sign-in)' {
+        foreach ($m in "shadow") {
             $r = Invoke-WithMode $m
             $r.out | Should Not Match 'FACTORY_MODE is off'
             $r.out | Should Match 'No CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY'
@@ -51,35 +51,20 @@ Describe 'FACTORY_MODE (the kill switch)' {
         $switch | Should BeGreaterThan 0
         foreach ($first in 'Gh issue', 'gh.exe label', 'Invoke-AgentProcess $claude', 'Get-LedgerIssue', 'New-Item') { $factoryScript.IndexOf($first) | Should BeGreaterThan $switch }
     }
-    It 'factory.yml starts the job only in shadow or live and passes FACTORY_MODE' {
+    It 'factory.yml starts the job only in shadow and passes FACTORY_MODE' {
         $y = Get-Content (Join-Path $root '.github\workflows\factory.yml') -Raw
-        $y | Should Match "if: github\.repository == 'abmorrill4/house-style' && \(vars\.FACTORY_MODE == 'shadow' \|\| vars\.FACTORY_MODE == 'live'\)"
+        $y | Should Match "if: github\.repository == 'abmorrill4/house-style' && vars\.FACTORY_MODE == 'shadow'"
         $y | Should Match 'FACTORY_MODE: \$\{\{ vars\.FACTORY_MODE \}\}'
     }
-    It 'nightly.yml tags nothing when off: the check exits before any tag or build' {
-        $y = Get-Content (Join-Path $root '.github\workflows\nightly.yml') -Raw
-        $y | Should Match 'FACTORY_MODE: \$\{\{ vars\.FACTORY_MODE \}\}'
-        $guard = $y.IndexOf('if [ "$mode" != "shadow" ] && [ "$mode" != "live" ]; then echo "FACTORY_MODE is off or unset, so nothing is tagged."; exit 0; fi')
-        $guard | Should BeGreaterThan 0
-        $y.IndexOf('gh api "repos/$REPO/git/refs"') | Should BeGreaterThan $guard
-        $y.IndexOf('gh workflow run build.yml') | Should BeGreaterThan $guard
+    It 'nightly.yml releases whatever FACTORY_MODE says (owner decision 2026-10-26)' {
+        Get-Content (Join-Path $root '.github\workflows\nightly.yml') -Raw | Should Not Match 'vars\.FACTORY_MODE'
     }
-    $bash = $null
-    $git = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-    if ($git) { $bash = @((Join-Path (Split-Path (Split-Path $git)) 'bin\bash.exe'), (Join-Path (Split-Path (Split-Path $git)) 'usr\bin\bash.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1 }
-    It "nightly.yml's check, run in bash, stops for off, unset and unreadable values only" {
-        if (-not $bash) { return }   # no Git Bash on this machine; the text test above still holds
-        $y = Get-Content (Join-Path $root '.github\workflows\nightly.yml')
-        $lines = @($y | Where-Object { $_ -match '^\s*mode=\$\(printf' -or $_ -match '^\s*if \[ "\$mode" != "shadow" \]' } | ForEach-Object { $_.Trim() })
-        $lines.Count | Should Be 2
-        $sh = Join-Path $TestDrive "guard.sh"
-        [IO.File]::WriteAllText($sh, ($lines -join "`n") + "`necho GOES-ON`n")
-        foreach ($c in @(@{ m = ""; on = $false }, @{ m = "off"; on = $false }, @{ m = "nope"; on = $false }, @{ m = "shadow"; on = $true }, @{ m = "LIVE"; on = $true })) {
-            $env:FACTORY_MODE = $c.m
-            try { $o = (& $bash $sh) -join " " } finally { Remove-Item Env:FACTORY_MODE -ErrorAction SilentlyContinue }
-            ($o -match 'GOES-ON') | Should Be $c.on
-            if (-not $c.on) { $o | Should Match 'nothing is tagged' }
-        }
+    It 'the factory only triages: a decision:fix pick and a fix route build nothing' {
+        $f = Get-Content $script -Raw
+        $f | Should Match 'if \(\$pick -and \$pick\.Mode -eq "fix"\) \{ \$pick = \$null \}'
+        $build = $f.IndexOf('$route.build = $false')
+        $build | Should BeGreaterThan 0
+        $f.IndexOf('if ($route.build -and $wipFull)') | Should BeGreaterThan $build
     }
     It 'nothing reads the old FACTORY_ROUTE_MODE any more' {
         foreach ($f in 'scripts\factory\Invoke-Factory.ps1', '.github\workflows\factory.yml', 'scripts\factory\README.md', '.claude\skills\triage\SKILL.md') {
