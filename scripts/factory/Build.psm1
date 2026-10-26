@@ -164,8 +164,10 @@ function Get-ChunkAttempt([string]$model, [int]$tries) {
 function New-AgentArgs([string]$model, [string]$tools, [int]$maxTurns) {
     if (@("haiku", "sonnet") -notcontains $model) { throw "The factory runs only haiku or sonnet, not '$model'." }
     $builtIn = (@($tools -split ',' | ForEach-Object { ($_ -replace '\(.*$', '').Trim() } | Where-Object { $_ }) | Select-Object -Unique) -join ","
-    @("-p", "--output-format", "json", "--model", $model, "--restricted", "--tools", $builtIn, "--strict-mcp-config",
-      "--permission-mode", "acceptEdits", "--allowedTools", $tools, "--disallowedTools", ($DisallowedTools + "," + $ReadDenied), "--max-turns", "$maxTurns")
+    # No tools at all (the planner works from its card) is --tools "" with no allow list.
+    @("-p", "--output-format", "json", "--model", $model, "--restricted", "--tools", $builtIn, "--strict-mcp-config", "--permission-mode", "acceptEdits") +
+      $(if ($tools) { @("--allowedTools", $tools) } else { @() }) +
+      @("--disallowedTools", ($DisallowedTools + "," + $ReadDenied), "--max-turns", "$maxTurns")
 }
 # A second layer under --restricted's confinement: no reading the planning notes, the main checkout, any .env or the
 # Claude sign-in and settings.

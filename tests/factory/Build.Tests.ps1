@@ -104,7 +104,7 @@ Describe 'Budget' {
     function Iss($size, $cost, $outcome = "merged") { [pscustomobject]@{ kind = "issue"; size = $size; cost_usd = $cost; outcome = $outcome } }
     It 'starts cold' {
         Get-IssueBudget @() "fix" $b | Should Be 1.5
-        Get-IssueBudget @(Iss "feature" 1; Iss "feature" 2) "feature" $b | Should Be 5
+        Get-IssueBudget @(Iss "feature" 1; Iss "feature" 2) "feature" $b | Should Be 8
     }
     It 'adjusts from the last merged issues of the same size' {
         $l = @(1..10 | ForEach-Object { Iss "fix" $_ }) + @(Iss "fix" 100 "budget") + @(Iss "feature" 50)
@@ -120,12 +120,12 @@ Describe 'Plans and paths' {
     $lim = $rules.limits
     function Plan($chunks) { [pscustomobject]@{ chunks = $chunks } }
     function Ch($files, $model = "haiku") { [pscustomobject]@{ goal = "g"; files = $files; model = $model } }
-    It 'accepts 1 to 8 chunks of up to 5 repo files on haiku or sonnet' {
+    It 'accepts 1 to 12 chunks of up to 5 repo files on haiku or sonnet' {
         Get-PlanProblem (Plan @(Ch @("src/A.cs"))) $lim | Should BeNullOrEmpty
-        Get-PlanProblem (Plan @(1..8 | ForEach-Object { Ch @("src/A.cs") "sonnet" })) $lim | Should BeNullOrEmpty
+        Get-PlanProblem (Plan @(1..12 | ForEach-Object { Ch @("src/A.cs") "sonnet" })) $lim | Should BeNullOrEmpty
     }
     It 'refuses too many chunks, too many files, other models and paths outside the repo' {
-        Get-PlanProblem (Plan @(1..9 | ForEach-Object { Ch @("src/A.cs") })) $lim | Should Be "too-big"
+        Get-PlanProblem (Plan @(1..13 | ForEach-Object { Ch @("src/A.cs") })) $lim | Should Be "too-big"
         Get-PlanProblem (Plan @()) $lim | Should Match 'no chunks'
         Get-PlanProblem (Plan @(Ch @(1..6 | ForEach-Object { "src/$_.cs" }))) $lim | Should Match '6 files'
         Get-PlanProblem (Plan @(Ch @("src/A.cs") "opus")) $lim | Should Match 'opus'
@@ -171,6 +171,12 @@ Describe 'Agents' {
         $deny = $a[[array]::IndexOf($a, "--disallowedTools") + 1]
         foreach ($r in 'Read(~/.claude/**)', 'Read(**/.env)', 'Read(//E:/HouseStyle/planning/**)', 'Read(//E:/HouseStyle/repos/house-style/**)', 'Bash(gh:*)') { $deny.Contains($r) | Should Be $true }
     }
+    It 'runs the planner with no tools at all' {
+        $a = New-AgentArgs "sonnet" "" 3
+        $a[[array]::IndexOf($a, "--tools") + 1] | Should Be ""
+        $a -contains "--allowedTools" | Should Be $false
+        $buildScript | Should Match '"hs-plan" "sonnet" \$card "" "plan"'
+    }
     It 'passes only a literal haiku or sonnet from the script' {
         $models = [regex]::Matches($buildScript, 'Invoke-(?:BuildAgent|AgentTwice)\s+\$s\s+"[^"]+"\s+"[^"]+"\s+("[^"]+"|\$\S+)') | ForEach-Object { $_.Groups[1].Value }
         $models.Count | Should BeGreaterThan 5
@@ -188,6 +194,10 @@ Describe 'Agents' {
     It 'takes the answer after anything the agent quoted' {
         $t = "The diff says:`n``````json`n{""findings"":[]}`n```````nMy review:`n``````json`n{""findings"":[{""severity"":""blocking""}]}`n``````"
         @(Get-BlockingFindings (ConvertFrom-AgentJson $t)).Count | Should Be 1
+    }
+    It 'reads the whole board, page by page' {
+        $buildScript | Should Match 'items\(first:100,after:\$c\)\{pageInfo\{hasNextPage endCursor\}'
+        $buildScript | Should Match 'while \(\$page\.pageInfo\.hasNextPage\)'
     }
     It 'commits with message files, publishes no binaries, and checks a title-and-body hash' {
         $buildScript | Should Not Match 'commit -q -m'
@@ -223,7 +233,7 @@ Describe 'Review, checks and comments' {
         Format-StuckComment "build" 2 "anything an agent wrote" | Should Match '`build-failed`'
     }
     It 'keeps the limits the spec names in rules/factory.json' {
-        $rules.limits.chunksPerIssue | Should Be 8
+        $rules.limits.chunksPerIssue | Should Be 12
         $rules.limits.cardTokens | Should Be 80000
         $rules.budget.ceilingUsd | Should Be 15
         @($rules.requiredChecks) -join "," | Should Be "build,feedback-worker,e2e"
