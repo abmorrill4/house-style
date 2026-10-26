@@ -28,6 +28,8 @@ $expected = [ordered]@{
     'hs-fix-opus'           = 'opus/medium'
     'hs-notes'              = 'haiku/low'
     'hs-rules'              = 'sonnet/medium'
+    'hs-plan'               = 'sonnet/medium'
+    'hs-build'              = 'haiku/high'
 }
 # Same job on a higher tier: the body must be the same, so the two never drift.
 $tierPairs = @{
@@ -38,7 +40,7 @@ $allowedTools = @('Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash')
 # Agents with Bash, and the guard's allow list each gets: worker commits and runs every agent script, tester runs
 # tests, reviewer only reads. Every other agent has no Bash at all.
 $bashRoles = @{
-    'hs-repro' = 'worker'; 'hs-repro-opus' = 'worker'; 'hs-fix' = 'worker'; 'hs-fix-opus' = 'worker'; 'hs-rules' = 'worker'
+    'hs-repro' = 'worker'; 'hs-repro-opus' = 'worker'; 'hs-fix' = 'worker'; 'hs-fix-opus' = 'worker'; 'hs-rules' = 'worker'; 'hs-build' = 'worker'
     'hs-review-correctness' = 'tester'; 'hs-skeptic' = 'tester'; 'hs-skeptic-opus' = 'tester'
     'hs-review-adversarial' = 'reviewer'; 'hs-review-consistency' = 'reviewer'; 'hs-review-security' = 'reviewer'
 }

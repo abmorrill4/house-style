@@ -57,6 +57,13 @@ intent and research done, spec in progress". Never just "mid-design".
    ships everything merged that day. Feedback that comes back starts a
    new loop at Intent.
 
+## Who runs which stages
+The roadmap chat (with the owner, on Opus) runs Intent, Research, Spec and Spec review, gets any copy deck approved, then
+puts the issue in Now and adds the `ready` label. The build factory (`scripts/factory/Invoke-Build.ps1`, Haiku and
+Sonnet) runs Build, Verify, Build review and Ship for every ready issue in Now, and labels it `factory:done`, or
+`factory:stuck` with a reason code when it hands it back. A `too-big` issue gets split in the roadmap chat. An issue
+that touches owner-only code is built in a chat with the owner.
+
 ## Where things live
 
 - **Artifacts** go in `planning/work/<issue>-<slug>/`: `intent.md`, `research.md`, `spec.md`, `reviews.md`. The

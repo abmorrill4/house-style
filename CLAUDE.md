@@ -96,11 +96,14 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   - Commit messages are a short summary line plus a body listing what changed and why.
 - **Issues** use labels `bug`, `enhancement`, `trust`, `pilot`, `security`, `ready-for-release`, at least one `area:*`
   label, plus one origin label: `from:tester`, `from:owner` or `from:research`.
+  The factory's labels are `ready`, `factory:working`, `factory:done` and `factory:stuck`.
 - **The roadmap** is the project board at https://github.com/users/abmorrill4/projects/2. There are no phases,
   milestones or themes. Every open issue has its own `When` (Now, Next, Later) on the board, and its `area:*` label
   puts it in a product area (`rules/areas.json` maps labels to areas). The `work-loop` skill has the details.
-- **Claude builds only roadmap issues the owner approved** (owner decision 2026-10-26). The factory triages tester
-  reports and builds nothing. The Flare VM runs tests only.
+- **The build factory builds the ready issues in Now** (owner decision 2026-10-26). An issue is ready when it's in Now
+  with the `ready` label, which only the owner or the roadmap chat adds. The factory runs on the owner's PC, uses
+  Haiku and Sonnet only, and labels issues `factory:working`, `factory:done`, or `factory:stuck` when it hands one back
+  (`scripts/factory/README.md`). Report triage on the VM builds nothing. The Flare VM runs tests only.
 - **Every piece of work goes through the work loop** (`.claude/skills/work-loop`): intent, research, spec with a
   verification plan, spec review, build, verify, build review, ship. The reviews run the `work-loop-review` workflow.
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the

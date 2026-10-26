@@ -63,6 +63,42 @@ tests\e2e\Get-E2EHistory.ps1 -Runs 50         # how each scenario has done latel
   instead.
 - PowerShell Direct has no desktop. Anything that drives Flare runs in a task with an interactive logon for `factory`.
 
+## Building ready issues (`Invoke-Build.ps1`)
+
+The build factory runs on the owner's PC, not the VM. It builds every issue that's in **Now** on the board and labeled
+`ready`, one at a time, until none is left (`planning/work/factory-build/spec.md`). The VM only runs the Flare tests,
+through CI on each push.
+
+```powershell
+scripts\factory\Invoke-Build.ps1 -Install              # once: the scheduled task (every 30 minutes), labels, E:\HouseStyle\factory
+scripts\factory\Invoke-Build.ps1 -DryRun -Issue 123    # pick, verify and plan one issue; builds and publishes nothing
+scripts\factory\Get-FactoryStats.ps1 -Last 20          # cost, minutes, model shares, retries, what went back to the owner
+gh variable set FACTORY_BUILD -R abmorrill4/house-style --body on   # off (or anything else) stops it at the next step
+```
+
+- **Ready** means you opened the issue, you added `ready` last, and only you edited the body. The spec is the one
+  `planning\work\<issue>-*\spec.md`. With no folder the issue is a Fix, and its body names the test (`Test: <name>`).
+- **The steps:**
+  1. Sonnet plans 1 to 8 chunks.
+  2. Each chunk is built on its model (usually Haiku), and gets one Sonnet retry.
+  3. The script runs the chunk's narrowest test.
+  4. Haiku writes the note.
+  5. Publish checks, then one push and a PR.
+  6. Sonnet reviews in one round while CI runs.
+  7. CI must be green on the head commit (`build`, `feedback-worker`, `e2e`).
+  8. At most one fix round, whose fix gets its own review.
+  9. Merge with `--match-head-commit`.
+- **Never Opus.** Agents run `claude -p --restricted` with no MCP servers, no settings and no secrets, from a copy
+  of main's agent files.
+- **Back to the owner:** `factory:stuck` with a reason code. The detail is in `E:\HouseStyle\planning\factory\<issue>\`.
+  - Plans or diffs touching the owner-only paths (`$OwnerOnly` in `Triage.psm1`) always come back.
+  - So does anything over its budget (`rules/factory.json`).
+- **Pauses:** a usage limit writes `E:\HouseStyle\factory\paused-until`. A Flare check that never starts pauses the
+  run without spending a try. Either way, the next run resumes the claimed issue from its state file.
+- **The ledger:** `E:\HouseStyle\planning\factory\ledger.jsonl`, one line per agent call and one per finished issue.
+- **The token:** push, PR, labels and merge use a fine-grained token for this repository only, saved with
+  `Get-Credential | Export-Clixml E:\HouseStyle\factory\token.xml` (the password field holds the token).
+
 ## The factory (`Invoke-Factory.ps1`)
 
 It takes one open report per run: triage, then a route, then a fix when the route calls for one.
