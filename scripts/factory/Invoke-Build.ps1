@@ -104,6 +104,7 @@ function Invoke-BuildAgent($s, [string]$stage, [string]$agent, [string]$model, [
     $reset = Get-UsageLimitReset $raw
     $parsed = if ($stop -or $reset) { $null } else { ConvertFrom-AgentJson (Get-AgentResultText $raw) }
     $result = if ($reset) { "usage-limit" } elseif ($stop) { "cap" } elseif ($parsed) { "ok" } else { "unparsed" }
+    $script:lastResult = $result
     Write-LedgerLine (New-BuildLedgerEntry $s.issue $stage $model $proc $out $result)
     if ($reset) { Set-Pause $pauseFile $reset; Suspend-Run "usage limit until $($reset.ToString('o'))" }
     $parsed
@@ -112,7 +113,8 @@ function Invoke-BuildAgent($s, [string]$stage, [string]$agent, [string]$model, [
 # The same call once more when the output didn't parse; that retry is the call's second try.
 function Invoke-AgentTwice($s, $stage, $agent, $model, $card, $tools, $turnsKey) {
     $r = Invoke-BuildAgent $s $stage $agent $model $card $tools $turnsKey
-    if (-not $r) { $r = Invoke-BuildAgent $s "$stage-again" $agent $model $card $tools $turnsKey }
+    # Only output that didn't parse is retried. A call that hit its turn or time cap would hit it again.
+    if (-not $r -and $script:lastResult -eq "unparsed") { $r = Invoke-BuildAgent $s "$stage-again" $agent $model $card $tools $turnsKey }
     $r
 }
 
@@ -122,8 +124,14 @@ function Add-Note($s, [string]$text) { Add-Content (Join-Path $notesDir "$($s.is
 # ---- ready issues ---------------------------------------------------------------------------------------------------
 function Get-NowIssues {
     # No double quotes inside the query: Windows PowerShell drops them on the way to gh. The field name is a variable.
-    $q = 'query($o:String!,$n:Int!,$f:String!){user(login:$o){projectV2(number:$n){items(first:100){nodes{content{... on Issue{number state}} fieldValueByName(name:$f){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}'
-    $items = (Gh api graphql -f query=$q -F o=$($rules.project.owner) -F n=$($rules.project.number) -f f=$($rules.project.field) | ConvertFrom-Json).data.user.projectV2.items.nodes
+    # The board holds more than 100 items, so it's read page by page, in board order.
+    $q = 'query($o:String!,$n:Int!,$f:String!,$c:String){user(login:$o){projectV2(number:$n){items(first:100,after:$c){pageInfo{hasNextPage endCursor} nodes{content{... on Issue{number state}} fieldValueByName(name:$f){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}'
+    $items = @(); $cursor = $null
+    do {
+        $more = if ($cursor) { @("-f", "c=$cursor") } else { @() }
+        $page = (Gh api graphql -f query=$q -F o=$($rules.project.owner) -F n=$($rules.project.number) -f f=$($rules.project.field) @more | ConvertFrom-Json).data.user.projectV2.items
+        $items += @($page.nodes); $cursor = $page.pageInfo.endCursor
+    } while ($page.pageInfo.hasNextPage)
     @($items | Where-Object { $_.fieldValueByName.name -eq $rules.project.value -and $_.content.state -eq "OPEN" } | ForEach-Object { [int]$_.content.number })
 }
 function Get-IssueFacts([int]$n) {
@@ -242,8 +250,12 @@ function Invoke-Issue([int]$n, $facts, $state) {
     # Plan
     if (-not $s.plan) {
         $card = "Issue #$n, $($s.title). Size: $($s.size).`n" + $(if ($s.spec) { "The spec: $($s.spec) (copied below).`n`n" + (Get-Content $s.spec -Raw) } else { "The issue body is the intent. The reproducing test: $($s.fixTest)`n`n" + $facts.body })
-        $specCopy = Join-Path $factoryDir "scratch\$n\spec.md"; New-Item -ItemType Directory -Force (Split-Path $specCopy) | Out-Null
-        $plan = Invoke-AgentTwice $s "plan" "hs-plan" "sonnet" $card "Read,Grep,Glob" "plan"
+        # Haiku reads the code; Sonnet plans from its map. Exploring with Sonnet costs many turns, each re-reading a
+        # growing context (#234's first plan: 31 turns, $1.63, no plan).
+        $map = Invoke-AgentTwice $s "map" "hs-scout" "haiku" ("Map the code this work touches, for a planner who will split it into build chunks. For each place to change or follow: path:line and what's there (types, method signatures, the pattern to copy, the tests that cover it). Read only what the work needs. You have $([int]$limits.maxTurns.map) turns: stop reading by turn $([int]$limits.maxTurns.map - 10) and answer, even if the map is incomplete.`n`nReturn JSON: {""answer"": ""<at most 80 lines, each path:line and a few words>""}`n`n" + $card) "Read,Grep,Glob" "map"
+        if ($map -and $map.answer) { $card += "`n`n## Code map (from a scout; check a line before you rely on it)`n" + $map.answer }
+        $card += "`n`n## Answer now`nYou have no tools in this run, so don't try to read or search. Write the plan JSON from the spec and the map above, as your whole answer."
+        $plan = Invoke-AgentTwice $s "plan" "hs-plan" "sonnet" $card "" "plan"   # no tools: it plans from the spec and the map
         if (-not $plan) { Stop-Issue "build-failed" }
         $problem = Get-PlanProblem $plan $limits
         if ($problem -eq "too-big") { Stop-Issue "too-big" }
@@ -419,7 +431,7 @@ try {
                 Pub issue edit $pick.n -R $repo --add-label "factory:stuck" --remove-label "factory:working" | Out-Null
                 Pub issue comment $pick.n -R $repo --body-file (New-BodyFile (Format-StuckComment "build" $(if ($s) { @(Read-Ledger | Where-Object { $_.kind -eq 'call' -and $_.issue -eq $pick.n }).Count } else { 0 }) $code)) | Out-Null
             }
-            Write-IssueSummary $s $code
+            if (-not $DryRun) { Write-IssueSummary $s $code }   # a dry run's stop isn't an outcome the budget should learn from
             Write-Host "#$($pick.n) went back to the owner: $code"
             if ($DryRun -or $Issue) { break }
         }

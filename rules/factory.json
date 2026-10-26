@@ -5,18 +5,18 @@
   "readyLabel": "ready",
   "requiredChecks": ["build", "feedback-worker", "e2e"],
   "limits": {
-    "chunksPerIssue": 8,
+    "chunksPerIssue": 12,
     "filesPerChunk": 5,
     "cardTokens": 80000,
     "agentMinutes": 20,
     "ciWaitMinutes": 60,
     "branchUpdates": 2,
     "unreleasedMerges": 3,
-    "maxTurns": { "build": 60, "fix": 60, "plan": 30, "review": 30, "notes": 15, "scout": 15 }
+    "maxTurns": { "build": 60, "fix": 60, "map": 50, "plan": 3, "review": 30, "notes": 15, "scout": 15 }
   },
   "budget": {
     "ceilingUsd": 15,
-    "coldStartUsd": { "fix": 1.5, "feature": 5 },
+    "coldStartUsd": { "fix": 1.5, "feature": 8 },
     "coldStartIssues": 5,
     "window": 10,
     "percentile": 75,
