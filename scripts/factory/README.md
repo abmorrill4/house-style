@@ -84,6 +84,8 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 
 ### The routing matrix
 
+The last column is what the retired live mode did. Today every route is only a proposal for the owner.
+
 | # | Route | When | Live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
@@ -150,21 +152,18 @@ all run by the script with thresholds from `rules/routing.json` (read from main 
 
 ### The kill switch: `FACTORY_MODE`
 
-One repository variable, read by `factory.yml` (triage and fix) and `nightly.yml`:
+**The factory only triages (owner decision 2026-10-26).** It posts a brief and a proposed route on each new private
+report and builds no fixes, not even for `decision:fix`. The owner reviews the reports while planning the roadmap,
+approves issues, and Claude builds those through the work loop. The fix path in `Invoke-Factory.ps1` no longer runs.
 
-- **`off`**, unset, or anything it can't read: the factory fails closed. `factory.yml` doesn't start the job, and
-  `Invoke-Factory.ps1` checks again and stops before it reads or writes anything. `nightly.yml` tags nothing, so
-  nothing is released either.
-- **`shadow`**: the factory triages, routes and, for a fix route, builds, tests and reviews the fix on the VM as in
-  live mode, but only posts the route on the private report. It pushes, merges and posts nothing public for a route,
-  and the owner still decides every report the old way (`waiting:decide`). A fix the owner approved with
-  `decision:fix` ships as before in shadow and live.
-- **`live`**: routes act.
+One repository variable, read by `factory.yml` and `Invoke-Factory.ps1`:
 
-Manual runs need shadow or live too, dry runs included: a `factory` or `nightly` run with `dry_run` stops at the
-switch like any other while the mode is off. Turning the factory on is setting it to shadow: `gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`.
-To go live, `--body live`; to stop everything, `--body off`. Only the owner changes it. Reports routed in shadow mode
-keep their labels when it goes live; a `**Retry triage**` routes one again.
+- **`off`**, unset, or anything it can't read, `live` included: `factory.yml` doesn't start the job, and
+  `Invoke-Factory.ps1` checks again and stops before it reads or writes anything.
+- **`shadow`**: the factory triages and routes, and posts only on the private report.
+
+It doesn't touch releases. To stop those, `gh workflow disable nightly`. Turning triage on is
+`gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`, and `--body off` stops it.
 
 ### Run controls
 

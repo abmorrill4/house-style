@@ -15,9 +15,9 @@ for another. What's left for the
 owner carries one `waiting:*` label saying what kind of input is wanted. This skill brings those items, adds the
 private context the VM can't see, recommends, records the call and logs it.
 
-**Shadow mode** (the default until the owner switches it): the factory posts the route it would take but acts on
-nothing public, so the owner still decides every report as before. Each decision then also says whether the route was
-right. That's the shadow check before live mode.
+**Triage only** (owner decision 2026-10-26): the factory posts the route it proposes but acts on nothing public and
+builds no fix, so the owner decides every report while planning the roadmap. Each decision also says whether the
+route was right.
 
 ## Never read report text into this session to triage it
 
@@ -80,7 +80,7 @@ Change the recommendation if this context changes it, and say so.
 Plain words, no issue numbers without their titles. Security first, then merge, decide, stuck. For each:
 - **What happened** and what the tester was trying to do.
 - **Kind**, and whether it reproduced.
-- **The route** and why, from the route comment. In shadow mode, say what live mode would have done. For a split
+- **The route** and why, from the route comment. For a split
   report, say which asks already went where (evidence on which issue, the planned issue, a draft PR) and which ask
   the owner is deciding, such as the one the judges split on.
 - **Impact on writers.**
@@ -158,11 +158,10 @@ replay cases passing. Show it as one **rule change** item: the change, the log l
 Every change, widening or narrowing, is the owner's call. An accepted change updates `rules/routing.json` and
 `tests/factory/routing-cases.json` through the work loop, in a PR. Nothing changes a rule on its own.
 
-## 7. Live mode
+## 7. Live mode (retired)
 
-The owner switches the factory from shadow to live once the shadow routes look right in the command center:
-`gh variable set FACTORY_MODE -R abmorrill4/house-style --body live` (and `--body shadow` to go back, `--body off` to
-stop the factory and the nightly release). Only do this when the owner asks.
+There's no live mode (owner decision 2026-10-26). The factory only triages. The owner approves roadmap issues, and
+Claude builds them through the work loop. `FACTORY_MODE=live` reads as off.
 
 ## 8. After
 

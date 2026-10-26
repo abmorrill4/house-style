@@ -3,8 +3,9 @@
 # weekly scorecard. Kept out of Invoke-Factory.ps1 so tests/factory can test them without a VM.
 
 # ==== Kill switch =====================================================================================================
-# FACTORY_MODE is off, shadow or live (any case). Unset, empty, or anything else is off, so the factory fails closed.
-$FactoryModes = "off", "shadow", "live"
+# FACTORY_MODE is off or shadow (any case). Unset, empty, or anything else is off, so the factory fails closed.
+# Live mode is retired (owner decision 2026-10-26): the factory only triages, and "live" reads as off.
+$FactoryModes = "off", "shadow"
 function Get-FactoryMode($value) {
     $v = if ($null -eq $value) { "" } else { ("" + $value).ToLowerInvariant() }
     if ($FactoryModes -contains $v) { $v } else { "off" }
