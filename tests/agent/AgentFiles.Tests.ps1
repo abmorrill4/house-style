@@ -30,17 +30,24 @@ $expected = [ordered]@{
     'hs-rules'              = 'sonnet/medium'
     'hs-plan'               = 'sonnet/medium'
     'hs-build'              = 'haiku/high'
+    'hs-workplan'           = 'sonnet/medium'
+    'hs-workplan-opus'      = 'opus/medium'
+    'hs-order'              = 'haiku/medium'
+    'hs-order-sonnet'       = 'sonnet/medium'
+    'hs-integrate'          = 'sonnet/medium'
 }
 # Same job on a higher tier: the body must be the same, so the two never drift.
 $tierPairs = @{
     'hs-intake-sonnet' = 'hs-intake'; 'hs-match-sonnet' = 'hs-match'; 'hs-scout-sonnet' = 'hs-scout'
     'hs-repro-opus' = 'hs-repro'; 'hs-spec-opus' = 'hs-spec'; 'hs-skeptic-opus' = 'hs-skeptic'; 'hs-fix-opus' = 'hs-fix'
+    'hs-workplan-opus' = 'hs-workplan'; 'hs-order-sonnet' = 'hs-order'
 }
 $allowedTools = @('Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash')
 # Agents with Bash, and the guard's allow list each gets: worker commits and runs every agent script, tester runs
 # tests, reviewer only reads. Every other agent has no Bash at all.
 $bashRoles = @{
     'hs-repro' = 'worker'; 'hs-repro-opus' = 'worker'; 'hs-fix' = 'worker'; 'hs-fix-opus' = 'worker'; 'hs-rules' = 'worker'; 'hs-build' = 'worker'
+    'hs-order' = 'worker'; 'hs-order-sonnet' = 'worker'; 'hs-integrate' = 'worker'
     'hs-review-correctness' = 'tester'; 'hs-skeptic' = 'tester'; 'hs-skeptic-opus' = 'tester'
     'hs-review-adversarial' = 'reviewer'; 'hs-review-consistency' = 'reviewer'; 'hs-review-security' = 'reviewer'
 }
