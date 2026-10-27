@@ -951,6 +951,34 @@ namespace FlareAI.Flare.UI
             return shown;
         }
 
+        /// <summary>
+        /// Brings the pane's window forward and puts the keyboard focus in the issues list, selecting the first row when
+        /// none is. False when the focus didn't arrive (a modal dialog is open, say).
+        /// </summary>
+        internal bool E2EFocusList()
+        {
+            var form = FindForm();
+            if (form != null && form.CanFocus) form.Activate();
+            if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
+            _list.Focus();
+            return _list.Focused || _list.ContainsFocus;
+        }
+
+        /// <summary>
+        /// Clicks the first available, enabled item of the pane's open drop-down menu (Ignore's reasons, or the row menu)
+        /// whose text, without "&amp;" or "…", starts with <paramref name="prefix"/>.
+        /// </summary>
+        internal void E2EMenuPick(string prefix)
+        {
+            var menu = _rejectMenu.Visible ? _rejectMenu : _list.ContextMenuStrip != null && _list.ContextMenuStrip.Visible ? _list.ContextMenuStrip : null;
+            if (menu == null) throw new InvalidOperationException("No open menu");
+            var hit = menu.Items.Cast<ToolStripItem>().FirstOrDefault(m => !(m is ToolStripSeparator) && m.Available && m.Enabled &&
+                                                                         m.Text.Replace("&", "").TrimEnd('…').StartsWith(prefix ?? "", StringComparison.Ordinal));
+            if (hit == null) throw new InvalidOperationException("No menu item " + prefix);
+            menu.Close();
+            hit.PerformClick();
+        }
+
         public const string ReportFalsePositiveLabel = "Report False Positive…";
 
         /// <summary>

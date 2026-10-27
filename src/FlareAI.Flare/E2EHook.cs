@@ -8,6 +8,9 @@ using FlareAI.Flare.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+// The pane tests call the hook's internal helpers (E2EFocusList, E2EMenuPick, TakeSavePath) as the hook does.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("FlareAI.Flare.Tests")]
+
 namespace FlareAI.Flare
 {
     /// <summary>
@@ -25,13 +28,20 @@ namespace FlareAI.Flare
         private readonly Func<string, Action> _command;
         private readonly Func<string, bool> _open;
         private readonly Func<Form> _main;
+        private readonly Func<FlareDocumentAdapter> _active;
         private readonly Timer _timer = new Timer { Interval = 250 };
         private int _next = 1;
         private DateTime _beat;
 
-        private E2EHook(string dir, Func<string, Action> command, Func<string, bool> open, Func<Form> main)
+        /// <summary>Document text in the state is cut to this many characters (the selection, the caret's block).</summary>
+        private const int TextLimit = 200;
+
+        /// <summary>The path the next Save dialog writes to instead of showing (the saveAs verb); one-shot.</summary>
+        private static string _savePath;
+
+        private E2EHook(string dir, Func<string, Action> command, Func<string, bool> open, Func<Form> main, Func<FlareDocumentAdapter> active)
         {
-            _dir = dir; _command = command; _open = open; _main = main;
+            _dir = dir; _command = command; _open = open; _main = main; _active = active;
             _timer.Tick += (s, e) => { Safe.Run("E2E", Poll); Beat(); };
         }
 
@@ -64,12 +74,13 @@ namespace FlareAI.Flare
         }
 
         /// <summary>Starts the hook when the runner asked for it; call on Flare's UI thread.</summary>
-        public static void StartIfRequested(Func<string, Action> command, Func<string, bool> open, Func<Form> main)
+        /// <param name="active">The adapter for Flare's active topic, null when none is open.</param>
+        public static void StartIfRequested(Func<string, Action> command, Func<string, bool> open, Func<Form> main, Func<FlareDocumentAdapter> active)
         {
             var dir = Environment.GetEnvironmentVariable(EnvVar);
             if (string.IsNullOrEmpty(dir)) return;
             Directory.CreateDirectory(dir);
-            new E2EHook(dir, command, open, main)._timer.Start();
+            new E2EHook(dir, command, open, main, active)._timer.Start();
             var build = (System.Reflection.AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(typeof(E2EHook).Assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
             File.WriteAllText(Path.Combine(dir, "ready.json"), JsonConvert.SerializeObject(new { version = build == null ? Plugin.Version : build.InformationalVersion }));
             Diagnostics.Log("E2E hook on: " + dir);
@@ -116,8 +127,111 @@ namespace FlareAI.Flare
                     if (c.Value<string>("text") != null) SelectRow(Dialog((string)c["title"]), (string)c["text"]); else Select(Dialog((string)c["title"]), (int)c["index"]);
                     return null;
                 case "dialogType": Type(Dialog((string)c["title"]), (string)c["name"], arg); return null;   // a text box or list by its accessible name
+                case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
+                // The scenario sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
+                case "paneFocus": return new { focused = Pane().E2EFocusList() };
+                case "paneType": Type(Pane(), (string)c["name"], arg); return null;
+                case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
+                case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
+                case "replace": Replace(Active(), arg, (string)c["text"]); return null;
+                case "select": Select(Active(), arg); return null;
+                case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
+                case "saveAs": SetSavePath(arg); return null;
                 default: throw new ArgumentException("Unknown verb " + verb);
             }
+        }
+
+        private FlareDocumentAdapter Active()
+        {
+            var a = _active == null ? null : _active();
+            if (a == null || a.Document == null) throw new InvalidOperationException("No topic is open.");
+            return a;
+        }
+
+        /// <summary>The first editable text run in the topic's body that contains <paramref name="text"/>, and where.</summary>
+        private static System.Xml.XmlText Find(FlareDocumentAdapter a, string text, out int at)
+        {
+            at = -1;
+            var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
+            if (string.IsNullOrEmpty(text) || body == null) throw new InvalidOperationException("No text " + text);
+            foreach (var run in FlareAI.Core.Style.TextRuns.Of(new List<System.Xml.XmlNode> { body }))
+            {
+                at = run.Value.IndexOf(text, StringComparison.Ordinal);
+                if (at >= 0) return run;
+            }
+            throw new InvalidOperationException("No text " + text);
+        }
+
+        /// <summary>One tracked, undoable change, as typing makes: Flare raises ContentChanged and the pane reacts on the next pause.</summary>
+        private static void Replace(FlareDocumentAdapter a, string text, string with)
+        {
+            int at;
+            var run = Find(a, text, out at);
+            var done = false;
+            a.Edit("E2E edit", () => done = a.ReplaceSpan(run, at, text.Length, with ?? ""));
+            if (!done) throw new InvalidOperationException("Flare didn't replace " + text);
+        }
+
+        private static void Select(FlareDocumentAdapter a, string text)
+        {
+            int at;
+            var run = Find(a, text, out at);
+            if (!a.SelectText(run, at, text.Length)) throw new InvalidOperationException("Flare didn't select " + text);
+        }
+
+        /// <summary>Sets the path the next Save dialog writes to (see <see cref="TakeSavePath"/>). Only a full path inside the run folder.</summary>
+        internal static void SetSavePath(string path)
+        {
+            var dir = Environment.GetEnvironmentVariable(EnvVar);
+            string full = null;
+            try { if (!string.IsNullOrEmpty(path) && Path.IsPathRooted(path)) full = Path.GetFullPath(path); }
+            catch (Exception) { full = null; }
+            if (string.IsNullOrEmpty(dir) || full == null || !FlareAI.Core.Settings.PluginSettings.IsUnder(full, dir) ||
+                string.Equals(full.TrimEnd('\\'), Path.GetFullPath(dir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Save path must be inside the run folder");
+            _savePath = full;
+        }
+
+        /// <summary>
+        /// For pane code that shows a Save dialog: the path a scenario set with saveAs, which the caller writes to instead of
+        /// showing the dialog. Null (show the dialog) when the hook is off or no path was set. Clears it, so it's one-shot.
+        /// </summary>
+        internal static string TakeSavePath()
+        {
+            var p = _savePath;
+            _savePath = null;
+            return string.IsNullOrEmpty(Environment.GetEnvironmentVariable(EnvVar)) ? null : p;
+        }
+
+        /// <summary>Selects the dialog's tab whose text is <paramref name="text"/>.</summary>
+        private static void Tab(Control root, string text)
+        {
+            foreach (var tabs in All(root).OfType<TabControl>().Where(t => t.Visible))
+            {
+                var page = tabs.TabPages.Cast<TabPage>().FirstOrDefault(p => p.Text.Replace("&", "") == text);
+                if (page != null) { tabs.SelectedTab = page; return; }
+            }
+            throw new InvalidOperationException("No tab " + text);
+        }
+
+        /// <summary>
+        /// Floating: sizes the pane's window. Docked: sizes the topmost control below Flare's main form that holds the pane,
+        /// and fails when Flare's dock keeps its own size. Returns the panel's size afterwards.
+        /// </summary>
+        private static object SizePane(FindingsPanel pane, int width, int height)
+        {
+            var form = pane.FindForm();
+            if (form != null && form.Controls.Contains(pane)) form.ClientSize = new System.Drawing.Size(width, height);   // the floating window
+            else
+            {
+                Control top = pane;
+                while (top.Parent != null && !(top.Parent is Form)) top = top.Parent;
+                var before = pane.ClientSize;
+                top.Size = new System.Drawing.Size(width + top.Width - pane.Width, height + top.Height - pane.Height);
+                top.PerformLayout();
+                if (pane.ClientSize == before) throw new InvalidOperationException("Flare didn't resize the docked pane.");
+            }
+            return new { width = pane.ClientSize.Width, height = pane.ClientSize.Height };
         }
 
         private static FindingsPanel Pane()
@@ -195,7 +309,8 @@ namespace FlareAI.Flare
             var pane = PanelHost.Current;
             return new
             {
-                pane = pane == null ? null : new { panel = pane.E2EState(), buttons = Buttons(pane) },
+                pane = pane == null ? null : new { panel = pane.E2EState(), buttons = Buttons(pane), size = new { width = pane.ClientSize.Width, height = pane.ClientSize.Height } },
+                editor = Editor(),
                 dialogs = Application.OpenForms.Cast<Form>().Where(IsOurs).Select(f => new
                 {
                     title = f.Text,
@@ -220,9 +335,28 @@ namespace FlareAI.Flare
             return c == null ? null : !string.IsNullOrEmpty(c.AccessibleName) ? c.AccessibleName : c.Text.Replace("&", "").TrimEnd('…');
         }
 
+        /// <summary>The active topic's path and the start of its selection; null when no topic is open. Never the topic text.</summary>
+        private object Editor()
+        {
+            try
+            {
+                var a = _active == null ? null : _active();
+                if (a == null) return null;
+                var selection = a.SelectionText ?? "";
+                return new { path = a.SourcePath, selection = selection.Length > TextLimit ? selection.Substring(0, TextLimit) : selection };
+            }
+            catch (Exception ex) { Diagnostics.Log("E2E editor state", ex); return null; }
+        }
+
         private static List<object> Buttons(Control root)
         {
-            return All(root).OfType<ButtonBase>().Where(b => b.Visible).Select(b => (object)new { text = Label(b), enabled = b.Enabled }).ToList();
+            return All(root).OfType<ButtonBase>().Where(b => b.Visible).Select(b =>
+            {
+                var box = b as CheckBox;
+                var radio = b as RadioButton;
+                if (box != null || radio != null) return (object)new { text = Label(b), enabled = b.Enabled, @checked = box != null ? box.Checked : radio.Checked };
+                return new { text = Label(b), enabled = b.Enabled };
+            }).ToList();
         }
     }
 }
