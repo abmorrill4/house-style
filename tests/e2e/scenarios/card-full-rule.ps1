@@ -1,9 +1,23 @@
 # The issue card shows the whole rule (#247): Lint Topic, select each issue in turn, and every card shows all of its
-# why text, with no scroll box of its own. Fails if no issue has a rule longer than the old 160 px box, so it can't pass
-# without a long rule. The pane is as Flare docks it (there is no pane-size verb yet).
+# why text, with no scroll box of its own. A team guide adds one rule with a long reason and an example that fires in
+# faq.htm, and the check fails if no issue has a rule longer than the old 160 px box, so it can't pass without a long
+# rule. The pane is as Flare docks it (there is no pane-size verb yet).
 param($Fixture)
 Add-Type -AssemblyName System.Drawing
-$run = Start-FlareE2E -Fixture $Fixture -Force
+$guide = Join-Path (Get-E2ERoot) ("guide-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+$topic = Join-Path $guide "Content\Resources\StyleGuide\Words.htm"
+New-Item -ItemType Directory -Force (Split-Path $topic) | Out-Null
+Set-Content (Join-Path $guide "Team.flprj") "<CatapultProject />"
+Set-Content $topic -Encoding UTF8 @"
+<?xml version="1.0" encoding="utf-8"?>
+<html><body><h1>Our words</h1>
+<table>
+<tr><th>Avoid</th><th>Use</th><th>Severity</th><th>Why</th><th>Example</th></tr>
+<tr id="rule-1"><td>account owner</td><td>account holder</td><td>warning</td><td>Say account holder, the term our agreements, statements and the mobile app use for the person who opened the account. Account owner reads as a legal title that some members don't have, for example a joint holder, a custodian for a minor or someone with power of attorney. Use the same term in every topic, snippet and screen so members and support agents know they mean the same person, and check the glossary before you add a new term for a role.</td><td>Only the account owner can add a payee.</td></tr>
+</table>
+</body></html>
+"@
+$run = Start-FlareE2E -Fixture $Fixture -Force -Settings @{ StyleLayers = $guide }
 Send-E2E open (Join-Path $run.Project "Content\billpay\faq.htm") | Out-Null
 Invoke-Ribbon "Lint Topic"
 $p = (Wait-PaneDone 300).pane.panel
@@ -34,3 +48,4 @@ Assert-E2E (-not $card.whyClipped) "the longest why text ($($card.whyContentHeig
 if ($card.ruleLine) { Assert-E2E ($card.why.Contains($card.ruleLine)) "the card shows the whole rule: '$($card.ruleLine)'" }
 Write-Host "   longest why (row $at): $($card.whyContentHeight) px, box $($card.whyHeight) px, card $($card.cardHeight) px, pane $($card.paneWidth)x$($card.paneHeight), card scrolls: $($card.cardScrolls)"
 Save-E2EScreenshot "card-full-rule"
+Remove-Item $guide -Recurse -Force -ErrorAction SilentlyContinue
