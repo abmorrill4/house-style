@@ -346,8 +346,14 @@ namespace FlareAI.Flare
         {
             var text = rulesOnly ? Commands.LintTopic.Tooltip + " " + Commands.RulesOnlyNote : Commands.LintTopic.Tooltip;
             var element = _lintTopicControl as System.Windows.FrameworkElement;
+            // The split button comes back as Flare's own wrapper (PluginRibbonMenu), not the WPF control. Its private
+            // mMenuButton field holds the control (a RibbonMenuButton), found by type so a renamed field still works.
+            if (element == null && _lintTopicControl != null)
+                foreach (var field in _lintTopicControl.GetType().GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public))
+                    if (typeof(System.Windows.FrameworkElement).IsAssignableFrom(field.FieldType)) { element = field.GetValue(_lintTopicControl) as System.Windows.FrameworkElement; if (element != null) break; }
             if (element == null) { Diagnostics.Log("lint choice tooltip: no control"); return; }
-            try { element.ToolTip = text; } catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
+            try { element.ToolTip = text; Diagnostics.Log("lint choice tooltip set on " + element.GetType().Name + ": " + (rulesOnly ? "Rules Only" : "default")); }
+            catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
 
         private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
