@@ -41,13 +41,45 @@ It closes any running Flare. Don't run it while you have unsaved work in Flare.
 ## A scenario
 
 A `scenarios\*.ps1` file takes `-Fixture` and throws on failure. Use the module's functions: `Start-FlareE2E`,
-`Send-E2E <verb>` (`open`, `click`, `rowMenu`, `command`, `dialogClick`, `dialogSelect`, `state`), `Invoke-Ribbon`,
-`Wait-PaneDone`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them, and start one through the company AI service with
+`Send-E2E <verb>` (`open`, `click`, `rowMenu`, `command`, `dialogClick`, `dialogSelect`, `state`, and the verbs below),
+`Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them, and start one through the company AI service with
 `Start-FlareE2E -Bifrost`. CI runs them on `main`, nightly, by hand, and on a build factory `factory/*` branch whose
 change touches the AI (`aiPaths` in `rules/factory.json`), gating the merge. A factory branch's AI scenarios all go
 through the owner's Bifrost gateway (aigw.praeviderant.com), with the Flare VM's own key.
 Other branch pushes skip them, because their
 results vary from run to run. `Get-E2EHistory.ps1` shows how each scenario has done over recent runs.
+
+### More verbs, state fields and helpers
+
+A verb that fails answers `ok = false` with the message shown, so `Send-E2E` throws it. Verbs named `dialog*` answer at
+once. The rest run on Flare's UI thread and answer when they return.
+
+- **`paneFocus`** brings the pane's window forward and puts the focus in the issues list, selecting the first row when
+  none is. It returns `focused`, false while a modal dialog is open. Then send keys yourself with SendKeys, so they go
+  through Flare's dock as a writer's do.
+  `Assert-E2E ((Send-E2E paneFocus).value.focused) "list focused"; [System.Windows.Forms.SendKeys]::SendWait("^{ENTER}")`
+- **`paneType`** (`name`, `arg`) picks `arg` in a pane combo box or types it in a pane text box, by accessible name.
+  Fails "No box named {name}". `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
+- **`paneMenu`** (`arg`) clicks the item that starts with `arg` in the pane's open menu (Ignore's reasons or the row
+  menu). Fails "No open menu" or "No menu item {arg}". `SendWait("{DELETE}"); Send-E2E paneMenu "It's correct"`
+- **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one and fails "Flare didn't resize
+  the docked pane." `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
+- **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
+  as typing does. **`select`** (`arg`) selects the first match. Both fail "No text {arg}" or "No topic is open."
+  `Send-E2E replace "log in" -Extra @{ text = "sign in" }; Send-E2E select "sign in"`
+- **`save`** saves the active topic as Ctrl+S does (check-on-save treats it as the writer's save). Returns `saved`.
+- **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
+  instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
+  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
+- **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}".
+  `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
+- **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no
+  topic is open. `pane.size` is `{ width, height }`. A dialog's or the pane's `buttons` give check boxes and option
+  buttons a `checked` value. `(Get-E2EState).editor.selection`
+- **`Invoke-RibbonMenu -Button <label> -Item <label>`** opens a ribbon split button's menu and clicks the item.
+  `Invoke-Ribbon` clicks a split button's main part. `Invoke-RibbonMenu -Button "Help" -Item "What's New"`
+- **`Get-E2ESetting <Name>`** returns one field of the run's `settings.json`. It refuses `ProtectedApiKey`.
+  `Get-E2ESetting LiveCheck`
 
 ## This machine's setup (once)
 
