@@ -159,7 +159,7 @@ namespace FlareAI.Core.Tests
             // Every PluginSettings property is either sent (renamed) or deliberately left out: a new one is a decision.
             var reviewed = new[] { "Provider", "AiOff", "BaseUrl", "Model", "MaxTokens", "TimeoutSeconds", "ProtectedApiKey", "WriteDiagnostics", "StyleLayers",
                                    "UseProjectLayer", "LlmExportAfterBuild", "ShowMarkers", "LiveCheck", "CheckOnSave", "ReportBeforeBuild", "FastModel", "DeepModel",
-                                   "Parallelism", "ProjectViewByFile", "PaneWidthTipDismissed", "AutoUpdate", "Role", "FeedbackFolder", "ClientId", "FeedbackUrl",
+                                   "Parallelism", "ProjectViewByFile", "PaneWidthTipDismissed", "LintChecks", "AutoUpdate", "Role", "FeedbackFolder", "ClientId", "FeedbackUrl",
                                    "SendErrorReportsAutomatically", "ReportEmail", "EffectiveFeedbackUrl", "HasStoredKey" };
             var props = typeof(PluginSettings).GetProperties().Where(p => p.DeclaringType == typeof(PluginSettings) && !p.GetGetMethod().IsStatic).Select(p => p.Name).ToList();
             Assert.Empty(props.Except(reviewed));
