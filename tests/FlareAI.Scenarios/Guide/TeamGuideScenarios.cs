@@ -51,7 +51,10 @@ namespace FlareAI.Scenarios.Guide
             i.Engine = new StyleEngine(() => i.Settings.GuideRoots(pluginDir), i.Bundled)
             {
                 Fallback = () => new PluginSettings { StyleLayers = "" }.GuideRoots(pluginDir),
-                PersonalGuide = PluginSettings.UserGuidePath
+                PersonalGuide = PluginSettings.UserGuidePath,
+                // The copy of the team guide (#246), refreshed here as it is read rather than on the thread pool.
+                CopyOf = GuideCopy.ForWriter.Find,
+                GuideRead = g => GuideCopy.ForWriter.Refresh(g)
             };
             return i;
         }
@@ -173,6 +176,86 @@ namespace FlareAI.Scenarios.Guide
             }
         }
 
+        // ---- #246: an offline team guide lints with its last copy ------------------------------------------------
+
+        /// <summary>A rule only the team's guide has (not in the starter rules), so it fires only from the team guide or its copy.</summary>
+        private static void AddTeamWord(Install i)
+        {
+            File.WriteAllText(Path.Combine(i.TeamGuide, @"Content\Resources\StyleGuide\Company\Team-words.htm"),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Team words</title></head><body><h1>Team words</h1>" +
+                "<table><tr><th>Avoid</th><th>Use</th><th>Example</th></tr><tr><td>frobnicate</td><td>adjust</td><td>We frobnicate the limit.</td></tr></table></body></html>");
+        }
+
+        private static bool IsTeamWord(StyleFinding f) { return f.Layer == "company" && f.Replacement == "adjust"; }
+
+        private const string Frobnicate = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Help</title></head><body><h1>Help</h1><p>We frobnicate this page. We utilize it.</p></body></html>";
+
+        [Fact]
+        public void ATeamGuideThatGoesOffline_LintsWithTheLastCopy_AndSaysItsDate()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                AddTeamWord(i);
+                ws.WriteFile(Topic, Frobnicate);
+                var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(i.Engine, ws.PathOf(Topic)), 16000, i.Engine, ws.PathOf(Topic));
+                Assert.Contains(runner.LintFiles(new[] { ws.PathOf(Topic) }), IsTeamWord);
+                var copy = GuideCopy.ForWriter.Find(i.TeamGuide);
+                Assert.NotNull(copy);
+
+                var away = i.TeamGuide + "-offline";
+                Directory.Move(i.TeamGuide, away);
+                var found = runner.LintFiles(new[] { ws.PathOf(Topic) });
+                var team = found.Where(f => f.Layer == "company").ToList();
+                Assert.Contains(team, IsTeamWord);   // the team-only rule still fires
+                Assert.All(team, f => Assert.Equal("Our rules", runner.SourceName(f)));
+                Assert.DoesNotContain(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
+                Assert.DoesNotContain(found, f => f.RuleId == ThisPage);   // the shipped defaults still apply
+                Assert.Equal(string.Format(StyleEngine.CopyNotice, i.TeamGuide, StyleEngine.CopyDate(copy.CopiedUtc, DateTime.Now)), runner.GuideNotice);
+                Assert.False(Directory.Exists(i.TeamGuide));   // linting never recreates the folder
+
+                // Back online: the real guide, no notice.
+                Directory.Move(away, i.TeamGuide);
+                runner.LintFiles(new[] { ws.PathOf(Topic) });
+                Assert.Null(runner.GuideNotice);
+            }
+        }
+
+        [Fact]
+        public void NoCopyYet_FallsBackAsBefore()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                AddTeamWord(i);
+                Directory.Move(i.TeamGuide, i.TeamGuide + "-offline");
+                ActionRunner runner;
+                ws.WriteFile(Topic, Frobnicate);
+                runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(i.Engine, ws.PathOf(Topic)), 16000, i.Engine, ws.PathOf(Topic));
+                var found = runner.LintFiles(new[] { ws.PathOf(Topic) });
+                Assert.StartsWith(StyleEngine.UnreadableNotice, runner.GuideNotice);
+                Assert.DoesNotContain(found, IsTeamWord);
+                Assert.Contains(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
+            }
+        }
+
+        [Fact]
+        public void PermissionDenied_DoesNotUseTheCopy()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                Assert.True(GuideCopy.ForWriter.Refresh(i.TeamGuide));
+                ws.MakeUnreadable(i.TeamGuide);
+                ws.WriteFile(Topic, Frobnicate);
+                var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(i.Engine, ws.PathOf(Topic)), 16000, i.Engine, ws.PathOf(Topic));
+                var found = runner.LintFiles(new[] { ws.PathOf(Topic) });
+                Assert.StartsWith(StyleEngine.UnreadableNotice, runner.GuideNotice);
+                Assert.Contains("permission", runner.GuideNotice);
+                Assert.Contains(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
+                ws.ClearReadOnly();
+            }
+        }
         private static void CopyTree(string from, string to, string skipRel)
         {
             foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))

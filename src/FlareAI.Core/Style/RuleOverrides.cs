@@ -142,6 +142,7 @@ namespace FlareAI.Core.Style
         public static string TurnBackOn(RuleOverride o, Team team)
         {
             if (o == null) return null;
+            if (!o.IsDefault) GuideCopy.RefuseWrite(o.File);   // a row read from a saved copy of a team guide (#246)
             if (team != null) team.EnsureOwner();
             if (o.IsDefault)
             {
@@ -155,6 +156,7 @@ namespace FlareAI.Core.Style
 
         private static void RemoveFromIni(string path, string ruleId, bool aiName)
         {
+            GuideCopy.RefuseWrite(path);
             var lines = System.IO.File.ReadAllLines(path, Encoding.UTF8).ToList();
             var kept = new List<string>();
             foreach (var raw in lines)

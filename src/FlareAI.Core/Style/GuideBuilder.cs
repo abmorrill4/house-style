@@ -232,6 +232,7 @@ namespace FlareAI.Core.Style
         public static string AddToGuide(FlareAI.Core.Actions.Team team, IList<RuleCandidate> accepted, out int added)
         {
             if (team == null) throw new ArgumentNullException("team");
+            GuideOverrides.RefuseUnreachable(team);
             var root = team.WritableGuide();
             var folder = Directory.GetFiles(root, "*.flprj").Length > 0 ? Path.Combine(root, @"Content\Resources\StyleGuide") : root;
             var topic = Path.Combine(folder, ContentTopic);
@@ -245,6 +246,7 @@ namespace FlareAI.Core.Style
         /// </summary>
         public static int Write(string topicPath, IList<RuleCandidate> accepted, string title)
         {
+            GuideCopy.RefuseWrite(topicPath);
             var doc = new XmlDocument { PreserveWhitespace = false };
             if (File.Exists(topicPath)) doc.Load(topicPath);
             else doc.LoadXml("<?xml version=\"1.0\" encoding=\"utf-8\"?><html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>" +

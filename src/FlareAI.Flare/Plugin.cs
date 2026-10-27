@@ -817,12 +817,18 @@ namespace FlareAI.Flare
             if (_style == null || _styleKey != key)
             {
                 var pluginDir = PluginDirectory;
-                // A team guide that can't be read: check with the bundled guide plus the writer's own changes, and say so.
+                // A team guide that can't be reached: check with its last saved copy (#246); with no copy, with the bundled
+                // guide plus the writer's own changes. Either way, say so. Copies refresh in the background after a lint.
+                var copies = GuideCopy.ForWriter;
                 _style = new StyleEngine(() => settings.GuideRoots(pluginDir), PluginSettings.BundledGuide(pluginDir))
                 {
                     Fallback = () => new PluginSettings { StyleLayers = "" }.GuideRoots(pluginDir),
-                    PersonalGuide = PluginSettings.UserGuidePath
+                    PersonalGuide = PluginSettings.UserGuidePath,
+                    CopyOf = copies.Find,
+                    GuideRead = copies.RefreshInBackground
                 };
+                var configured = settings.GuideRoots(pluginDir);
+                System.Threading.ThreadPool.QueueUserWorkItem(_ => copies.Prune(configured));
                 _styleKey = key;
             }
             return _style;

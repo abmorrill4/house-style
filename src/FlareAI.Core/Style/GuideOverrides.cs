@@ -23,12 +23,20 @@ namespace FlareAI.Core.Style
         public static string Set(Team team, string ruleId, string setting, string reason)
         {
             if (team == null) throw new ArgumentNullException("team");
-            // A team folder that isn't there (offline, renamed): writing would leave a near-empty guide in its place. The
-            // writer's own guide is different: it is created on first use.
-            if (!team.IsPersonal && !string.IsNullOrEmpty(team.GuideRoot) && !Directory.Exists(team.GuideRoot))
-                throw GuideWriteException.Unreachable(team.GuideRoot);
+            RefuseUnreachable(team);
             team.EnsureOwner();
             return Set(team.WritableGuide(), ruleId, setting, reason, team.Writer, DateTime.Now);
+        }
+
+        /// <summary>
+        /// Throws <see cref="GuideWriteException.Unreachable"/> when the team's folder isn't there (offline, renamed): writing
+        /// would leave a near-empty guide in its place. The writer's own guide is different: it is created on first use.
+        /// Every write into a team guide calls it first.
+        /// </summary>
+        internal static void RefuseUnreachable(Team team)
+        {
+            if (team != null && !team.IsPersonal && !string.IsNullOrEmpty(team.GuideRoot) && !Directory.Exists(team.GuideRoot))
+                throw GuideWriteException.Unreachable(team.GuideRoot);
         }
 
         /// <summary>Sets <paramref name="ruleId"/> to off / suggestion / warning / error for the whole team. Returns the topic written.</summary>
@@ -36,6 +44,7 @@ namespace FlareAI.Core.Style
         public static string Set(string guideRoot, string ruleId, string setting, string reason, string by = null, DateTime? when = null)
         {
             if (string.IsNullOrEmpty(ruleId)) throw new ArgumentException("This issue isn't tied to a rule, so there is nothing to change.");
+            GuideCopy.RefuseWrite(guideRoot);
             var folder = StyleFolder(guideRoot);
             var date = by == null ? null : (when ?? DateTime.Now).ToString("yyyy-MM-dd");
             // The first topic with a Rule/Setting table (the starter's "Changes to the Google guide"), else a new one.
@@ -75,6 +84,7 @@ namespace FlareAI.Core.Style
         private static void CreateTopic(string path, bool personal)
         {
             var title = personal ? "My changes to the style guide" : "Changes to the Google guide";
+            GuideCopy.RefuseWrite(path);
             var intro = personal
                 ? "Rows in this table turn rules off, change their level, or turn a default back on (Setting: on), for you only. They apply after the guide bundled with House Style, so its updates still reach you."
                 : "Rows in this table turn rules off, or change their level, for the whole team.";

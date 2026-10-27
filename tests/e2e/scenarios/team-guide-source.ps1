@@ -50,7 +50,11 @@ Assert-E2E ($null -ne $copied -and $copied.source -like "Our rules*") "a rule th
 Assert-E2E (@($p.rows | Where-Object { $_.source -like "Starter rules*" }).Count -eq 0) "no issue says Starter rules with a team guide (rows: $(Sources $p))"
 Assert-E2E ($p.status -notmatch "couldn't be read") "no guide notice while the folder is there (status: $($p.status))"
 
-# 2. The folder goes missing (offline, renamed): the pane says so, and the starter rules stand in.
+# 2. The folder goes missing (offline, renamed) and House Style has no copy of it yet (#246 covers the copy in
+# team-guide-offline.ps1): the pane says so, and the starter rules stand in. The copy saved after step 1 is removed first.
+$copies = Join-Path $run.AppData "team-guide-copies"
+Wait-Until { @(Get-ChildItem $copies -Recurse -Filter "house-style-copy.record" -File -ErrorAction SilentlyContinue).Count -gt 0 } 60 "the saved copy of the team guide" | Out-Null
+Remove-Item $copies -Recurse -Force
 $away = "$guide-offline"
 Rename-Item $guide (Split-Path $away -Leaf)
 try {

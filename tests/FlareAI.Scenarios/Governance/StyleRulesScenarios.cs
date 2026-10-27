@@ -194,6 +194,121 @@ namespace FlareAI.Scenarios.Governance
             }
         }
 
+        // ---- #246: rules read from the saved copy of a team guide that can't be reached ------------------------------
+
+        /// <summary>The Style rules view with the team's folder offline: the engine uses the saved copy, as the plugin's does.</summary>
+        private static RuleCatalog OfflineCatalog(Fixture fx, Team team)
+        {
+            var style = new StyleEngine(new[] { fx.Guide }, Repo.StyleGuide) { Fallback = () => new[] { Repo.StyleGuide }, CopyOf = GuideCopy.ForWriter.Find };
+            return RuleCatalog.Build(style.Compose(fx.TopicPath), null, GuideRequests.Load(team), r => GuideRequests.IsMine(team, r));
+        }
+
+        private static Dictionary<string, string> CopyBytes(string folder)
+        {
+            return Directory.GetFiles(folder, "*", SearchOption.AllDirectories).ToDictionary(f => f, f => Convert.ToBase64String(File.ReadAllBytes(f)));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TurnBackOnWhileOffline_IsRefused_AndTheCopyIsUnchanged(bool owners)
+        {
+            using (var fx = new Fixture())
+            {
+                if (!owners) File.Delete(Path.Combine(fx.Guide, @"FlareAI\owners.txt"));
+                var owner = fx.As(Lead);
+                var key = fx.Target.Key;
+                Assert.False(RuleChanges.Change(owner, fx.Catalog(owner).Find(key), Choice(true, "off", "Not for our members."), null, fx.TopicPath).Requested);
+                Assert.True(GuideCopy.ForWriter.Refresh(fx.Guide));
+                var copy = GuideCopy.ForWriter.Find(fx.Guide).Path;
+                var away = fx.Guide + "-offline";
+                Directory.Move(fx.Guide, away);
+                try
+                {
+                    var rule = OfflineCatalog(fx, owner).Find(key);
+                    Assert.Equal(RuleState.Off, rule.State);   // the team's row, read from the copy
+                    Assert.True(RuleChanges.IsFromCopy(rule));
+                    var before = CopyBytes(copy);
+
+                    var ex = Assert.Throws<InvalidOperationException>(() => RuleChanges.Restore(owner, rule, "We need it back."));
+                    Assert.Equal(RuleChanges.CopyRefusal, ex.Message);
+                    // The write itself refuses too, whoever calls it.
+                    Assert.Throws<InvalidOperationException>(() => RuleOverrides.TurnBackOn(rule.Change, owner));
+                    Assert.Throws<InvalidOperationException>(() => RuleOverrides.TurnBackOn(rule.Change, null));
+
+                    Assert.Equal(before, CopyBytes(copy));
+                    Assert.False(Directory.Exists(fx.Guide));
+                    Assert.Empty(fx.RequestFiles());
+                }
+                finally { Directory.Move(away, fx.Guide); }
+                Assert.Equal(RuleState.Off, fx.Catalog(owner).Find(key).State);
+            }
+        }
+
+        [Fact]
+        public void ChangeOrRequestWhileOffline_IsRefused()
+        {
+            using (var fx = new Fixture())
+            {
+                var owner = fx.As(Lead);
+                var writer = fx.As(Pat);
+                Assert.True(GuideCopy.ForWriter.Refresh(fx.Guide));
+                var copy = GuideCopy.ForWriter.Find(fx.Guide).Path;
+                var away = fx.Guide + "-offline";
+                Directory.Move(fx.Guide, away);
+                try
+                {
+                    var before = CopyBytes(copy);
+                    foreach (var team in new[] { owner, writer })
+                    {
+                        var rule = OfflineCatalog(fx, team).Rules.First(r => r.Origin != "google" && r.IsTable && r.State == RuleState.On && GuideCopy.IsCopy(r.File));
+                        foreach (var setting in new[] { "off", "error" })
+                        {
+                            var ex = Assert.Throws<InvalidOperationException>(() => RuleChanges.Change(team, rule, Choice(true, setting, "Not for our members."), null, fx.TopicPath));
+                            Assert.Equal(RuleChanges.CopyRefusal, ex.Message);
+                        }
+                        // A rule on the same words that comes from the copy refuses the whole change too.
+                        var google = OfflineCatalog(fx, team).Find(fx.Target.Key);
+                        Assert.Throws<InvalidOperationException>(() => RuleChanges.Change(team, google, Choice(true, "off", "Not for our members.", others: true), new[] { rule }, fx.TopicPath));
+                    }
+                    Assert.Empty(fx.RequestFiles());
+                    Assert.Equal(before, CopyBytes(copy));
+                    Assert.False(Directory.Exists(fx.Guide));
+
+                    // A project exception is the project's, not the guide's: the writer still asks for one, and the request never
+                    // names the copy.
+                    var asked = OfflineCatalog(fx, writer).Rules.First(r => r.Origin != "google" && r.IsTable && r.State == RuleState.On && GuideCopy.IsCopy(r.File));
+                    var result = RuleChanges.Change(writer, asked, Choice(false, "off", "Not in this project."), null, fx.TopicPath);
+                    if (result.Requested)
+                    {
+                        Assert.Null(result.Request.RuleFile);
+                        foreach (var f in fx.RequestFiles()) Assert.DoesNotContain(GuideCopy.FolderName, File.ReadAllText(f));
+                    }
+                    Assert.Equal(before, CopyBytes(copy));
+                }
+                finally { Directory.Move(away, fx.Guide); }
+            }
+        }
+
+        [Fact]
+        public void ApprovingANewRuleWhileTheTeamFolderIsMissing_WritesNothing_AndDoesNotRecreateTheFolder()
+        {
+            using (var fx = new Fixture())
+            {
+                var owner = fx.As(Lead);
+                var away = fx.Guide + "-offline";
+                Directory.Move(fx.Guide, away);
+                var r = new GuideRequest { Id = "r-offline-1", Kind = RequestKinds.AddRule, Reason = "We say adjust." };
+                var d = new RequestDecision { Id = r.Id, Candidate = new RuleCandidate { Kind = "row", Avoid = "frobnicate", Use = "adjust", Title = "Frobnicate" } };
+                var ex = Assert.Throws<GuideWriteException>(() => GuideRequests.ApplyToGuide(owner, r, d));
+                Assert.StartsWith(GuideWriteException.UnreachableMessage, ex.Message);
+                Assert.False(Directory.Exists(fx.Guide));
+                int added;
+                Assert.Throws<GuideWriteException>(() => GuideBuilder.AddToGuide(owner, new[] { d.Candidate }, out added));
+                Assert.False(Directory.Exists(fx.Guide));
+                Directory.Move(away, fx.Guide);
+            }
+        }
         [Fact]
         public void Owner_TurnsOffARule_WithTheRulesOnTheSameWords_AndNoneOfThemFlagsThoseWords()
         {

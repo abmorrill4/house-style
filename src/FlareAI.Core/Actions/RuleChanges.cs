@@ -33,6 +33,21 @@ namespace FlareAI.Core.Actions
     /// </summary>
     public static class RuleChanges
     {
+        /// <summary>Why a team change to a rule read from the saved copy of an unreachable team guide is refused (#246).</summary>
+        public const string CopyRefusal = "You can't change this rule while your team's style guide can't be reached. Try again when the folder is back.";
+
+        /// <summary>
+        /// True when the rule, or the team change in effect for it, was read from the saved copy of a team guide that can't be
+        /// reached: changing it would write into the copy, or send the owners a request about it. A project's own exception
+        /// doesn't count.
+        /// </summary>
+        public static bool IsFromCopy(CatalogRule rule)
+        {
+            if (rule == null) return false;
+            if (GuideCopy.IsCopy(rule.File)) return true;
+            return rule.Change != null && !rule.ChangeIsProject && GuideCopy.IsCopy(rule.Change.File);
+        }
+
         /// <summary>True when this writer's changes to the style guide go to the owners. Probes write access first.</summary>
         public static bool NeedsRequest(Team team)
         {
@@ -94,6 +109,9 @@ namespace FlareAI.Core.Actions
             if (choice == null) throw new ArgumentNullException("choice");
             var project = ProjectRules.OverridesPath(projectPath);
             if (!choice.ForTeam && project == null) throw new InvalidOperationException("Open a topic in the project first. A project exception is written into that project.");
+            // Before any write or request: a team change to a rule read from a saved copy (#246).
+            if (choice.ForTeam && (IsFromCopy(rule) || (choice.AlsoOthers && others != null && others.Any(IsFromCopy))))
+                throw new InvalidOperationException(CopyRefusal);
             var result = new RuleChangeResult();
             if (NeedsRequest(team))
             {
@@ -147,6 +165,7 @@ namespace FlareAI.Core.Actions
             if (rule == null) throw new ArgumentNullException("rule");
             var o = rule.Change;
             if (o == null) throw new InvalidOperationException("Nothing changed this rule, so there is nothing to undo.");
+            if (!rule.ChangeIsProject && IsFromCopy(rule)) throw new InvalidOperationException(CopyRefusal);   // #246, before any write or request
             var result = new RuleChangeResult();
             if (!rule.ChangeIsProject && NeedsRequest(team))
             {

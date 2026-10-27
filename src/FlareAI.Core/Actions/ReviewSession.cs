@@ -988,8 +988,14 @@ namespace FlareAI.Core.Actions
         public static string RuleFile(GuideRule rule)
         {
             if (rule == null) return null;
+            // A rule read from the saved copy of a team guide that can't be reached has no topic to open or to send (#246).
+            if (GuideCopy.IsCopy(rule.Source)) return null;
             if (!string.IsNullOrEmpty(rule.Source) && System.IO.File.Exists(rule.Source)) return rule.Source;
-            try { return !string.IsNullOrEmpty(rule.Link) && rule.Link.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? new Uri(rule.Link).LocalPath : null; }
+            try
+            {
+                var file = !string.IsNullOrEmpty(rule.Link) && rule.Link.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? new Uri(rule.Link).LocalPath : null;
+                return GuideCopy.IsCopy(file) ? null : file;
+            }
             catch (UriFormatException) { return null; }
         }
 
