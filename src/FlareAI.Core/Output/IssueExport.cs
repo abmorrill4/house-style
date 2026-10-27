@@ -1,7 +1,9 @@
 using System;
 using System.Globalization;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace FlareAI.Core.Output
 {
@@ -50,6 +52,42 @@ namespace FlareAI.Core.Output
             return name.Length == 0
                 ? "House Style issues - " + date + ".csv"
                 : "House Style issues - " + name + " - " + date + ".csv";
+        }
+
+        /// <summary>The CSV text for the rows, with a header line. Every line ends with CRLF. Does no IO.</summary>
+        public static string ToCsv(IEnumerable<Row> rows)
+        {
+            var sb = new StringBuilder();
+            sb.Append(string.Join(",", Columns.Select(Cell))).Append("\r\n");
+            if (rows == null) return sb.ToString();
+            foreach (var r in rows)
+            {
+                sb.Append(Cell(r.Topic)).Append(',')
+                  .Append(Cell(r.Level)).Append(',')
+                  .Append(Cell(r.Issue)).Append(',')
+                  .Append(Cell(r.Rule)).Append(',')
+                  .Append(Cell(r.Source)).Append(',')
+                  .Append(Cell(r.Text)).Append(',')
+                  .Append(Cell(r.SuggestedText)).Append(',')
+                  .Append(Cell(r.Status)).Append(',')
+                  .Append(LinkField(r.Path)).Append("\r\n");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>One CSV cell. A leading = + - @ tab or CR gets a quote mark so Excel reads it as text, then CSV quoting applies.</summary>
+        internal static string Cell(string s)
+        {
+            s = s ?? "";
+            if (s.Length > 0 && "=+-@\t\r".IndexOf(s[0]) >= 0) s = "'" + s;
+            if (s.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0) s = "\"" + s.Replace("\"", "\"\"") + "\"";
+            return s;
+        }
+
+        /// <summary>The Link field. Empty until order 3 adds the formula.</summary>
+        private static string LinkField(string path)
+        {
+            return "";
         }
 
         /// <summary>The status line after a save. The count is grouped the way the writer's culture groups digits.</summary>

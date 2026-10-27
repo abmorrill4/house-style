@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using FlareAI.Core.Output;
 using Xunit;
@@ -49,6 +51,85 @@ namespace FlareAI.Core.Tests
             {
                 Thread.CurrentThread.CurrentCulture = before;
             }
+        }
+
+        private static IssueExport.Row Blank(string topic, string level, string issue, string status)
+        {
+            return new IssueExport.Row
+            {
+                Topic = topic, Level = level, Issue = issue, Rule = "Rule", Source = "Our rules",
+                Text = "text", SuggestedText = "fix", Status = status, Path = null
+            };
+        }
+
+        [Fact]
+        public void ToCsv_WritesTheColumns_OneRowPerRow_WithQuotedCommasAndQuotes()
+        {
+            var a = Blank("a.htm", "Error", "Issue1", "Open");
+            a.Text = "a, \"b\"";
+            var b = Blank("b.htm", "Warning", "Issue2", "Changed");
+            b.SuggestedText = "x\ny";
+            var csv = IssueExport.ToCsv(new[] { a, b });
+
+            var expected = "Topic,Level,Issue,Rule,Source,Text,Suggested text,Status,Link\r\n"
+                + "a.htm,Error,Issue1,Rule,Our rules,\"a, \"\"b\"\"\",fix,Open,\r\n"
+                + "b.htm,Warning,Issue2,Rule,Our rules,text,\"x\ny\",Changed,\r\n";
+            Assert.Equal(expected, csv);
+            Assert.Equal("Topic,Level,Issue,Rule,Source,Text,Suggested text,Status,Link\r\n", IssueExport.ToCsv(null));
+        }
+
+        [Theory]
+        [InlineData("=", "'=x")]
+        [InlineData("+", "'+x")]
+        [InlineData("-", "'-x")]
+        [InlineData("@", "'@x")]
+        [InlineData("\t", "'\tx")]
+        [InlineData("\r", "\"'\rx\"")]
+        public void ToCsv_NeutralisesFormulaStarts_InEveryCellAndHeader(string prefix, string expectedCell)
+        {
+            var row = Blank(prefix + "x", prefix + "x", prefix + "x", "Open");
+            row.Rule = prefix + "x";
+            row.Source = prefix + "x";
+            row.Text = prefix + "x";
+            row.SuggestedText = prefix + "x";
+            var lines = IssueExport.ToCsv(new[] { row }).Split(new[] { "\r\n" }, StringSplitOptions.None);
+
+            Assert.Equal("Topic,Level,Issue,Rule,Source,Text,Suggested text,Status,Link", lines[0]);
+            var expectedLine = string.Join(",", Enumerable.Repeat(expectedCell, 7)) + ",Open,";
+            Assert.Equal(expectedLine, lines[1]);
+        }
+
+        [Fact]
+        public void ToCsv_WritesTheStatusValues()
+        {
+            var rows = new[]
+            {
+                Blank("1.htm", "Error", "i", IssueExport.Open),
+                Blank("2.htm", "Error", "i", IssueExport.Changed),
+                Blank("3.htm", "Error", "i", IssueExport.TextChanged),
+                Blank("4.htm", "Error", "i", IssueExport.Skipped)
+            };
+            var lines = IssueExport.ToCsv(rows).Split(new[] { "\r\n" }, StringSplitOptions.None);
+
+            Assert.Equal("Open", lines[1].Split(',')[7]);
+            Assert.Equal("Changed", lines[2].Split(',')[7]);
+            Assert.Equal("Text changed", lines[3].Split(',')[7]);
+            Assert.Equal("Skipped", lines[4].Split(',')[7]);
+        }
+
+        [Fact]
+        public void ToCsv_FiftyThousandRows_IsFast()
+        {
+            var rows = new IssueExport.Row[50000];
+            for (var i = 0; i < rows.Length; i++)
+                rows[i] = Blank("billpay\\faq" + i + ".htm", "Warning", "Please note that the user should be told", "Open");
+
+            var watch = Stopwatch.StartNew();
+            var csv = IssueExport.ToCsv(rows);
+            watch.Stop();
+
+            Assert.True(watch.Elapsed.TotalSeconds < 10, "took " + watch.Elapsed.TotalSeconds + " s");
+            Assert.Equal(50001, csv.Count(c => c == '\n'));
         }
     }
 }
