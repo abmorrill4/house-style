@@ -916,7 +916,7 @@ namespace FlareAI.Flare.UI
             var goTo = menu.Items.Add("Go To", null, (s, e) => Safe.Run("Go To", () => _session.GoToCurrent()));
             var markFixed = menu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
             markFixed.AccessibleName = "Mark as Fixed";
-            var open =menu.Items.Add("Open File", null, (s, e) => Safe.Run("Open File", () => _session.OpenFileOfCurrent()));
+            var open = menu.Items.Add("Open File", null, (s, e) => Safe.Run("Open File", () => _session.OpenFileOfCurrent()));
             menu.Items.Add("Copy File Path", null, (s, e) => Safe.Run("Copy File Path", () =>
             {
                 var path = _session.FilePathOf(Current());
