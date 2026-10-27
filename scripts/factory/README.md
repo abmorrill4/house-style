@@ -79,10 +79,11 @@ gh variable set FACTORY_BUILD -R abmorrill4/house-style --body on   # off (or an
 - **Ready** means you opened the issue, you added `ready` last, and only you edited the body. The spec is the one
   `planning\work\<issue>-*\spec.md`. With no folder the issue is a Fix, and its body names the test (`Test: <name>`).
 - **The steps:**
-  1. Sonnet plans 1 to 8 chunks.
-  2. Each chunk is built on its model (usually Haiku), and gets one Sonnet retry.
+  1. Haiku maps the code, then Sonnet plans 1 to 12 chunks.
+  2. Each chunk is built on its model (usually Haiku), and gets one Sonnet retry. A try that runs out of turns keeps
+     its work, and the retry finishes it.
   3. The script runs the chunk's narrowest test.
-  4. Haiku writes the note.
+  4. Haiku writes the note, and the script commits it.
   5. Publish checks, then one push and a PR.
   6. Sonnet reviews in one round while CI runs.
   7. CI must be green on the head commit (`build`, `feedback-worker`, `e2e`).
