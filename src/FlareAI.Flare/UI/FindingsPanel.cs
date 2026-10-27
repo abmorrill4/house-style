@@ -1756,7 +1756,13 @@ namespace FlareAI.Flare.UI
         private void Accept()
         {
             var f = Current();
-            switch (_session.Accept())
+            var outcome = _session.Accept();
+            if ((outcome == AcceptOutcome.Rewrite || outcome == AcceptOutcome.AltText) && _rulesOnly)
+            {
+                _status.Text = LintChecksChoice.ChangeNeedsAi;   // nothing goes to the model
+                return;
+            }
+            switch (outcome)
             {
                 case AcceptOutcome.Rewrite: RewriteParagraph(f); break;
                 case AcceptOutcome.AltText: SuggestAltText(f); break;
@@ -1814,6 +1820,7 @@ namespace FlareAI.Flare.UI
 
         private void Refine()
         {
+            if (_rulesOnly) return;
             var f = Current();
             if (f == null || f.IsFixed || f.IsStale) return;
             var instruction = TextPrompt.Ask(this, "Rewrite", "What should the AI change in this suggestion? For example, keep the term SSO, or make it shorter.", "", true);
@@ -1847,6 +1854,7 @@ namespace FlareAI.Flare.UI
         /// <summary>Lints the selected issue's paragraph again (rules and AI) and replaces its issues.</summary>
         private void Reanalyze()
         {
+            if (_rulesOnly) return;
             var f = Current();
             var block = _session.ReanalyzeTarget(f);
             if (block == null) return;
@@ -1986,8 +1994,8 @@ namespace FlareAI.Flare.UI
             _changeAll.Text = sameRule > 1 ? "Change All (" + sameRule + ")" : "Change All";
             _reject.Enabled = f != null && !f.IsFixed;
             _edit.Enabled = open && f.Kind != "variable" && f.Kind != "manual";
-            _refine.Enabled = open && !_reviewing;
-            _reanalyze.Enabled = f != null && f.DocumentPath == null && !_reviewing && _files == null;
+            _refine.Enabled = open && !_reviewing && !_rulesOnly;
+            _reanalyze.Enabled = f != null && f.DocumentPath == null && !_reviewing && _files == null && !_rulesOnly;
             _rule.Enabled = f != null && !string.IsNullOrEmpty(f.Link);
             var busy = _batch != null;
             if (_files != null)

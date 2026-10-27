@@ -929,6 +929,68 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        private static Button ButtonNamed(FindingsPanel panel, string text)
+        {
+            return All(panel).OfType<Button>().Single(b => b.Text == text);
+        }
+
+        [Fact]
+        public void RulesOnly_LintParagraphAndRewrite_AreDisabled_AndMakeNoCall()
+        {
+            var client = RewordClient();
+            WithChecks(true, true, null, client, (panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.False(ButtonNamed(panel, "Lint Paragraph").Enabled);
+                Assert.False(ButtonNamed(panel, "Rewrite…").Enabled);
+                Assert.Equal(0, client.Calls);
+            });
+        }
+
+        [Fact]
+        public void RulesAndAi_LintParagraph_IsEnabled()
+        {
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.True(ButtonNamed(panel, "Lint Paragraph").Enabled);
+            });
+        }
+
+        [Fact]
+        public void RulesOnly_ChangeOnAltText_ShowsTheMessage_AndMakesNoCall()
+        {
+            const string logo = "<html><body><h1>Logo</h1><p>Our logo is below.</p><p><img src=\"logo.png\" /></p></body></html>";
+            var client = new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r));
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(logo);
+                var runner = new ActionRunner(client, new PromptBuilder(null), 1024);
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true) { RulesOnly = true };
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count > 0 && All(panel).OfType<ProgressBar>().All(p => !p.Visible), 15000);
+                    var row = list.Items.Cast<ListViewItem>()
+                        .Single(i => i.Tag is StyleFinding f && f.Rule == "Structure.AltText");
+                    row.Selected = true;
+                    Pump(null, 200);
+                    ButtonNamed(panel, "Add Alt Text…").PerformClick();
+                    Pump(null, 200);
+                    Assert.Equal(LintChecksChoice.ChangeNeedsAi, Status(panel));
+                    Assert.Equal(0, client.Calls);
+                }
+            });
+        }
+
         private static IEnumerable<Control> All(Control c)
         {
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
