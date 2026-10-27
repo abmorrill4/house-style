@@ -98,7 +98,7 @@ namespace FlareAI.Core.Actions
             if (NodeWrites.VariableRefusal(new List<XmlNode> { block }, null) != null)
                 throw new InvalidOperationException("House Style can't add this alt text: the image's paragraph contains a variable, and Flare crashes if you redo (Ctrl+Y) a change to that paragraph. " +
                                                     "Add the alt text yourself in the image's properties: \"" + alt + "\"");
-            doc.ReplaceBlocks("House Style: alt text", new List<XmlNode> { block }, new List<XmlNode> { copy });
+            ActionRunner.WriteTracked(doc.SourcePath, () => doc.ReplaceBlocks("House Style: alt text", new List<XmlNode> { block }, new List<XmlNode> { copy }));
         }
     }
 
