@@ -615,6 +615,9 @@ namespace FlareAI.Core.Actions
         /// <summary>How many rules are skipped for now.</summary>
         public int SkippedRuleCount { get { return _skippedRules.Count; } }
 
+        /// <summary>True when the finding's rule is skipped for now (Skip in a project report).</summary>
+        public bool IsSkipped(StyleFinding f) { return f != null && _skippedRules.Contains(RuleBacklog.KeyOf(f)); }
+
         /// <summary>Turn off rule… for a whole group: the same path as for one suggestion (owners, requests, other rules on the same words).</summary>
         public void TurnOffRule(BacklogRule rule)
         {

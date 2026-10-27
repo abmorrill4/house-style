@@ -148,6 +148,189 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- Export Issues (#238) ----------------------------------------------------------------------------------
+
+        [Fact]
+        public void RowsFrom_LeavesOutAiFindings_AndMapsLevelStatusAndTopic()
+        {
+            WithPane((panel, form, list) =>
+            {
+                const string path = @"C:\Proj\Content\billpay\faq.htm";
+                StyleFinding Company(bool fixedNow, bool stale) => new StyleFinding
+                {
+                    Layer = "company", Severity = "warning", Rule = "Company.WordList",
+                    Excerpt = "utilize", Replacement = "use", DocumentPath = path, IsFixed = fixedNow, IsStale = stale
+                };
+                var a = Company(true, false);
+                var b = Company(false, true);
+                var c = Company(false, false);
+                var d = Company(false, false); d.Layer = "ai";
+                var e = Company(false, false); e.RuleLayer = "google";
+
+                var rows = panel.RowsFrom(new[] { a, b, c, d, e });
+
+                Assert.Equal(3, rows.Count);
+                Assert.Equal(@"billpay\faq.htm", rows[0].Topic);
+                Assert.Equal("Warning", rows[0].Level);
+                Assert.Equal("Changed", rows[0].Status);
+                Assert.Equal("Change \"utilize\" to \"use\"", rows[0].Issue);
+                Assert.Equal(path, rows[0].Path);
+                Assert.Equal("Text changed", rows[1].Status);
+                Assert.Equal("Open", rows[2].Status);
+                Assert.DoesNotContain("✓", rows[0].Issue + rows[1].Issue + rows[2].Issue);
+                Assert.DoesNotContain("⚠", rows[0].Issue + rows[1].Issue + rows[2].Issue);
+                Assert.All(rows, r => Assert.StartsWith("Our rules", r.Source));
+            });
+        }
+
+        private static FlareAI.Core.Output.IssueExport.Row ExportRow()
+        {
+            return new FlareAI.Core.Output.IssueExport.Row
+            {
+                Topic = @"billpay\faq.htm", Level = "Warning", Issue = "Change \"utilize\" to \"use\"", Rule = "Use use",
+                Source = "Our rules", Text = "ZQX-excerpt", SuggestedText = "use", Status = "Open",
+                Path = @"C:\Proj\Content\billpay\faq.htm"
+            };
+        }
+
+        [Fact]
+        public void ExportTo_WritesUtf8WithBom_AndTheRow()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-bom");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            WithPane((panel, form, list) =>
+            {
+                Exception error;
+                Assert.True(panel.ExportTo(path, new[] { ExportRow() }, out error));
+                Assert.Null(error);
+                var bytes = System.IO.File.ReadAllBytes(path);
+                Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3).ToArray());
+                var lines = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                Assert.StartsWith(@"billpay\faq.htm,Warning,", lines[1]);
+                Assert.EndsWith(",Open,\"=HYPERLINK(\"\"file:///C:/Proj/Content/billpay/faq.htm\"\",\"\"Open file\"\")\"", lines[1]);
+                Assert.Contains(FlareAI.Core.Output.IssueExport.Saved(1, path), All(panel).OfType<Label>().Select(l => l.Text));
+            });
+        }
+
+        [Fact]
+        public void ExportTo_OverAnExistingFile_ReplacesIt()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-replace");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            System.IO.File.WriteAllText(path, "old");
+            WithPane((panel, form, list) =>
+            {
+                Exception error;
+                Assert.True(panel.ExportTo(path, new[] { ExportRow() }, out error));
+                Assert.Null(error);
+                var bytes = System.IO.File.ReadAllBytes(path);
+                Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3).ToArray());
+                Assert.NotEqual("old", System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+                Assert.StartsWith("\uFEFFTopic,", System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+                Assert.Single(System.IO.Directory.GetFiles(dir));
+            });
+        }
+
+        [Fact]
+        public void ExportTo_OverALockedFile_FailsAndLeavesItAsItWas()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-locked");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            System.IO.File.WriteAllText(path, "old");
+            WithPane((panel, form, list) =>
+            {
+                bool ok;
+                Exception error;
+                using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.None))
+                    ok = panel.ExportTo(path, new[] { ExportRow() }, out error);
+                Assert.False(ok);
+                Assert.IsType<System.IO.IOException>(error);
+                Assert.Equal("old", System.IO.File.ReadAllText(path));
+                Assert.Equal(new[] { path }, System.IO.Directory.GetFiles(dir));
+                Assert.Contains("House Style couldn't export the issues to issues.csv.", All(panel).OfType<Label>().Select(l => l.Text));
+                if (System.IO.File.Exists(FlareAI.Core.Diagnostics.LogPath))
+                    Assert.DoesNotContain("ZQX-excerpt", System.IO.File.ReadAllText(FlareAI.Core.Diagnostics.LogPath));
+            });
+        }
+
+        /// <summary>A project report over the given topics (written under _root), done linting; runs <paramref name="body"/>.</summary>
+        private void WithProject(string[] topicsXml, int width, int height, Action<FindingsPanel, Form> body)
+        {
+            var proj = System.IO.Path.Combine(_root, "proj");
+            var content = System.IO.Path.Combine(proj, "Content", "billpay");
+            System.IO.Directory.CreateDirectory(content);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(proj, "Billpay.flprj"), "");
+            var files = new List<string>();
+            for (var i = 0; i < topicsXml.Length; i++)
+            {
+                var f = System.IO.Path.Combine(content, "t" + i + ".htm");
+                System.IO.File.WriteAllText(f, topicsXml[i]);
+                files.Add(f);
+            }
+            Sta(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r)), new PromptBuilder(null), 1024, new LongRuleGuide());
+                var panel = FindingsPanel.ForProject(runner, FlareSimDocument.FromXml(Topic), () => runner, p => null, files, "Billpay");
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(width, height), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    Pump(() => All(panel).OfType<Label>().Any(l => (l.Text ?? "").Contains("Linted ")) && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
+                         30000, () => string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
+                    body(panel, form);
+                }
+            });
+        }
+
+        [Theory]
+        [InlineData(150, 640)]
+        [InlineData(180, 800)]
+        [InlineData(260, 1000)]
+        public void ExportButton_IsOnlyInAProjectReport_AndTheBarIsNamedProjectReport(int width, int height)
+        {
+            WithProject(new[] { Topic }, width, height, (panel, form) =>
+            {
+                var b = All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…");
+                Assert.True(b.Visible);
+                Assert.True(b.Enabled);
+                Assert.True(b.Right <= b.Parent.ClientSize.Width, "right " + b.Right + " of " + b.Parent.ClientSize.Width);
+                Assert.Equal("Project report", b.Parent.AccessibleName);
+                Assert.EndsWith("Opens a dialog.", b.AccessibleDescription);
+            });
+            WithPane((panel, form, list) =>
+            {
+                var b = All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…");
+                Assert.False(b.Visible);
+            });
+        }
+
+        [Fact]
+        public void ExportIssues_WithNoIssues_SaysSo_AndOpensNoDialog()
+        {
+            var old = Environment.GetEnvironmentVariable("HOUSESTYLE_E2E_DIR");
+            Environment.SetEnvironmentVariable("HOUSESTYLE_E2E_DIR", null);
+            try
+            {
+                WithProject(new[] { "<html><body><p>The fee is waived.</p></body></html>" }, 260, 800, (panel, form) =>
+                {
+                    var forms = Application.OpenForms.Count;
+                    All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…").PerformClick();
+                    Pump(null, 200);
+                    Assert.Contains("There are no issues to export.", All(panel).OfType<Label>().Select(l => l.Text));
+                    Assert.Equal(forms, Application.OpenForms.Count);
+                });
+                Assert.Empty(System.IO.Directory.GetFiles(_root, "*.csv", System.IO.SearchOption.AllDirectories));
+            }
+            finally { Environment.SetEnvironmentVariable("HOUSESTYLE_E2E_DIR", old); }
+        }
+
         // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
 
         /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>

@@ -76,7 +76,7 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`save`** saves the active topic as Ctrl+S does (check-on-save treats it as the writer's save). Returns `saved`.
 - **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
   instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
-  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Nothing calls it until #238 adds Export. `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
+  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`scenarios/export-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
 - **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}".
   `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no

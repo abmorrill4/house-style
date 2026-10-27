@@ -296,7 +296,9 @@ namespace FlareAI.Scenarios.Review
                 var rule = BiggestAutomatic(s, 1);
                 var auto = s.AutomaticCandidates().Count;
 
+                Assert.False(s.IsSkipped(rule.Findings[0]));
                 s.SkipRule(rule);
+                Assert.True(s.IsSkipped(rule.Findings[0]));
 
                 Assert.Null(s.FindBacklogRule(rule.Key));
                 Assert.Equal(auto - rule.Automatic.Count, s.AutomaticCandidates().Count);
@@ -305,6 +307,8 @@ namespace FlareAI.Scenarios.Review
                 Assert.Empty(c.Feedback);                                                         // nothing recorded
 
                 s.ShowSkippedRules();
+                Assert.False(s.IsSkipped(rule.Findings[0]));
+                Assert.False(s.IsSkipped(null));
                 Assert.NotNull(s.FindBacklogRule(rule.Key));
             }
         }

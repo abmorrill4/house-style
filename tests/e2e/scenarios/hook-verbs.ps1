@@ -24,7 +24,7 @@ Assert-E2E ($err -like "*No text No such words here*") "select of missing text f
 
 $err = Fails { Send-E2E saveAs "$env:SystemRoot\issues.csv" }
 Assert-E2E ($err -like "*Save path must be inside the run folder*") "saveAs outside the run folder fails (got: $err)"
-Send-E2E saveAs (Join-Path $run.Hook "issues.csv") | Out-Null   # a later Export would write here; nothing reads it in this scenario
+Send-E2E saveAs (Join-Path $run.Hook "issues.csv") | Out-Null   # Export Issues would write here; nothing reads it in this scenario
 
 Send-E2E command settings -NoWait   # a dialog: the command answers when it closes
 Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Settings" } } 30 "the Settings dialog" | Out-Null
