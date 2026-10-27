@@ -166,7 +166,8 @@ function Send-E2E {
     if ($NoWait) { return }
     $res = Join-Path $script:Run.Hook "res-$id.json"
     Wait-Until { Test-Path $res } $Seconds "an answer to $Verb $Arg" | Out-Null
-    $r = Get-Content $res -Raw | ConvertFrom-Json
+    # UTF-8 (the hook writes it without a BOM, which Windows PowerShell would read as ANSI, garbling check marks and severity signs).
+    $r = Get-Content $res -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $r.ok) { throw "$Verb $Arg failed: $($r.error)" }
     return $r
 }
