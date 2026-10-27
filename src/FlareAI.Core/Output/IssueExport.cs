@@ -75,12 +75,14 @@ namespace FlareAI.Core.Output
             return sb.ToString();
         }
 
-        /// <summary>One CSV cell. A leading = + - @ tab or CR gets a quote mark so Excel reads it as text, then CSV quoting applies.</summary>
+        /// <summary>One CSV cell. A leading = + - @ tab or CR gets a quote mark so Excel reads it as text, then CSV quoting
+        /// applies. A semicolon is quoted too: Excel splits on it where that's the list separator (German, French), and an
+        /// unquoted "x;=..." would start a new cell with a formula.</summary>
         internal static string Cell(string s)
         {
             s = s ?? "";
             if (s.Length > 0 && "=+-@\t\r".IndexOf(s[0]) >= 0) s = "'" + s;
-            if (s.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0) s = "\"" + s.Replace("\"", "\"\"") + "\"";
+            if (s.IndexOfAny(new[] { ',', ';', '"', '\r', '\n' }) >= 0) s = "\"" + s.Replace("\"", "\"\"") + "\"";
             return s;
         }
 

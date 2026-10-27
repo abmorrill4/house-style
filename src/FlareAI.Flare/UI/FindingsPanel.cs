@@ -1576,7 +1576,6 @@ namespace FlareAI.Flare.UI
             return rows;
         }
 
-        /// <summary>Writes the rows to path through a temp file in the same folder; never logs row text. False (and the error) when it couldn't.</summary>
         /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A scenario's saveAs path skips the dialog.</summary>
         private void ExportIssues()
         {

@@ -100,6 +100,15 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void ToCsv_QuotesASemicolon_SoASemicolonLocaleCantStartAFormulaCell()
+        {
+            var row = Blank("t.htm", "Error", "i", "Open");
+            row.Rule = "x;=WEBSERVICE(\"https://e/\")";
+            var line = IssueExport.ToCsv(new[] { row }).Split(new[] { "\r\n" }, StringSplitOptions.None)[1];
+            Assert.Contains("\"x;=WEBSERVICE(\"\"https://e/\"\")\"", line);
+        }
+
+        [Fact]
         public void ToCsv_WritesTheStatusValues()
         {
             var rows = new[]
