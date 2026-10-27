@@ -498,10 +498,10 @@ namespace FlareAI.Flare.UI
             w.RunWorkerAsync();
         }
 
-        /// <summary>A team guide is in the list: an entry that isn't the plugin's own guide (the test <see cref="SetupAnswers.From"/> uses).</summary>
+        /// <summary>A team guide is in the list, by the same rule as setup's last step (<see cref="FirstRun.HasTeamGuide"/>).</summary>
         private bool HasTeamGuide
         {
-            get { return _layers.Items.Cast<string>().Any(p => p.Trim().Length > 0 && !p.Contains("{PluginDir}")); }
+            get { return FirstRun.HasTeamGuide(string.Join("\n", _layers.Items.Cast<string>().ToArray())); }
         }
 
         /// <summary>Whether the feedback folder can be written, and with a team guide, where requests to its owners go.</summary>

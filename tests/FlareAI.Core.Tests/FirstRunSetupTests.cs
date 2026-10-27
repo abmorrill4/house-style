@@ -305,6 +305,10 @@ namespace FlareAI.Core.Tests
             Assert.Contains(@"Requests: sent to your style guide owners through \\server\feedback.", FirstRun.Summary(s));
             s.FeedbackFolder = "";
             Assert.Contains("Requests: kept on this computer until you choose a team feedback folder in Settings.", FirstRun.Summary(s));
+            s.StyleLayers = @"{PluginDir}\styleguide";   // the plugin's own guide isn't a team guide (as in Settings)
+            Assert.DoesNotContain("Requests:", FirstRun.Summary(s));
+            Assert.False(FirstRun.HasTeamGuide(@"{PluginDir}\styleguide"));
+            Assert.True(FirstRun.HasTeamGuide("{PluginDir}\\styleguide\nD:\\team"));
         }
 
         [Fact]

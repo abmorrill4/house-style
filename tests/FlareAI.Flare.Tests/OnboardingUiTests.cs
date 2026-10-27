@@ -170,13 +170,7 @@ namespace FlareAI.Flare.Tests
                     var summary = Named(f, "What was set up").Text;
                     Assert.Contains("Requests: kept on this computer until " + missing + " can be reached.", summary);
                 }
-                finally
-                {
-                    // On the CI runner (no interactive desktop) disposing this form after the last step can throw
-                    // "Dispose() cannot be called while doing CreateHandle()" with nothing else raised; the real flow
-                    // through the last step and Finish is covered in Flare by the setup-team-guide e2e scenario.
-                    try { f.Dispose(); } catch (InvalidOperationException) { }
-                }
+                finally { f.Dispose(); }
             });
         }
 
@@ -520,9 +514,11 @@ namespace FlareAI.Flare.Tests
             Exception first = null;
             Thread ui = null;
             var raised = new List<string>();
+            var other = false;   // anything raised on the test's thread besides the dispose error below
             EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> seen = (s, e) =>
             {
                 if (Thread.CurrentThread != ui) return;
+                if (!IsDisposeRace(e.Exception)) other = true;
                 if (raised.Count < 8) raised.Add(e.Exception.GetType().Name + ": " + e.Exception.Message + " at " + (e.Exception.StackTrace ?? "").Split('\n').FirstOrDefault());
                 if (first == null && (e.Exception is Xunit.Sdk.XunitException || e.Exception is TimeoutException)) first = e.Exception;
             };
@@ -538,10 +534,16 @@ namespace FlareAI.Flare.Tests
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);
             // On the CI runner (no interactive desktop), disposing a dialog at the end of a test sometimes throws this with
-            // every assertion passed and nothing else raised. It says nothing about the test, so it doesn't fail it.
-            if (error is InvalidOperationException && first == null && error.Message.Contains("while doing CreateHandle") &&
-                (error.StackTrace ?? "").Contains("Control.Dispose")) return;
+            // every assertion passed and nothing else raised. Only then (no other exception at all on the test's thread, so
+            // the body ran to its end) it doesn't fail the test.
+            if (error != null && !other && IsDisposeRace(error)) return;
             if (error != null) throw new Exception(error.Message + " Raised on the test's thread: " + string.Join(" | ", raised.ToArray()), error);
+        }
+
+        private static bool IsDisposeRace(Exception ex)
+        {
+            return ex is InvalidOperationException && ex.Message.Contains("while doing CreateHandle") &&
+                   (ex.StackTrace ?? Environment.StackTrace).Contains("Control.Dispose");
         }
     }
 }

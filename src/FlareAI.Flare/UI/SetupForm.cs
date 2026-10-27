@@ -130,7 +130,7 @@ namespace FlareAI.Flare.UI
             g.Y = Math.Max(g.Y, _browseFeedback.Bottom + g.S(4));
             _feedbackStatus = g.Status(1);
             _feedbackStatus.TextChanged += (s, e) => { _guideLayout.FitHeight(_feedbackStatus); FitToStep(); };
-            g.Note("Your requests to your style guide owners go here. They also see each issue you change or ignore, its rule and the text. Ask them which folder to use. You can leave it empty.");
+            g.Note("Your requests to your style guide owners go here. Owners also see each issue you change or ignore, its rule and the text, and names only if the style guide is set to show them. Ask them which folder to use. You can leave it empty.");
 
             // ---- 4. Done -------------------------------------------------------------------------------------------
             var d = _doneLayout = new StackLayout(_steps[(int)SetupStep.Done], scale);
@@ -461,7 +461,8 @@ namespace FlareAI.Flare.UI
             var path = _feedback.Text.Trim();
             var seq = ++_feedbackSeq;
             _feedbackChecked = path;
-            _answers.FeedbackWritable = true;
+            // Not known yet: until the check says so, the last step doesn't claim requests reach the folder.
+            _answers.FeedbackWritable = path.Length == 0;
             if (path.Length == 0) { _feedbackStatus.Text = ""; return; }
             _feedbackStatus.ForeColor = SystemColors.GrayText;
             _feedbackStatus.Text = "Checking…";
