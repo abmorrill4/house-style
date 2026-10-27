@@ -522,7 +522,13 @@ namespace FlareAI.Flare.Tests
                 if (raised.Count < 8) raised.Add(e.Exception.GetType().Name + ": " + e.Exception.Message + " at " + (e.Exception.StackTrace ?? "").Split('\n').FirstOrDefault());
                 if (first == null && (e.Exception is Xunit.Sdk.XunitException || e.Exception is TimeoutException)) first = e.Exception;
             };
-            var t = ui = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
+            var t = ui = new Thread(() =>
+            {
+                // The dialogs' background checks finish through this thread's context: without one they would end on a
+                // pool thread and touch the dialog from there.
+                SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+                try { body(); } catch (Exception ex) { error = ex; }
+            });
             t.SetApartmentState(ApartmentState.STA);
             t.IsBackground = true;
             AppDomain.CurrentDomain.FirstChanceException += seen;
