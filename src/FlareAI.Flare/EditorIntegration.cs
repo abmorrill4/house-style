@@ -87,7 +87,8 @@ namespace FlareAI.Flare
             state.Debounce.Tick += (s, e) =>
             {
                 state.Debounce.Stop();
-                var panel = PanelHost.Current;
+                var topic = PanelHost.TopicPanel;
+                var project = PanelHost.ProjectPanel;
                 List<StyleFinding> lint = null;
                 var mine = false;
                 if (PluginSettings.Load().LiveCheck)
@@ -99,24 +100,24 @@ namespace FlareAI.Flare
                         if (lint != null)
                         {
                             state.Lint = lint;
-                            mine = panel != null && !panel.IsProjectReport && SamePath(panel.TopicPath, adapter.SourcePath);
+                            mine = topic != null && SamePath(topic.TopicPath, adapter.SourcePath);
                         }
                     }
                     catch (Exception ex) { lint = null; Diagnostics.Log("live check", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the topic as you type.", ex); }
                 }
                 // Undone changes, issues fixed by hand, then Live check's lint: one order, in the pane (it raises Changed, so the markers follow).
-                if (panel != null) try { panel.AfterEdit(mine ? lint : null); } catch (Exception ex) { Diagnostics.Log("after edit: " + ex.GetType().Name); }
+                if (topic != null) try { topic.AfterEdit(mine ? lint : null); } catch (Exception ex) { Diagnostics.Log("after edit: " + ex.GetType().Name); }
+                if (project != null) try { project.AfterEdit(null); } catch (Exception ex) { Diagnostics.Log("after edit: " + ex.GetType().Name); }
                 if (lint != null && !mine) UpdateMarkers(doc);
             };
             doc.ContentChanged += (s, e) =>
             {
-                var panel = PanelHost.Current;
-                var watch = panel != null && (panel.IsProjectReport || SamePath(panel.TopicPath, path));
+                var watch = PanelHost.ProjectPanel != null || (PanelHost.TopicPanel != null && SamePath(PanelHost.TopicPanel.TopicPath, path));
                 if (!watch && !PluginSettings.Load().LiveCheck) return;
                 state.Debounce.Stop(); state.Debounce.Start();   // a moment after typing stops
             };
             doc.Saved += (s, e) => OnSaved(doc, state);
-            doc.Closing += (s, e) => Detach(path);
+            doc.Closing += (s, e) => { ClearTopicWhenGone(path); Detach(path); };
             // First markers for a topic the plugin already knows about (pane open on it).
             UpdateMarkers(doc);
         }
@@ -126,6 +127,31 @@ namespace FlareAI.Flare
             var mi = new ToolStripMenuItem(command.ContextLabel) { ToolTipText = command.Tooltip };
             mi.Click += (s, e) => Safe.Run(command.Label, action);
             return mi;
+        }
+
+        /// <summary>
+        /// Drops the topic's tab once the topic is really closed. Flare also raises Closing when it reloads a topic that a
+        /// Change from Lint Project edited, and the topic is open again a moment later.
+        /// </summary>
+        private void ClearTopicWhenGone(string path)
+        {
+            var wait = new Timer { Interval = 1500 };
+            wait.Tick += (s, e) =>
+            {
+                wait.Stop(); wait.Dispose();
+                try
+                {
+                    bool open = false;
+                    foreach (var o in _host.GetEditorContext().GetDocuments())
+                    {
+                        var d = o as IDocument;
+                        if (d != null && SamePath(SafePath(d), path)) { open = true; break; }
+                    }
+                    if (!open) PanelHost.ClearTopic(path);
+                }
+                catch (Exception ex) { Diagnostics.Log("clear topic", ex); }
+            };
+            wait.Start();
         }
 
         private void Detach(string path)
@@ -157,8 +183,8 @@ namespace FlareAI.Flare
             try
             {
                 var saved = SafePath(doc);
-                var report = PanelHost.Current;
-                if (report != null && report.IsProjectReport && saved != null && report.Covers(saved))
+                var report = PanelHost.ProjectPanel;
+                if (report != null && saved != null && report.Covers(saved))
                     try { report.RecheckSaved(saved, new FlareDocumentAdapter(doc).Document); }   // the saved document's own DOM; nothing read from disk
                     catch (Exception ex) { Diagnostics.Log("recheck saved: " + saved + " " + ex.GetType().Name); }
                 var settings = PluginSettings.Load();
@@ -189,8 +215,8 @@ namespace FlareAI.Flare
                 var adapter = new FlareDocumentAdapter(doc);
                 var show = PluginSettings.Load().ShowMarkers;
                 List<StyleFinding> findings = null;
-                var panel = PanelHost.Current;
-                if (show && panel != null && !panel.IsProjectReport && SamePath(panel.TopicPath, adapter.SourcePath)) findings = panel.OpenTopicFindings();   // style rules + AI
+                var panel = PanelHost.TopicPanel;
+                if (show && panel != null && SamePath(panel.TopicPath, adapter.SourcePath)) findings = panel.OpenTopicFindings();   // style rules + AI
                 else if (show) findings = state.Lint;
                 var marks = new List<KeyValuePair<XmlNode, string>>();
                 foreach (var f in findings ?? new List<StyleFinding>())

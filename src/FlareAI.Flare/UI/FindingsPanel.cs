@@ -55,6 +55,9 @@ namespace FlareAI.Flare.UI
         // project check: by rule / by file, the rule card's actions, and batches with progress
         private readonly FlowLayoutPanel _viewBar, _actions, _ruleActions;
         private readonly RadioButton _byRule, _byFile;
+        // tab bar: This Topic and Project tabs
+        private readonly FlowLayoutPanel _tabs;
+        private readonly TabRadio _tabTopic, _tabProject;
         private readonly Button _excluded, _export;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
@@ -101,11 +104,46 @@ namespace FlareAI.Flare.UI
             }
         }
 
+        /// <summary>Set the tab counts and show or hide the bar. -1 for an absent slot. Bar visible only when both are >= 0.</summary>
+        public void SetTabs(int topicCount, int projectCount)
+        {
+            _tabTopic.Text = "This &Topic (" + topicCount + ")";
+            _tabProject.Text = "&Project (" + projectCount + ")";
+
+            var topicName = topicCount >= 0 ? "This Topic, " + Plural.Of(topicCount, "issue") : "This Topic";
+            var projName = projectCount >= 0 ? "Project, " + Plural.Of(projectCount, "issue") : "Project";
+            _tabTopic.AccessibleName = topicName;
+            _tabProject.AccessibleName = projName;
+
+            _tabTopic.Checked = (Slot == PaneSlot.Topic);
+            _tabProject.Checked = (Slot == PaneSlot.Project);
+
+            _tabs.Visible = topicCount >= 0 && projectCount >= 0;
+        }
+
+        /// <summary>Focus the list with the first row selected, or focus the checked tab radio if the list is empty.</summary>
+        public void FocusAfterSwitch()
+        {
+            if (_list.Items.Count > 0)
+            {
+                _list.Focus();
+                if (_list.SelectedItems.Count == 0) _list.Items[0].Selected = true;
+            }
+            else
+            {
+                var checked_ = Slot == PaneSlot.Topic ? _tabTopic : _tabProject;
+                checked_.Focus();
+            }
+        }
+
         private volatile string _requestNote;
         private List<StyleFinding> _lint;
 
         /// <summary>Raised when the author clicks Close; the host hides its pane or window.</summary>
         public event EventHandler CloseRequested;
+
+        /// <summary>Raised when the author clicks a different tab; the host shows that slot.</summary>
+        public event Action<PaneSlot> TabRequested;
 
         /// <summary>"House Style — topic.htm" — for the host's title.</summary>
         public string Title { get; private set; }
@@ -127,6 +165,22 @@ namespace FlareAI.Flare.UI
         public const string PaneTitle = "House Style Issues";
 
         public bool IsProjectReport { get { return _files != null; } }
+
+        /// <summary>The pane slot shown: Topic or Project.</summary>
+        public PaneSlot Slot { get { return IsProjectReport ? PaneSlot.Project : PaneSlot.Topic; } }
+
+        /// <summary>Count of open issues for the bar: for a topic, all open; for a project, open and not skipped.</summary>
+        public int OpenCount()
+        {
+            if (IsProjectReport)
+            {
+                return _session.Open().FindAll(f => !_session.IsSkipped(f)).Count;
+            }
+            else
+            {
+                return _session.Open().Count;
+            }
+        }
 
         /// <summary>
         /// Finds a file open in the editor without opening it (the host's): lets the pane notice a fix undone in another
@@ -372,7 +426,18 @@ namespace FlareAI.Flare.UI
             _tourSkip = Btn(_tourBar, "Skip Tour", (s, e) => BeginInvoke((Action)(() => Safe.Run("Tour skip", () => OnTourButton("skip")))));
             _tourDone = Btn(_tourBar, "Done", (s, e) => BeginInvoke((Action)(() => Safe.Run("Tour done", () => OnTourButton("done")))));
             foreach (var b in new[] { _tourNext, _tourSkip, _tourDone }) b.BackColor = SystemColors.Control;
+            // Tab bar: This Topic and Project tabs
+            _tabs = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = false };
+            _tabTopic = new TabRadio { Text = "This &Topic", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 4, 0) };
+            _tabProject = new TabRadio { Text = "&Project", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
+            _tabs.Controls.Add(_tabTopic);
+            _tabs.Controls.Add(_tabProject);
+            _tabTopic.Click += (s, e) => { if (Slot != PaneSlot.Topic) { var h = TabRequested; if (h != null) h(PaneSlot.Topic); } };
+            _tabProject.Click += (s, e) => { if (Slot != PaneSlot.Project) { var h = TabRequested; if (h != null) h(PaneSlot.Project); } };
+            tips.SetToolTip(_tabTopic, "Show the issues in the open topic.");
+            tips.SetToolTip(_tabProject, "Show the issues from Lint Project.");
             Controls.Add(_tourStrip);   // added last: the topmost line
+            Controls.Add(_tabs);        // very last: docks at the very top
             HandleCreated += (s, e) =>
             {
                 GuidedTour.Changed -= OnGettingStartedChanged; GettingStarted.Changed -= OnGettingStartedChanged;
@@ -560,7 +625,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_legend, "What the symbols mean", "Show what the symbols and buttons mean. Opens a dialog.");
             A11y.Name(_ignore, "Disable Rule", "Stop linting for this rule. Opens a dialog.");
             // Tab order: tour, notice, triage buttons, list, decision buttons, card text, bottom bar.
-            var top = new Control[] { _tourStrip, _widthTip, _status, _notice, _acceptAll.Parent, _viewBar, _progress, _list.Parent.Parent, _cost, _recheck.Parent };
+            var top = new Control[] { _tabs, _tourStrip, _widthTip, _status, _notice, _acceptAll.Parent, _viewBar, _progress, _list.Parent.Parent, _cost, _recheck.Parent };
             for (var i = 0; i < top.Length; i++) top[i].TabIndex = i;
             A11y.Name(_acceptAll.Parent, "Actions for all issues"); A11y.Name(_recheck.Parent, "Pane actions"); A11y.Name(_accept.Parent, "Decision for the selected issue");
             A11y.Name(_viewBar, "Project report", "List the project's issues by rule or by file, or save them to a file.");
@@ -575,6 +640,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_tourNext, "Next", "Go to the last step.");
             A11y.Name(_tourSkip, "Skip Tour", "End the practice.");
             A11y.Name(_tourDone, "Done", "End the practice.");
+            A11y.Name(_tabs, "Issues for");
             var order = new Control[] { _tourStrip, _widthTip, _notice, _acceptAll, _bulk, _stop, _batchStop, _legend, _byRule, _byFile, _backToRules, _showSkipped, _showAllRules, _checklist, _list, _result,
                                         _accept, _changeAll, _reject, _edit, _refine, _reanalyze, _rule, _fixRule, _reviewRule, _turnOffRule, _skipRule, _cardDiff, _cardWhy, _recheck, _ignore };
             for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
@@ -841,7 +907,16 @@ namespace FlareAI.Flare.UI
         /// One column of wrapped rows when the list is narrow, two one-line columns when it is wide; the row height follows
         /// (a ListView's rows take their height from its small image list).
         /// </summary>
+        private bool _fitting;   // setting a column width can resize the list again
+
         private void FitColumns()
+        {
+            if (_fitting) return;
+            _fitting = true;
+            try { FitColumnsCore(); } finally { _fitting = false; }
+        }
+
+        private void FitColumnsCore()
         {
             var lines = PaneRows.TextLines(_list.Width, Dpi);
             if (lines != _rowLines)
@@ -1007,8 +1082,16 @@ namespace FlareAI.Flare.UI
                 var f = i.Tag as StyleFinding;
                 rows.Add(new { text = i.Text, source = i.SubItems.Count > 1 ? i.SubItems[1].Text : "", file = f == null ? null : f.DocumentPath, rule = f == null ? null : f.Rule, excerpt = f == null ? null : f.Excerpt, layer = f == null ? null : f.Layer });
             }
+            // Tab bar captions without the & mnemonics
+            var tabCaptions = new List<string>();
+            if (_tabs.Visible)
+            {
+                tabCaptions.Add(_tabTopic.Text.Replace("&", ""));
+                tabCaptions.Add(_tabProject.Text.Replace("&", ""));
+            }
+            var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard() };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions };
         }
 
         /// <summary>
@@ -2018,6 +2101,7 @@ namespace FlareAI.Flare.UI
             var r = CurrentRule();
             _ignore.Enabled = (f != null || r != null) && !busy;
             _viewBar.Enabled = !busy;
+            _tabs.Enabled = !busy;
             _actions.Enabled = !busy;
             _ruleActions.Enabled = !busy;
             if (r != null)
@@ -2072,6 +2156,12 @@ namespace FlareAI.Flare.UI
         }
 
         void IReviewHost.ShowError(string whatHappened, string whatToDo, Exception details, string action) { Notify.Error(this, whatHappened, whatToDo, details, action); }
+    }
+
+    /// <summary>A tab button. A plain radio button clicks itself when it gets the focus, which switched tabs whenever a panel was shown.</summary>
+    internal sealed class TabRadio : RadioButton
+    {
+        protected override void OnEnter(EventArgs e) { }
     }
 
     /// <summary>A one-field text prompt (Edit / Refine).</summary>

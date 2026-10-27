@@ -1,0 +1,1 @@
+- Lint Topic and Lint Project now keep their issues side by side. Switch between them with the This Topic and Project tabs in the House Style Issues pane.

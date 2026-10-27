@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using FlareAI.Core;
@@ -15,31 +17,80 @@ namespace FlareAI.Flare.UI
     public static class PanelHost
     {
         private static bool _paneBroken;
-        private static FindingsPanel _current, _last;
+        private static PaneSlots<FindingsPanel> Slots = new PaneSlots<FindingsPanel>();
+        private static Form _floating;
+        private static bool _changedSubscribed = false;
+
+        // For tests only: forget every panel and window an earlier test left behind
+        internal static void ResetForTests()
+        {
+            Slots = new PaneSlots<FindingsPanel>();
+            _floating = null;
+            _paneBroken = false;
+        }
+
+        // For tests only: force floating mode (no docked pane)
+        internal static bool ForceFloating { get; set; }
 
         /// <summary>The findings panel currently shown (docked or floating), or null once closed.</summary>
-        public static FindingsPanel Current { get { return _current != null && !_current.IsDisposed && _current.Parent != null ? _current : null; } }
+        public static FindingsPanel Current { get { return Slots.IsOpen && Slots.ShownPanel != null && !Slots.ShownPanel.IsDisposed && Slots.ShownPanel.Parent != null ? Slots.ShownPanel : null; } }
+
+        /// <summary>The topic panel if one exists, regardless of whether it's shown or the pane is closed.</summary>
+        public static FindingsPanel TopicPanel { get { return Slots.Topic != null && !Slots.Topic.IsDisposed ? Slots.Topic : null; } }
+
+        /// <summary>The project panel if one exists, regardless of whether it's shown or the pane is closed.</summary>
+        public static FindingsPanel ProjectPanel { get { return Slots.Project != null && !Slots.Project.IsDisposed ? Slots.Project : null; } }
 
         /// <summary>Shows the last panel again, with its results, after the writer closed it; false if there is none.</summary>
         public static bool Reopen(Form flareMainForm)
         {
-            if (_last == null || _last.IsDisposed) return false;
-            Show(_last, flareMainForm);
+            PaneSlot slot;
+            if (!Slots.TryReopen(out slot)) return false;
+            var panel = Slots.Get(slot);
+            if (panel == null || panel.IsDisposed) return false;
+            Slots.Show(slot);
+            Display(panel, flareMainForm);
             return true;
+        }
+
+        public static void BeginClose()
+        {
+            Slots.Close();
         }
 
         public static void Show(FindingsPanel panel, Form flareMainForm)
         {
-            var old = _current;
-            if (old != null && old != panel) try { old.WatchWrites(false); } catch (Exception ex) { Diagnostics.Log("unwatch: " + ex.GetType().Name); }
-            _current = _last = panel;
+            Show(panel, flareMainForm, true);
+        }
+
+        public static void Show(FindingsPanel panel, Form flareMainForm, bool front)
+        {
+            var old = Slots.Put(panel.Slot, panel, front);
+            if (old != null && old != panel) Discard(old);
+
+            panel.CloseRequested += (s, e) => { Slots.Close(); DetachAll(); };
+            panel.TabRequested += (slot) => ShowSlot(slot, flareMainForm);
+
+            if (!_changedSubscribed)
+            {
+                _changedSubscribed = true;
+                FindingsPanel.Changed += (p) => PushCounts();
+            }
+
             panel.WatchWrites(true);
-            panel.CloseRequested += (s, e) => { try { if (_current == panel) _current = null; } finally { panel.WatchWrites(false); } };
-            if (!_paneBroken)
+            if (front) Display(panel, flareMainForm);
+            else { SyncHost(); panel.Begin(); }   // a hidden panel still lints
+            PushCounts();
+        }
+
+        /// <summary>Puts the shown panel in the pane (or the floating window) and starts it.</summary>
+        private static void Display(FindingsPanel panel, Form owner)
+        {
+            if (!_paneBroken && !ForceFloating)
             {
                 try
                 {
-                    if (FlarePane.Show(panel, flareMainForm)) { panel.Begin(); return; }
+                    if (FlarePane.Show(panel, owner)) { SyncHost(); PushCounts(); panel.Begin(); return; }
                 }
                 catch (Exception ex) // TypeLoadException, MissingMethodException, FileNotFoundException, InvalidCastException, …
                 {
@@ -47,24 +98,120 @@ namespace FlareAI.Flare.UI
                     Diagnostics.Log("Docked pane unavailable, using a floating window", ex);
                 }
             }
-            ShowFloating(panel, flareMainForm);
+            ShowFloating(panel, owner);
+            PushCounts();
+        }
+
+        private static void Discard(FindingsPanel old)
+        {
+            try { old.WatchWrites(false); } catch (Exception ex) { Diagnostics.Log("unwatch: " + ex.GetType().Name); }
+            if (_floating != null && !_floating.IsDisposed && old.Parent == _floating) try { _floating.Controls.Remove(old); } catch (Exception) { }
+            if (!_paneBroken && !ForceFloating) try { FlarePane.RemoveContent(old); } catch (Exception) { }
+            try { old.Dispose(); } catch (Exception ex) { Diagnostics.Log("dispose old: " + ex.GetType().Name); }
+        }
+
+        /// <summary>Takes both panels out of their host so closing the host doesn't dispose them (Reopen needs them).</summary>
+        private static void DetachAll()
+        {
+            var f = _floating;
+            foreach (var p in Slots.Both())
+            {
+                if (f != null && !f.IsDisposed && p.Parent == f) try { f.Controls.Remove(p); } catch (Exception) { }
+            }
+            if (!_paneBroken && !ForceFloating) try { FlarePane.RemoveAll(); } catch (Exception) { }
+            if (f != null && !f.IsDisposed) try { f.Close(); } catch (Exception) { }
+        }
+
+        /// <summary>Makes the host show exactly the shown slot, adding a panel the host doesn't hold yet.</summary>
+        private static void SyncHost()
+        {
+            var shown = Slots.ShownPanel;
+            if (shown == null || shown.IsDisposed) return;
+            if (_floating != null && !_floating.IsDisposed)
+            {
+                foreach (var p in Slots.Both())
+                {
+                    if (p.Parent != _floating) { p.Dock = DockStyle.Fill; _floating.Controls.Add(p); }
+                    p.Visible = p == shown;
+                }
+                _floating.Text = shown.Title;
+                _floating.AccessibleName = shown.Title;
+            }
+            else if (!_paneBroken && !ForceFloating)
+            {
+                try
+                {
+                    foreach (var p in Slots.Both()) FlarePane.AddContent(p);
+                    FlarePane.UpdateVisible(shown);
+                }
+                catch (Exception) { _paneBroken = true; }
+            }
+        }
+
+        private static void ShowSlot(PaneSlot slot, Form owner)
+        {
+            if (!Slots.Show(slot)) return;
+            var shown = Slots.ShownPanel;
+            if (shown == null || shown.IsDisposed) return;
+            if (Slots.IsOpen)
+            {
+                SyncHost();
+                // Focusing a tab while the other panel's tab is still handling its click locks the form up, so let the click finish first.
+                if (shown.IsHandleCreated) shown.BeginInvoke(new Action(() => { if (!shown.IsDisposed) shown.FocusAfterSwitch(); }));
+                else shown.FocusAfterSwitch();
+            }
+            else Display(shown, owner);
+        }
+
+        public static void ClearTopic(string path)
+        {
+            var old = Slots.ClearTopicIf(p => string.Equals(p.TopicPath, path, StringComparison.OrdinalIgnoreCase));
+            if (old != null)
+            {
+                Discard(old);
+                SyncHost();
+                PushCounts();
+            }
+        }
+
+        private static void PushCounts()
+        {
+            var topic = TopicPanel;
+            var project = ProjectPanel;
+            var any = topic ?? project;
+            // Changed can be raised from a worker thread.
+            if (any != null && any.IsHandleCreated && any.InvokeRequired)
+            {
+                try { any.BeginInvoke(new Action(PushCounts)); } catch (Exception) { }
+                return;
+            }
+            if (topic != null) topic.SetTabs(topic.OpenCount(), project != null ? project.OpenCount() : -1);
+            if (project != null) project.SetTabs(topic != null ? topic.OpenCount() : -1, project.OpenCount());
         }
 
         private static void ShowFloating(FindingsPanel panel, Form owner)
         {
-            var area = Screen.FromPoint(Cursor.Position).WorkingArea;
-            var form = new Form
+            if (_floating == null || _floating.IsDisposed)
             {
-                Text = panel.Title, StartPosition = FormStartPosition.Manual, Size = new Size(720, 460),
-                MinimumSize = new Size(320, 260), ShowInTaskbar = false, KeyPreview = true, Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font, AccessibleName = panel.Title
-            };
-            form.Location = new Point(area.Right - form.Width - 24, area.Bottom - form.Height - 24);
-            panel.Dock = DockStyle.Fill;
-            form.Controls.Add(panel);
-            panel.CloseRequested += (s, e) => { if (!form.IsDisposed) form.Close(); };
-            form.FormClosing += (s, e) => form.Controls.Remove(panel);   // keep the panel alive for Reopen
-            form.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) form.Close(); };
-            form.Show(owner);
+                var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+                var form = new Form
+                {
+                    Text = panel.Title, StartPosition = FormStartPosition.Manual, Size = new Size(720, 460),
+                    MinimumSize = new Size(320, 260), ShowInTaskbar = false, KeyPreview = true, Font = SystemFonts.MessageBoxFont,
+                    AutoScaleMode = AutoScaleMode.Font, AccessibleName = panel.Title
+                };
+                _floating = form;
+                form.Location = new Point(area.Right - form.Width - 24, area.Bottom - form.Height - 24);
+                form.FormClosing += (s, e) =>
+                {
+                    Slots.Close();
+                    // Keep the panels alive for Reopen.
+                    foreach (var p in Slots.Both()) if (p.Parent == form) try { form.Controls.Remove(p); } catch (Exception) { }
+                };
+                form.KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) form.Close(); };
+                form.Show(owner);
+            }
+            SyncHost();
             panel.Begin();
         }
     }
@@ -103,6 +250,31 @@ namespace FlareAI.Flare.UI
             return true;
         }
 
+        public static void AddContent(FindingsPanel panel)
+        {
+            if (_view != null && !_view.IsDisposed)
+                _view.AddContent(panel);
+        }
+
+        public static void RemoveContent(FindingsPanel panel)
+        {
+            if (_view != null && !_view.IsDisposed)
+                _view.RemoveContent(panel);
+        }
+
+        public static void RemoveAll()
+        {
+            if (_view != null && !_view.IsDisposed)
+                _view.RemoveAll();
+        }
+
+        public static void UpdateVisible(FindingsPanel shown)
+        {
+            if (_view != null && !_view.IsDisposed)
+                _view.UpdateVisible(shown);
+            if (_pane != null && !_pane.IsDisposed) _pane.Title = shown.Title;
+        }
+
         /// <summary>
         /// For the e2e hook: floats the docked pane as Flare's Float command does, at <paramref name="width"/> x
         /// <paramref name="height"/> when given. True when the pane is a window afterwards (or never was docked).
@@ -120,6 +292,7 @@ namespace FlareAI.Flare.UI
         {
             try
             {
+                if (_view != null && !_view.IsDisposed) _view.RemoveAll();   // Flare disposes the view, not the panels
                 // As Flare's own ✕ does: UninstallPane alone leaves the pane showing when it is a tab in a pane group.
                 if (_pane != null && !_pane.IsDisposed && !_pane.PerformClose() && dock.Panes.Contains(_pane)) dock.UninstallPane(_pane);
             }
@@ -128,16 +301,42 @@ namespace FlareAI.Flare.UI
             _view = null;
         }
 
-        /// <summary>A Flare pane view that hosts one panel at a time (a new check replaces the previous one).</summary>
+        /// <summary>A Flare pane view that hosts one or both panels (topic and project).</summary>
         private sealed class SidebarView : B3.AppKit.PaneView
         {
-            public void SetContent(Control content)
+            public void SetContent(FindingsPanel panel)
             {
-                if (Controls.Contains(content)) return;   // Reopen while the pane is still open
-                foreach (Control old in Controls) old.Dispose();
-                Controls.Clear();
-                content.Dock = DockStyle.Fill;
-                Controls.Add(content);
+                AddContent(panel);
+                UpdateVisible(panel);
+            }
+
+            public void AddContent(FindingsPanel panel)
+            {
+                if (!Controls.Contains(panel))
+                {
+                    panel.Dock = DockStyle.Fill;
+                    Controls.Add(panel);
+                }
+            }
+
+            public void RemoveContent(FindingsPanel panel)
+            {
+                if (Controls.Contains(panel))
+                    Controls.Remove(panel);
+            }
+
+            public void RemoveAll()
+            {
+                foreach (var p in new List<FindingsPanel>(Controls.OfType<FindingsPanel>()))
+                    Controls.Remove(p);
+            }
+
+            public void UpdateVisible(FindingsPanel shown)
+            {
+                foreach (Control ctl in Controls)
+                {
+                    ctl.Visible = (ctl == shown);
+                }
             }
         }
     }
