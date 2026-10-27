@@ -29,6 +29,9 @@ may change.
 4. Name a test only where the spec's verification plan asks for one: its full name, and the cheapest channel that can
    run it: `rule-fixtures`, `core`, `scenarios`, `flare-tests`, `pester` or `vitest`. A Flare scenario
    (`tests/e2e`) only for something visible in Flare; give that chunk `"test": null`, because CI runs it on the VM.
+   A chunk's test must pass once that chunk is built, because the factory runs it then and retries the chunk until it
+   passes. So write a new test in the chunk that makes it pass, never in an earlier test-only chunk, and name each
+   test in one chunk only.
 5. Pick each chunk's model. `haiku` is the default and should build most chunks: adding a method, a field, a test,
    wiring a call site, following a pattern the facts point at. Put the judgment into the card instead (the exact
    signature, the rule to follow, the edge cases), so Haiku can do it. Use `sonnet` only for a chunk whose design you
