@@ -79,6 +79,268 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- team feedback folder in setup and Settings (#91) -------------------------------------------------------
+
+        [Fact]
+        public void Setup_TeamGuideChoice_ShowsTheFeedbackFolder_OnlyWhenNoneIsSet()
+        {
+            SaveSettings(new PluginSettings { StyleLayers = "", FeedbackFolder = "" });
+            Sta(() =>
+            {
+                using (var f = NewSetup())
+                {
+                    ToGuideStep(f);
+                    Choose(f, "My team's shared style guide folder");
+                    Assert.True(Named(f, "Team feedback folder").Visible, "no feedback folder yet: setup asks for one");
+                    Assert.True(Named(f, "Browse for the team feedback folder").Visible);
+                    Assert.Contains(VisibleLabels(f), t => t.StartsWith("Your requests to your style guide owners go here.", StringComparison.Ordinal));
+                }
+            });
+
+            var existing = Path.Combine(_root, "feedback");
+            Directory.CreateDirectory(existing);
+            SaveSettings(new PluginSettings { StyleLayers = "", FeedbackFolder = existing });
+            Sta(() =>
+            {
+                using (var f = NewSetup())
+                {
+                    ToGuideStep(f);
+                    Choose(f, "My team's shared style guide folder");
+                    Assert.False(Named(f, "Team feedback folder").Visible, "a folder is already set: setup doesn't ask again");
+                }
+            });
+        }
+
+        [Fact]
+        public void Setup_GoogleChoice_HidesTheFeedbackFolder()
+        {
+            SaveSettings(new PluginSettings { StyleLayers = "", FeedbackFolder = "" });
+            Sta(() =>
+            {
+                using (var f = NewSetup())
+                {
+                    ToGuideStep(f);
+                    Choose(f, "My team's shared style guide folder");
+                    Assert.True(Named(f, "Team feedback folder").Visible);
+                    Choose(f, "Google's guide plus my own changes");
+                    Assert.False(Named(f, "Team feedback folder").Visible);
+                    Assert.False(Named(f, "Browse for the team feedback folder").Visible);
+                }
+            });
+        }
+
+        [Fact]
+        public void Setup_FeedbackStatus_ChecksAWritableAndAnUnwritableFolder()
+        {
+            var guide = NewGuide();
+            var writable = Path.Combine(_root, "shared");
+            Directory.CreateDirectory(writable);
+            var missing = Path.Combine(_root, "not-there");
+            SaveSettings(new PluginSettings { StyleLayers = "", FeedbackFolder = "" });
+            Sta(() =>
+            {
+                var f = NewSetup();
+                try
+                {
+                    ToGuideStep(f);
+                    Choose(f, "My team's shared style guide folder");
+                    var box = (TextBox)Named(f, "Team feedback folder");
+                    var status = Named(f, "Team feedback folder status");
+
+                    box.Text = writable; Leave(box);
+                    Pump(() => status.Text != "Checking…" && status.Text.Length > 0, 10000);
+                    Assert.Equal("✓ Shared with your team", status.Text);
+
+                    box.Text = missing; Leave(box);
+                    Pump(() => status.Text != "Checking…" && status.Text != "✓ Shared with your team", 10000);
+                    Assert.Equal("Can't write to this folder", status.Text);
+
+                    box.Text = ""; Leave(box);
+                    Pump(null, 100);
+                    Assert.Equal("", status.Text);
+
+                    // An unwritable folder doesn't stop setup, and the last step says requests wait.
+                    box.Text = missing; Leave(box);
+                    Pump(() => status.Text == "Can't write to this folder", 10000);
+                    ((TextBox)Named(f, "Team style guide folder")).Text = guide;
+                    Button(f, "Next").PerformClick();   // checks the guide folder
+                    Pump(() => !VisibleLabels(f).Any(t => t.StartsWith("Checking", StringComparison.Ordinal)), 10000);
+                    Button(f, "Next").PerformClick();
+                    Pump(null, 100);
+                    var summary = Named(f, "What was set up").Text;
+                    Assert.Contains("Requests: kept on this computer until " + missing + " can be reached.", summary);
+                }
+                finally { f.Dispose(); }
+            });
+        }
+
+        [Fact]
+        public void Setup_GuideStep_TabOrderAndAccessibleNames()
+        {
+            SaveSettings(new PluginSettings { StyleLayers = "", FeedbackFolder = "" });
+            Sta(() =>
+            {
+                using (var f = NewSetup())
+                {
+                    ToGuideStep(f);
+                    Choose(f, "My team's shared style guide folder");
+                    var order = new[] { "Team style guide folder", "Browse for the team style guide folder", "Team feedback folder",
+                                        "Browse for the team feedback folder", "Skip this step", "Back", "Next" };
+                    var stops = TabStops(f, All(f).OfType<RadioButton>().Single(r => r.Text == "My team's shared style guide folder"));
+                    var at = order.Select(n => stops.IndexOf(n)).ToArray();
+                    for (var i = 0; i < order.Length; i++) Assert.True(at[i] >= 0, order[i] + " isn't in the tab order (" + string.Join(", ", stops) + ")");
+                    for (var i = 1; i < order.Length; i++) Assert.True(at[i - 1] < at[i], order[i - 1] + " should come before " + order[i] + " (" + string.Join(", ", stops) + ")");
+                    Assert.Equal("Team feedback folder status", Named(f, "Team feedback folder status").AccessibleName);
+                }
+            });
+        }
+
+        [Fact]
+        public void Settings_FeedbackFolder_IsOnTheStyleGuideTab()
+        {
+            SaveSettings(new PluginSettings { StyleLayers = NewGuide(), FeedbackFolder = "" });
+            Sta(() =>
+            {
+                using (var f = NewSettings())
+                {
+                    foreach (var name in new[] { "Team feedback folder", "Browse for the team feedback folder", "Team feedback folder status" })
+                    {
+                        Control c = Named(f, name);
+                        while (!(c is TabPage)) c = c.Parent;
+                        Assert.Equal("Style guide", c.Text);
+                    }
+                    // Below the project check box, and inside the page.
+                    var page = (TabPage)Named(f, "Team feedback folder").Parent;
+                    var project = All(page).OfType<CheckBox>().Single(b => b.Text.StartsWith("Also use this project's", StringComparison.Ordinal));
+                    Assert.True(Named(f, "Team feedback folder").Top > project.Bottom);
+                    var status = Named(f, "Team feedback folder status");
+                    Pump(() => status.Text.Length > 0 && status.Text != "Checking…", 10000);
+                    var lastNote = page.Controls.OfType<Label>().OrderBy(l => l.Bottom).Last();
+                    Assert.True(lastNote.Bottom <= page.ClientSize.Height, "the page cuts off its last note (" + lastNote.Bottom + " > " + page.ClientSize.Height + ")");
+                }
+            });
+        }
+
+        [Fact]
+        public void Settings_FeedbackStatus_SaysWhereRequestsGo_OnlyWithATeamGuide()
+        {
+            var guide = NewGuide();
+            var writable = Path.Combine(_root, "shared");
+            Directory.CreateDirectory(writable);
+            var missing = Path.Combine(_root, "not-there");
+            var cases = new[]
+            {
+                new { Layers = guide, Feedback = writable, Want = "✓ Shared with your team. Your requests to your style guide owners go here too." },
+                new { Layers = guide, Feedback = missing, Want = "Can't write to this folder. Requests to your style guide owners wait on this computer until it can be reached." },
+                new { Layers = guide, Feedback = "", Want = "Personal only. Requests to your style guide owners stay on this computer until you choose a folder." },
+                new { Layers = @"{PluginDir}\styleguide", Feedback = writable, Want = "✓ Shared with your team" },
+                new { Layers = "", Feedback = writable, Want = "✓ Shared with your team" },
+                new { Layers = "", Feedback = missing, Want = "Can't write to this folder" },
+                new { Layers = "", Feedback = "", Want = "Personal only" },
+            };
+            foreach (var c in cases)
+            {
+                SaveSettings(new PluginSettings { StyleLayers = c.Layers, FeedbackFolder = c.Feedback });
+                Sta(() =>
+                {
+                    using (var f = NewSettings())
+                    {
+                        var status = Named(f, "Team feedback folder status");
+                        Pump(() => status.Text == c.Want, 10000, false);
+                        Assert.Equal(c.Want, status.Text);
+                        var page = (TabPage)status.Parent;
+                        Assert.True(status.Bottom <= page.ClientSize.Height, "the status runs past the page");
+                    }
+                });
+            }
+
+            // Removing the team guide takes the requests sentence away.
+            SaveSettings(new PluginSettings { StyleLayers = guide, FeedbackFolder = writable });
+            Sta(() =>
+            {
+                using (var f = NewSettings())
+                {
+                    var status = Named(f, "Team feedback folder status");
+                    Pump(() => status.Text == cases[0].Want, 10000, false);
+                    var tabs = All(f).OfType<TabControl>().Single();
+                    tabs.SelectedTab = tabs.TabPages.Cast<TabPage>().Single(p => p.Text == "Style guide");
+                    Pump(null, 100);
+                    var list = All(f).OfType<ListBox>().Single();
+                    list.SelectedIndex = 0;
+                    Button(f, "Remove").PerformClick();
+                    Pump(() => status.Text == "✓ Shared with your team", 10000, false);
+                    Assert.Equal("✓ Shared with your team", status.Text);
+                }
+            });
+        }
+
+        private void SaveSettings(PluginSettings s) { s.Save(); }
+
+        /// <summary>A Flare project folder with no rules: a usable team guide.</summary>
+        private string NewGuide()
+        {
+            var guide = Path.Combine(_root, "guide-" + Guid.NewGuid().ToString("N").Substring(0, 6));
+            Directory.CreateDirectory(Path.Combine(guide, "Content"));
+            File.WriteAllText(Path.Combine(guide, "Team.flprj"), "<CatapultProject />");
+            return guide;
+        }
+
+        private static SetupForm NewSetup()
+        {
+            var f = new SetupForm { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false };
+            f.Show();
+            Pump(null, 200);
+            return f;
+        }
+
+        private static SettingsForm NewSettings()
+        {
+            var f = new SettingsForm { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false };
+            f.Show();
+            Pump(null, 200);
+            return f;
+        }
+
+        private static void ToGuideStep(Form f)
+        {
+            Button(f, "Next").PerformClick();             // role
+            Pump(null, 100);
+            Button(f, "Skip this step").PerformClick();   // AI
+            Pump(null, 100);
+        }
+
+        private static void Choose(Form f, string text)
+        {
+            All(f).OfType<RadioButton>().Single(r => r.Text == text).Checked = true;
+            Pump(null, 100);
+        }
+
+        private static Button Button(Form f, string text) { return All(f).OfType<Button>().Single(b => b.Visible && b.Text == text); }
+
+        private static Control Named(Form f, string name) { return All(f).Single(c => c.AccessibleName == name); }
+
+        private static List<string> VisibleLabels(Form f) { return All(f).OfType<Label>().Where(l => l.Visible && l.Parent.Visible).Select(l => l.Text).ToList(); }
+
+        private static void Leave(Control c)
+        {
+            typeof(Control).GetMethod("OnLeave", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(c, new object[] { EventArgs.Empty });
+        }
+
+        /// <summary>The names of the controls Tab reaches from <paramref name="start"/>, in order, once round the form.</summary>
+        private static List<string> TabStops(Form f, Control start)
+        {
+            var names = new List<string>();
+            var c = start;
+            for (var i = 0; i < 200; i++)
+            {
+                c = f.GetNextControl(c, true);
+                if (c == null) { c = f; continue; }
+                if (c == start) break;
+                if (c.CanSelect && c.TabStop && !(c is Label)) names.Add(!string.IsNullOrEmpty(c.AccessibleName) ? c.AccessibleName : c.Text);
+            }
+            return names;
+        }
+
         [Theory]
         [InlineData(150, 640)]
         [InlineData(180, 640)]
@@ -231,7 +493,8 @@ namespace FlareAI.Flare.Tests
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
         }
 
-        private static void Pump(Func<bool> done, int ms = 15000)
+        /// <param name="mustFinish">False: a timeout returns, so the assertion after it says what was there instead.</param>
+        private static void Pump(Func<bool> done, int ms = 15000, bool mustFinish = true)
         {
             var clock = Stopwatch.StartNew();
             while (clock.ElapsedMilliseconds < ms)
@@ -240,18 +503,53 @@ namespace FlareAI.Flare.Tests
                 if (done != null && done()) { Application.DoEvents(); return; }
                 Thread.Sleep(10);
             }
-            if (done != null) throw new TimeoutException("The pane didn't finish linting.");
+            if (done != null && mustFinish) throw new TimeoutException("The pane didn't finish linting.");
         }
 
         private static void Sta(Action body)
         {
             Exception error = null;
-            var t = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
+            // A failed step can leave a form unable to dispose, and that error then hides the step's: keep the first
+            // assertion or timeout raised on the test's thread too.
+            Exception first = null;
+            Thread ui = null;
+            var raised = new List<string>();
+            var other = false;   // anything raised on the test's thread besides the dispose error below
+            EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> seen = (s, e) =>
+            {
+                if (Thread.CurrentThread != ui) return;
+                if (!IsDisposeRace(e.Exception)) other = true;
+                if (raised.Count < 8) raised.Add(e.Exception.GetType().Name + ": " + e.Exception.Message + " at " + (e.Exception.StackTrace ?? "").Split('\n').FirstOrDefault());
+                if (first == null && (e.Exception is Xunit.Sdk.XunitException || e.Exception is TimeoutException)) first = e.Exception;
+            };
+            var t = ui = new Thread(() =>
+            {
+                // The dialogs' background checks finish through this thread's context: without one they would end on a
+                // pool thread and touch the dialog from there.
+                SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+                try { body(); } catch (Exception ex) { error = ex; }
+            });
             t.SetApartmentState(ApartmentState.STA);
             t.IsBackground = true;
-            t.Start();
-            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
-            if (error != null) throw new Exception(error.Message, error);
+            AppDomain.CurrentDomain.FirstChanceException += seen;
+            try
+            {
+                t.Start();
+                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            }
+            finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
+            if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);
+            // On the CI runner (no interactive desktop), disposing a dialog at the end of a test sometimes throws this with
+            // every assertion passed and nothing else raised. Only then (no other exception at all on the test's thread, so
+            // the body ran to its end) it doesn't fail the test.
+            if (error != null && !other && IsDisposeRace(error)) return;
+            if (error != null) throw new Exception(error.Message + " Raised on the test's thread: " + string.Join(" | ", raised.ToArray()), error);
+        }
+
+        private static bool IsDisposeRace(Exception ex)
+        {
+            return ex is InvalidOperationException && ex.Message.Contains("while doing CreateHandle") &&
+                   (ex.StackTrace ?? Environment.StackTrace).Contains("Control.Dispose");
         }
     }
 }

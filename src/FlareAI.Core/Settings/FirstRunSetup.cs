@@ -188,6 +188,14 @@ namespace FlareAI.Core.Settings
             return true;
         }
 
+        /// <summary>True when the guide list holds a team guide: an entry that isn't the plugin's own (<c>{PluginDir}</c>) guide.</summary>
+        public static bool HasTeamGuide(string styleLayers)
+        {
+            foreach (var g in (styleLayers ?? "").Split(new[] { '\r', '\n', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                if (g.Trim().Length > 0 && !g.Contains("{PluginDir}")) return true;
+            return false;
+        }
+
         /// <summary>One line per answer for the last step: what was set up.</summary>
         /// <param name="feedbackWritable">False when the setup window couldn't write to the feedback folder.</param>
         public static string Summary(PluginSettings s, bool feedbackWritable = true)
@@ -202,7 +210,7 @@ namespace FlareAI.Core.Settings
             }
             var guide = (s.StyleLayers ?? "").Trim().Length == 0 ? "Rules: Google's guide plus your own changes." : "Rules: your team's guide in " + s.StyleLayers.Trim().Replace("\r", "").Replace("\n", ", ") + ".";
             var summary = Roles.Summary(s.Role ?? UserRole.Writer) + "\n" + aiLine + "\n" + guide;
-            if ((s.StyleLayers ?? "").Trim().Length == 0) return summary;
+            if (!HasTeamGuide(s.StyleLayers)) return summary;
             var feedback = (s.FeedbackFolder ?? "").Trim();
             string requests;
             if (feedback.Length == 0) requests = "Requests: kept on this computer until you choose a team feedback folder in Settings.";

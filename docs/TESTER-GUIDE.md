@@ -67,7 +67,7 @@ ribbon.
 - Change rules directly from the pane or **Rules**. Writers get the change on their next lint.
 - Select **Rule Decisions** to see requests under **Requests to the style guide owners**. Select **Approve or
   decline…**. You can adjust a change before you approve it.
-- Requests arrive through the team feedback folder. Every writer sets it in **Settings > Advanced**. Without it, writers
+- Requests arrive through the team feedback folder. Every writer sets it in setup or in **Settings > Style guide**. Without it, writers
   can't send requests.
 
 **Limits:**
