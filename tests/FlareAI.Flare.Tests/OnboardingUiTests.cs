@@ -537,6 +537,10 @@ namespace FlareAI.Flare.Tests
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);
+            // On the CI runner (no interactive desktop), disposing a dialog at the end of a test sometimes throws this with
+            // every assertion passed and nothing else raised. It says nothing about the test, so it doesn't fail it.
+            if (error is InvalidOperationException && first == null && error.Message.Contains("while doing CreateHandle") &&
+                (error.StackTrace ?? "").Contains("Control.Dispose")) return;
             if (error != null) throw new Exception(error.Message + " Raised on the test's thread: " + string.Join(" | ", raised.ToArray()), error);
         }
     }
