@@ -140,8 +140,20 @@ function Get-IssueFacts([int]$n) {
         Where-Object { $_.event -eq "labeled" -or $_.event -eq "unlabeled" } | ForEach-Object { [pscustomobject]@{ event = $_.event; label = $_.label.name; actor = $_.actor.login } })
     $q = 'query($r:String!,$o:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){userContentEdits(first:100){nodes{editor{login}}}}}}'
     $parts = $repo -split '/'
-    $editors = try { @((Gh api graphql -f query=$q -F o=$($parts[0]) -F r=$($parts[1]) -F n=$n | ConvertFrom-Json).data.repository.issue.userContentEdits.nodes | ForEach-Object { $_.editor.login }) } catch { $null }
-    [pscustomobject]@{ number = $n; title = $i.title; body = $i.body; author = $i.author.login; labels = @($i.labels | ForEach-Object { $_.name }); events = $events; editors = $editors }
+    # This call failed now and then right after an issue finished (2026-10-27), so it gets three tries, and the last
+    # error goes to the notes. $null editors means the history couldn't be read.
+    $editors = $null; $editError = ""
+    foreach ($wait in 0, 10, 30) {
+        Start-Sleep -Seconds $wait
+        $o = & { $ErrorActionPreference = "Continue"; & gh.exe api graphql -f query=$q -F o=$($parts[0]) -F r=$($parts[1]) -F n=$n 2>&1 }
+        $code = $LASTEXITCODE
+        $err = (@($o | Where-Object { $_ -is [Management.Automation.ErrorRecord] }) -join " ").Trim()
+        $issue = try { (@($o | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) -join "`n" | ConvertFrom-Json).data.repository.issue } catch { $null }
+        if (-not $code -and $issue) { $editors = @($issue.userContentEdits.nodes | ForEach-Object { if ($_.editor.login) { $_.editor.login } else { "<deleted account>" } }); break }   # a deleted account still counts as someone else
+        $editError = if ($err) { $err } else { "gh exited $code with no issue in the answer" }
+    }
+    if ($editError.Length -gt 300) { $editError = $editError.Substring(0, 300) }
+    [pscustomobject]@{ number = $n; title = $i.title; body = $i.body; author = $i.author.login; labels = @($i.labels | ForEach-Object { $_.name }); events = $events; editors = $editors; editError = $editError }
 }
 
 # ---- publishing -----------------------------------------------------------------------------------------------------
@@ -294,6 +306,9 @@ function Invoke-Issue([int]$n, $facts, $state) {
                 if ($res.ExitCode) { $ok = $false; $failure = (@($res.Output) | Select-Object -Last 60) -join "`n" }
             } elseif (-not $ok) { $failure = if ($r) { "The builder said: $($r.summary)" } else { "The builder stopped without an answer." } }
             if ($ok) { break }
+            # A try that ran out of turns was usually most of the way there (#19, #161 on 2026-10-27: both tries capped
+            # at 60 turns, each starting over). Keep its work and have the retry finish it.
+            if ($script:lastResult -eq "cap") { $failure = "The last try ran out of turns before it finished. Its unfinished work is still in the files, so check what's there and finish it rather than starting over."; continue }
             Push-Location $s.worktree; try { Git checkout -q -- . ; Git clean -q -fd | Out-Null } finally { Pop-Location }
         }
         Push-Location $s.worktree
@@ -303,12 +318,18 @@ function Invoke-Issue([int]$n, $facts, $state) {
 
     # Notes, publish, push, PR
     if (-not $s.notesDone) {
-        $before = @(Git -C $s.worktree status --porcelain).Count
         $stat = (Git -C $s.worktree diff --stat "origin/main...HEAD") -join "`n"
         $null = Invoke-BuildAgent $s "notes" "hs-notes" "haiku" "Write changes/factory-$n.md if writers would notice this change, otherwise write nothing.`nIntent: $($s.intent)`nChanged files:`n$stat" "Read,Write" "notes"
-        if (@(Git -C $s.worktree status --porcelain).Count -gt $before) { Push-Location $s.worktree; try { Git add -A; Git commit -q -F (New-BodyFile "Factory #${n}: release note") | Out-Null } finally { Pop-Location } }
-        $s.notesDone = $true; Save-State $s
     }
+    # The script commits the note, never anything else the notes agent wrote. This also runs on a resume, since a run
+    # that stopped between the agent and the commit left the note uncommitted (#239, 2026-10-27).
+    $note = "changes/factory-$n.md"
+    Push-Location $s.worktree
+    try {
+        if (Test-Path $note) { Git add -- $note; if (@(Git status --porcelain -- $note).Count) { Git commit -q -F (New-BodyFile "Factory #${n}: release note") -- $note | Out-Null } }
+        Git reset -q --hard; Git clean -q -fd | Out-Null
+    } finally { Pop-Location }
+    if (-not $s.notesDone) { $s.notesDone = $true; Save-State $s }
     $prText = "Built by the factory from the spec for #$n.`n`nFixes #$n"
     if (-not $s.pr) {
         Assert-Publishable $s $prText
@@ -401,7 +422,7 @@ try {
             $pick = $null
             if (-not $DryRun) {
                 New-Item -ItemType Directory -Force (Join-Path $notesDir $n) | Out-Null
-                Add-Content (Join-Path $notesDir "$n\notes.md") "$(Get-Date -Format o) not ready: $why"
+                Add-Content (Join-Path $notesDir "$n\notes.md") "$(Get-Date -Format o) not ready: $why$(if ($null -eq $f.editors -and $f.editError) { " ($($f.editError))" })"
                 Pub issue edit $n -R $repo --add-label "factory:stuck" | Out-Null
                 Pub issue comment $n -R $repo --body-file (New-BodyFile (Format-StuckComment "pick" 0 "unverified-ready")) | Out-Null
             }
