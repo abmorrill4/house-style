@@ -73,7 +73,7 @@ namespace FlareAI.Flare
                 _updates = new UpdateFlow(() => _nav.GetParentForm(), PluginDirectory, Version);
                 try { _updates.Start(); } catch (Exception ex) { Diagnostics.Log("updates", ex); }
                 HookDispatcher();
-                E2EHook.StartIfRequested(id => HandlerFor(CommandById(id)), path => OpenAdapter(path) != null, () => _nav.GetParentForm());
+                E2EHook.StartIfRequested(id => HandlerFor(CommandById(id)), path => OpenAdapter(path) != null, () => _nav.GetParentForm(), ActiveAdapter);
                 Welcome();
             }
             catch (Exception ex)
