@@ -38,6 +38,23 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void LintChecks_DefaultsToRulesAndAi_AndRoundTrips()
+        {
+            Assert.Equal("rules-ai", new PluginSettings().LintChecks);
+            var s = new PluginSettings { LintChecks = "rules" };
+            var back = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginSettings>(Newtonsoft.Json.JsonConvert.SerializeObject(s));
+            Assert.Equal("rules", back.LintChecks);
+            Assert.Equal("rules", s.Clone().LintChecks);
+        }
+
+        [Fact]
+        public void LintChecks_MissingFromTheFile_ReadsAsRulesAndAi()
+        {
+            var s = Newtonsoft.Json.JsonConvert.DeserializeObject<PluginSettings>("{\"AiOff\": true, \"LiveCheck\": false}");
+            Assert.Equal("rules-ai", s.LintChecks);
+        }
+
+        [Fact]
         public void Defaults_AreSane()
         {
             var s = new PluginSettings();

@@ -148,6 +148,94 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
+
+        /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>
+        private static void WithPane(Action<FindingsPanel, Form, ListView> body)
+        {
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(TwoParagraphs);
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(Rewords(r))(r)), new PromptBuilder(null), 1024);
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count == 2 && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
+                         15000, () => list.Items.Count + " rows: " + string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
+                    body(panel, form, list);
+                }
+            });
+        }
+
+        [Fact]
+        public void E2EFocusList_FocusesTheList_AndSelectsTheFirstRow()
+        {
+            WithPane((panel, form, list) =>
+            {
+                var other = All(panel).OfType<Button>().First(b => b.Visible && b.CanFocus);
+                other.Focus();
+                list.SelectedItems.Clear();
+                Pump(null, 100);
+                Assert.True(panel.E2EFocusList(), "the list should have the focus");
+                Assert.True(list.Focused);
+                Assert.Single(list.SelectedItems.Cast<ListViewItem>());
+                Assert.True(list.Items[0].Selected);
+                // A disabled window (a modal dialog over Flare) can't take the focus: the scenario sees false.
+                other.Focus();
+                form.Enabled = false;
+                Assert.False(panel.E2EFocusList());
+                form.Enabled = true;
+            });
+        }
+
+        [Fact]
+        public void E2EMenuPick_ClicksTheReasonByName_AndFailsWithNoOpenMenu()
+        {
+            WithPane((panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("It's correct")).Message);
+                var ignore = All(panel).OfType<Button>().Single(b => b.Text.StartsWith("Ignore", StringComparison.Ordinal) && b.Visible);
+                ignore.PerformClick();   // opens the reasons menu, as Delete in the list does
+                Assert.Equal("No menu item Nope", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("Nope")).Message);
+                panel.E2EMenuPick("Skip");   // by name (Skip for Now records nothing another test could see)
+                Pump(null, 300);
+                Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("It's correct")).Message);
+                Assert.True(list.Items[1].Selected, "Skip for Now should move to the next issue");
+            });
+        }
+
+        [Fact]
+        public void TakeSavePath_IsNull_WhenTheHookIsOff_AndOneShotWhenSet()
+        {
+            var old = Environment.GetEnvironmentVariable(E2EHook.EnvVar);
+            var run = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hs-e2e-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Environment.SetEnvironmentVariable(E2EHook.EnvVar, null);
+                Assert.Null(E2EHook.TakeSavePath());
+                Assert.Throws<InvalidOperationException>(() => E2EHook.SetSavePath(System.IO.Path.Combine(run, "issues.csv")));   // hook off
+
+                Environment.SetEnvironmentVariable(E2EHook.EnvVar, run);
+                var inside = System.IO.Path.Combine(run, "out", "issues.csv");
+                E2EHook.SetSavePath(inside);
+                Assert.Equal(inside, E2EHook.TakeSavePath());
+                Assert.Null(E2EHook.TakeSavePath());   // one-shot
+
+                foreach (var bad in new[] { @"C:\Windows\issues.csv", "issues.csv", System.IO.Path.Combine(run, @"..\issues.csv"), run, run + "-other\\x.csv" })
+                    Assert.Equal("Save path must be inside the run folder", Assert.Throws<InvalidOperationException>(() => E2EHook.SetSavePath(bad)).Message);
+                Assert.Null(E2EHook.TakeSavePath());
+            }
+            finally { Environment.SetEnvironmentVariable(E2EHook.EnvVar, old); }
+        }
+
         private const string TwoParagraphs = "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Transfers</h1>" +
                                              "<p>Please note that the fee is waived for members who move money between their own accounts.</p>" +
                                              "<p>In order to move money, open the Transfers page.</p></body></html>";

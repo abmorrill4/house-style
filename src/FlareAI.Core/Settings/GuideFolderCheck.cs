@@ -16,6 +16,8 @@ namespace FlareAI.Core.Settings
         public bool CanChangeRules { get; set; }
         /// <summary>Files can be written in the folder.</summary>
         public bool Writable { get; set; }
+        /// <summary>How many House Style rules the guide has (0 for a new guide, which is still usable).</summary>
+        public int Rules { get; set; }
         /// <summary>One or two plain sentences: what the folder is, and what this writer can do with it.</summary>
         public string Message { get; set; }
         public override string ToString() { return Message; }
@@ -50,7 +52,10 @@ namespace FlareAI.Core.Settings
                 var team = Team.Load(path, null, writer);
                 var writable = FolderAccess.CanWrite(path);
                 var name = Path.GetFileNameWithoutExtension(proj[0]);
-                var head = "✓ " + name + " (" + (rules == 0 ? "no rules yet" : rules + (rules == 1 ? " rule" : " rules")) + "). ";
+                // No check mark for a guide with no rules: it works, but it changes nothing until rules are added.
+                var head = rules == 0
+                    ? name + " has no House Style rules yet. They go in topics in its Content\\Resources\\StyleGuide folder, and the guide's owner can add them with Import Rules. "
+                    : "✓ " + name + " (" + rules + (rules == 1 ? " rule" : " rules") + "). ";
                 string role;
                 if (team.OwnersProblem != null)
                     role = "Read-only for you: House Style can't read the guide's owners list (FlareAI\\owners.txt: " + team.OwnersProblem +
@@ -64,7 +69,7 @@ namespace FlareAI.Core.Settings
                     role = "You're one of its owners, so you can change its rules.";
                 else
                     role = "You can use it and change its rules.";
-                return new GuideFolderStatus { Ok = true, Reachable = true, CanChangeRules = team.IsOwner && writable, Writable = writable, Message = head + role };
+                return new GuideFolderStatus { Ok = true, Reachable = true, CanChangeRules = team.IsOwner && writable, Writable = writable, Rules = rules, Message = head + role };
             }
             catch (Exception ex)
             {

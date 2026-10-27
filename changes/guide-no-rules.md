@@ -1,0 +1,1 @@
+- When you choose a team style guide that has no rules yet, House Style says so and says where its rules go.

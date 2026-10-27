@@ -35,6 +35,9 @@ namespace FlareAI.Flare
             _doc.Close();
         }
 
+        /// <summary>Saves as the writer's Ctrl+S does: not marked as the plugin's own save, so check-on-save runs (E2E hook only).</summary>
+        internal bool SaveAsWriter() { return _doc.Save(); }
+
         public string SourcePath
         {
             get { try { return _doc == null ? null : _doc.GetSourceUrl(); } catch (Exception) { return null; } }

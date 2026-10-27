@@ -130,7 +130,7 @@ function Start-FlareE2E {
     $env:HOUSESTYLE_E2E_DIR = $hook
     try { $proc = Start-Process $flare -ArgumentList "`"$($flprj.FullName)`"" -PassThru }
     finally { Remove-Item Env:HOUSESTYLE_E2E_DIR; if ($Bifrost) { $env:ANTHROPIC_API_KEY = $savedKey } }
-    $script:Run = [pscustomobject]@{ Dir = $dir; Hook = $hook; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
+    $script:Run = [pscustomobject]@{ Dir = $dir; Hook = $hook; AppData = $appdata; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
 
     # Trial copies show the licensing wizard at every start: continue in trial mode.
     $readyFile = Join-Path $hook "ready.json"
@@ -166,7 +166,8 @@ function Send-E2E {
     if ($NoWait) { return }
     $res = Join-Path $script:Run.Hook "res-$id.json"
     Wait-Until { Test-Path $res } $Seconds "an answer to $Verb $Arg" | Out-Null
-    $r = Get-Content $res -Raw | ConvertFrom-Json
+    # UTF-8 (the hook writes it without a BOM, which Windows PowerShell would read as ANSI, garbling check marks and severity signs).
+    $r = Get-Content $res -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $r.ok) { throw "$Verb $Arg failed: $($r.error)" }
     return $r
 }
@@ -181,14 +182,62 @@ function Wait-PaneDone([int]$Seconds = 180) {
     } $Seconds "the issues pane to finish"
 }
 
-<# Clicks a House Style ribbon button by its label, through UI Automation (the writer's path). #>
-function Invoke-Ribbon([Parameter(Mandatory)][string]$Label) {
+<# The House Style ribbon tab, selected, and its button (or split button) labeled $Label. #>
+function Get-RibbonButton([string]$Label) {
     # UI Automation can miss the tab for a moment (a tooltip opening, the ribbon relaying out): look again until it shows.
     $tabCond = $script:Cf.ByName("House Style").And($script:Cf.ByControlType($script:CT::TabItem))
     $tab = Wait-Until { $w = Get-FlareWindow; if ($w) { $w.FindFirstDescendant($tabCond) } } 15 "the House Style ribbon tab"
     $tab.Patterns.SelectionItem.Pattern.Select()
-    $b = Wait-Until { $tab.FindFirstDescendant($script:Cf.ByName($Label).And($script:Cf.ByControlType($script:CT::Button))) } 10 "ribbon button $Label"
+    $kind = $script:Cf.ByControlType($script:CT::Button).Or($script:Cf.ByControlType($script:CT::SplitButton))
+    Wait-Until { $tab.FindFirstDescendant($script:Cf.ByName($Label).And($kind)) } 10 "ribbon button $Label"
+}
+
+<# Clicks a House Style ribbon button by its label, through UI Automation (the writer's path). A split button's main part. #>
+function Invoke-Ribbon([Parameter(Mandatory)][string]$Label) {
+    $b = Get-RibbonButton $Label
+    if ($b.ControlType -eq $script:CT::SplitButton -and -not $b.Patterns.Invoke.IsSupported) {
+        $b = Wait-Until { $b.FindFirstChild($script:Cf.ByControlType($script:CT::Button)) } 10 "the main part of ribbon button $Label"
+    }
     $b.Patterns.Invoke.Pattern.Invoke()
+}
+
+<# Opens a ribbon split button's menu and clicks the item labeled $Item (for example Help, What's New). #>
+function Invoke-RibbonMenu([Parameter(Mandatory)][string]$Button, [Parameter(Mandatory)][string]$Item) {
+    $b = Get-RibbonButton $Button
+    if ($b.Patterns.ExpandCollapse.IsSupported) { $b.Patterns.ExpandCollapse.Pattern.Expand() }
+    else {
+        # No expand pattern on the split button itself: its drop-down part is a child button (the one that isn't the main part).
+        $parts = @($b.FindAllChildren($script:Cf.ByControlType($script:CT::Button)))
+        if ($parts.Count -lt 2) { throw "Ribbon button $Button has no menu to open." }
+        $parts[-1].Patterns.Invoke.Pattern.Invoke()
+    }
+    # The menu is a popup window of Flare's, not inside the ribbon: search the desktop for this process's menu items.
+    $cond = $script:Cf.ByName($Item).And($script:Cf.ByControlType($script:CT::MenuItem).Or($script:Cf.ByControlType($script:CT::Button)))
+    $m = Wait-Until {
+        $hit = $null
+        $w = Get-FlareWindow; if ($w) { $hit = $w.FindFirstDescendant($cond) }
+        if (-not $hit) {
+            $desktop = $script:Auto.GetDesktop()
+            foreach ($p in @(Get-Process Flare -ErrorAction SilentlyContinue)) {
+                foreach ($top in @($desktop.FindAllChildren($script:Cf.ByProcessId($p.Id)))) { if (-not $hit) { $hit = $top.FindFirstDescendant($cond) } }
+            }
+        }
+        $hit
+    } 10 "menu item $Item under $Button"
+    Write-Host "   (menu item $Item`: $($m.ControlType), invoke $($m.Patterns.Invoke.IsSupported))"
+    if ($m.Patterns.Invoke.IsSupported) { $m.Patterns.Invoke.Pattern.Invoke() }
+    else { $m.Click() }   # a writer's click: moves the mouse there
+}
+
+<# One field of this run's plugin settings (settings.json in the run folder). Never the API key, and never the whole file. #>
+function Get-E2ESetting([Parameter(Mandatory)][string]$Name) {
+    if ($Name -eq "ProtectedApiKey") { throw "Get-E2ESetting won't read ProtectedApiKey." }
+    if (-not $script:Run) { throw "No run: call Start-FlareE2E first." }
+    $file = Join-Path $script:Run.AppData "settings.json"
+    $s = Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
+    $p = $s.PSObject.Properties[$Name]
+    if ($p) { return $p.Value }
+    return $null
 }
 
 <# True while the issues pane is on screen (its title, through UI Automation): what the writer sees, not the plugin's state. #>
@@ -226,4 +275,4 @@ function Save-E2EScreenshot([Parameter(Mandatory)][string]$Name) {
 
 function Assert-E2E([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" } }
 
-Export-ModuleMember -Function Get-E2ERoot, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot
+Export-ModuleMember -Function Get-E2ERoot, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Invoke-RibbonMenu, Get-E2ESetting, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot

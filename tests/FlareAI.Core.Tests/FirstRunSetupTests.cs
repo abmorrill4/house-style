@@ -215,7 +215,119 @@ namespace FlareAI.Core.Tests
             Assert.Contains(@"D:\team", FirstRun.Summary(s));
         }
 
+        // ---- team feedback folder (#257, for #91) -----------------------------------------------------------------
+
+        [Fact]
+        public void ApplyTo_TeamGuideWithFeedbackFolder_SavesBoth()
+        {
+            var s = new PluginSettings();
+            string error;
+            Assert.True(new SetupAnswers { AiSkipped = true, UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = @" \\server\feedback\ " }.ApplyTo(s, out error), error);
+            Assert.Equal(@"D:\team", s.StyleLayers);
+            Assert.Equal(@"\\server\feedback", s.FeedbackFolder);
+        }
+
+        [Fact]
+        public void ApplyTo_BlankFeedbackFolder_KeepsTheCurrentOne()
+        {
+            var s = new PluginSettings { FeedbackFolder = @"\\server\feedback" };
+            string error;
+            Assert.True(new SetupAnswers { AiSkipped = true, UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = "  " }.ApplyTo(s, out error), error);
+            Assert.Equal(@"\\server\feedback", s.FeedbackFolder);
+            // Run again from the saved settings: the folder is already set, so it's kept and not asked for.
+            var again = SetupAnswers.From(s);
+            again.AiSkipped = true;
+            Assert.True(again.ApplyTo(s, out error), error);
+            Assert.Equal(@"\\server\feedback", s.FeedbackFolder);
+        }
+
+        [Fact]
+        public void ApplyTo_GoogleGuideChoice_LeavesTheFeedbackFolderAlone()
+        {
+            var s = new PluginSettings { StyleLayers = @"D:\team", FeedbackFolder = @"\\server\feedback" };
+            string error;
+            Assert.True(new SetupAnswers { AiSkipped = true, UseTeamGuide = false, FeedbackFolder = @"E:\other" }.ApplyTo(s, out error), error);
+            Assert.Equal("", s.StyleLayers);
+            Assert.Equal(@"\\server\feedback", s.FeedbackFolder);
+            // A skipped guide step leaves it alone too.
+            Assert.True(new SetupAnswers { AiSkipped = true, GuideSkipped = true, UseTeamGuide = true, TeamGuideFolder = @"D:\x", FeedbackFolder = @"E:\other" }.ApplyTo(s, out error), error);
+            Assert.Equal(@"\\server\feedback", s.FeedbackFolder);
+        }
+
+        [Fact]
+        public void From_SetsHadFeedbackFolder()
+        {
+            var a = SetupAnswers.From(new PluginSettings { StyleLayers = @"D:\team", FeedbackFolder = @"\\server\feedback" });
+            Assert.True(a.HadFeedbackFolder);
+            Assert.Equal(@"\\server\feedback", a.FeedbackFolder);
+            Assert.False(SetupAnswers.From(new PluginSettings()).HadFeedbackFolder);
+            Assert.False(SetupAnswers.From(new PluginSettings { FeedbackFolder = " " }).HadFeedbackFolder);
+        }
+
+        [Fact]
+        public void FeedbackProblem_RefusesARelativePath_AndKeepsADriveRoot()
+        {
+            Assert.NotNull(new SetupAnswers { UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = "feedback" }.FeedbackProblem());
+            Assert.NotNull(new SetupAnswers { UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = @"D:feedback" }.FeedbackProblem());
+            Assert.NotNull(new SetupAnswers { UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = "D:\\fe<ed" + "\u0001" }.FeedbackProblem());
+            Assert.Null(new SetupAnswers { UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = "" }.FeedbackProblem());
+            Assert.Null(new SetupAnswers { UseTeamGuide = false, FeedbackFolder = "feedback" }.FeedbackProblem());
+            var s = new PluginSettings();
+            string error;
+            Assert.False(new SetupAnswers { AiSkipped = true, UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = "feedback" }.ApplyTo(s, out error));
+            Assert.Contains("full path", error);
+            Assert.True(s.StyleLayers.Length == 0, "nothing saved when the folder is refused");
+            Assert.True(new SetupAnswers { AiSkipped = true, UseTeamGuide = true, TeamGuideFolder = @"D:\team", FeedbackFolder = @"F:\" }.ApplyTo(s, out error), error);
+            Assert.Equal(@"F:\", s.FeedbackFolder);
+        }
+
+        [Fact]
+        public void ApplyTo_StoredRelativeFeedbackFolder_DoesntBlockSetup()
+        {
+            // Settings saves the folder without the full-path check, and setup has no field to fix it in yet.
+            var s = new PluginSettings { StyleLayers = @"D:\team", FeedbackFolder = @"%TEAM%\feedback" };
+            var again = SetupAnswers.From(s);
+            again.AiSkipped = true;
+            Assert.Null(again.FeedbackProblem());
+            string error;
+            Assert.True(again.ApplyTo(s, out error), error);
+            Assert.Equal(@"%TEAM%\feedback", s.FeedbackFolder);
+            again.FeedbackFolder = "other";   // a newly typed one is still checked
+            Assert.NotNull(again.FeedbackProblem());
+        }
+
+        [Fact]
+        public void Summary_SaysWhereRequestsGo_OnlyWithATeamGuide()
+        {
+            var s = new PluginSettings { FeedbackFolder = @"\\server\feedback" };
+            Assert.DoesNotContain("Requests:", FirstRun.Summary(s));
+            s.StyleLayers = @"D:\team";
+            Assert.Contains(@"Requests: sent to your style guide owners through \\server\feedback.", FirstRun.Summary(s));
+            s.FeedbackFolder = "";
+            Assert.Contains("Requests: kept on this computer until you choose a team feedback folder in Settings.", FirstRun.Summary(s));
+        }
+
+        [Fact]
+        public void Summary_FolderNotWritable_SaysRequestsWaitUntilItCanBeReached()
+        {
+            var s = new PluginSettings { StyleLayers = @"D:\team", FeedbackFolder = @"\\server\feedback" };
+            Assert.Contains(@"Requests: kept on this computer until \\server\feedback can be reached.", FirstRun.Summary(s, false));
+            Assert.True(new SetupAnswers().FeedbackWritable);
+        }
+
         // ---- team guide folder ---------------------------------------------------------------------------------
+
+        [Fact]
+        public void GuideFolder_NoRules_SaysWhereRulesGo_WithoutACheckMark()
+        {
+            var dir = Project("Empty");
+            var r = GuideFolderCheck.Check(dir, "me@example.com");
+            Assert.True(r.Ok, r.Message);
+            Assert.Equal(0, r.Rules);
+            Assert.DoesNotContain("✓", r.Message);
+            Assert.StartsWith(@"Empty has no House Style rules yet. They go in topics in its Content\Resources\StyleGuide folder, and the guide's owner can add them with Import Rules.", r.Message);
+            Assert.Contains("change its rules", r.Message);   // the role sentence still follows
+        }
 
         [Fact]
         public void GuideFolder_Valid_SaysYouCanChangeTheRules()

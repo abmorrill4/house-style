@@ -49,6 +49,11 @@ namespace FlareAI.Core.Settings
         public bool ShowMarkers { get; set; }
         /// <summary>Re-lint the topic a moment after typing stops (free: no AI).</summary>
         public bool LiveCheck { get; set; }
+        /// <summary>
+        /// The checks Lint Topic last ran, "rules" or "rules-ai" (the default). Stored as given: how an unknown value reads
+        /// is decided where it is used.
+        /// </summary>
+        public string LintChecks { get; set; }
         /// <summary>After saving a topic, show how many style issues it has (never blocks the save).</summary>
         public bool CheckOnSave { get; set; }
         /// <summary>When a build starts, lint the project and show a report (never blocks the build).</summary>
@@ -224,6 +229,7 @@ namespace FlareAI.Core.Settings
             StyleLayers = "";
             UseProjectLayer = true;
             ShowMarkers = LiveCheck = CheckOnSave = ReportBeforeBuild = true;
+            LintChecks = "rules-ai";
             AutoUpdate = true;
         }
 
