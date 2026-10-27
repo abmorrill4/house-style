@@ -80,6 +80,7 @@ $script:Channels = @(
     [pscustomobject]@{ Name = 'pester';        Order = 5; Where = 'any runner'; Proves = 'Factory, release, guide publisher and agent scripts'; Project = $null }
     [pscustomobject]@{ Name = 'vitest';        Order = 5; Where = 'any runner'; Proves = 'The feedback Worker'; Project = $null }
     [pscustomobject]@{ Name = 'conformance';   Order = 6; Where = 'factory VM'; Proves = "The adapter against Flare's real editor (not built yet, gap G1)"; Project = $null }
+    [pscustomobject]@{ Name = 'e2e-check';     Order = 7; Where = 'any Windows runner'; Proves = 'An e2e scenario has no static mistakes, in seconds, before e2e launches Flare'; Project = $null }
     [pscustomobject]@{ Name = 'e2e';           Order = 7; Where = 'factory VM'; Proves = 'Docking, ribbon, events, anything only visible in Flare'; Project = $null }
     [pscustomobject]@{ Name = 'full';          Order = 8; Where = 'any Windows runner'; Proves = 'The whole Release suite, as CI runs it, before a push'; Project = 'FlareAI.sln' }
 )
@@ -149,6 +150,14 @@ function Get-ChannelCommand {
         }
         'conformance' {
             throw "In-Flare conformance isn't built yet (gap G1). Add the case to AdapterConformance so it runs on the sim, and use e2e for proof in Flare."
+        }
+        'e2e-check' {
+            if (-not $Scenario) { throw "The e2e-check channel needs -Scenario, the name of one file in tests/e2e/scenarios." }
+            if ($Scenario -notmatch '^[a-z0-9][a-z0-9-]{0,60}$') { throw "A scenario name uses lowercase letters, digits and hyphens." }
+            if (-not (Test-Path (Join-Path $RepoRoot "tests/e2e/scenarios/$Scenario.ps1"))) { throw "There's no scenario tests/e2e/scenarios/$Scenario.ps1." }
+            $check = if ($HarnessRoot -eq $RepoRoot) { 'tests/e2e/Test-E2EScenario.ps1' } else { Join-Path $HarnessRoot 'tests\e2e\Test-E2EScenario.ps1' }
+            return [pscustomobject]@{ FilePath = $ps; WorkingDirectory = $RepoRoot
+                ArgumentList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $check, '-Path', "tests/e2e/scenarios/$Scenario.ps1", '-RepoRoot', $RepoRoot) }
         }
         'e2e' {
             if (-not $Scenario) { throw "The e2e channel needs -Scenario, the name of one file in tests/e2e/scenarios." }

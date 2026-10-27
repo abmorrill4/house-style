@@ -42,6 +42,10 @@ Methods:
 - `GetUserPendingContextMenuItems()` → `List<ToolStripItem>` (context-menu extension point)
 Events (real names per dump): `ContentChanged`, `Saving/Saved/SavingAs/SavedAs`, `Closing`, `CurrentEditorViewChanged`,
 mouse/key events, `Printing`, `CheckingIn`.
+- **`Closing` doesn't always mean the writer closed the topic** (verified Flare 22, #248). When the plugin writes a
+  closed or background topic, as a Change from Lint Project does, Flare raises `Closing` on its open document and
+  opens it again a moment later. Before dropping a topic's state, check that it's really gone from
+  `GetEditorContext().GetDocuments()`.
 
 ## ISelection
 - `GetText()`, `GetXmlNodeList()` → `IList<XmlNode>`, `ReplaceText(string)`,

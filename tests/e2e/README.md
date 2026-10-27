@@ -4,6 +4,17 @@
 it, and writes `results.json` (plus Flare's state and a screenshot for each failure) under `E:\HouseStyle\e2e`.
 The exit code is the number of failures.
 
+Before each scenario starts Flare, `Test-E2EScenario.ps1` checks it in seconds:
+- it parses
+- it has no control characters
+- its verbs and ribbon labels exist
+- the fixture has its paths and replace text
+
+A scenario with problems fails as a **preflight failure**, with no Flare launch. Each scenario run also adds one line
+to `E:\HouseStyle\e2e\history.log` with its time, result, branch and commit, error and results folder. So
+`Get-Content E:\HouseStyle\e2e\history.log -Tail 20` shows a run of tries and why each one failed. Writing a scenario
+follows "Writing and proving an e2e scenario" in the testing skill.
+
 Each failure is a **VM failure** or a **test failure**:
 - **VM failure:** Flare itself never came up (no main window, or the licensing wizard stuck), or it hung before the
   plugin reported ready. It's retried once. A pass on the retry shows as a warning, and both tries stay in

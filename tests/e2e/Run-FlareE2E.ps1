@@ -96,9 +96,19 @@ function Invoke-Once($f, $tag) {
     $r
 }
 
+# One line per scenario run, kept across runs, so the sequence of tries and why each failed is readable at a glance.
+$history = Join-Path (Get-E2ERoot) "history.log"
+$head = try { "$(git -C $repo rev-parse --abbrev-ref HEAD 2>$null)@$(git -C $repo rev-parse --short HEAD 2>$null)" } catch { "" }
+
 foreach ($f in $files) {
     Write-Host "== $($f.BaseName)"
-    $r = Invoke-Once $f $f.BaseName
+    # Mistakes a static check finds cost no Flare launch.
+    $problems = @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo)
+    if ($problems.Count) {
+        $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @() }
+    } else {
+        $r = Invoke-Once $f $f.BaseName
+    }
     if (-not $r.passed -and $r.kind -eq "vm") {
         Write-Host "   VM failure, retrying once: $($r.error)" -ForegroundColor Yellow
         $first = $r
@@ -112,6 +122,8 @@ foreach ($f in $files) {
     else { Write-Host "   $($r.kind.ToUpper()) FAILURE: $($r.error)" -ForegroundColor Red; Write-Host "::error::$($f.BaseName) ($($r.kind) failure): $($r.error)" }
     $row = [ordered]@{ scenario = $f.BaseName }; foreach ($k in $r.Keys) { $row[$k] = $r[$k] }
     $results += [pscustomobject]$row
+    $status = if ($r.passed) { "PASS" } else { "FAIL-$($r.kind)" }
+    try { Add-Content $history ("{0}`t{1}`t{2}`t{3}s`t{4}`t{5}`t{6}" -f (Get-Date -Format s), $f.BaseName, $status, $r.seconds, $head, ($r.error -replace '\s+', ' '), $out) } catch { }
 }
 $results | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $out "results.json")
 $failed = @($results | Where-Object { -not $_.passed })
