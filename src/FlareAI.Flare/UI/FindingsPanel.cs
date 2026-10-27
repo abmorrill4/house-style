@@ -689,7 +689,7 @@ namespace FlareAI.Flare.UI
                 var diffMin = 2 * _cardDiff.Font.Height + S(8);
                 var diffFull = Math.Max(diffMin, S(DiffHeight));
                 var whyMin = 3 * _cardWhy.Font.Height + S(6);
-                var ceiling = S(PaneRows.WhyCeiling);
+                var ceiling = Math.Min(PaneRows.WhyCeilingMax, S(PaneRows.WhyCeiling));
                 var top = S(6); var gap = S(4);
                 int head, buttons;
                 MeasureCard(flow, full, out head, out buttons);
@@ -765,7 +765,10 @@ namespace FlareAI.Flare.UI
             public Control KeepPlace;
             protected override Point ScrollToControl(Control activeControl)
             {
-                return activeControl != null && activeControl == KeepPlace ? DisplayRectangle.Location : base.ScrollToControl(activeControl);
+                if (activeControl == null || activeControl != KeepPlace) return base.ScrollToControl(activeControl);
+                // Part of it on screen: stay put. All of it below or above the fold: bring its top into view.
+                if (activeControl.Bottom > 0 && activeControl.Top < ClientSize.Height) return DisplayRectangle.Location;
+                return new Point(DisplayRectangle.X, DisplayRectangle.Y - activeControl.Top);
             }
         }
 
@@ -997,6 +1000,7 @@ namespace FlareAI.Flare.UI
                 whyContentHeight = content,
                 whyHeight = _cardWhy.ClientSize.Height,
                 whyClipped = content > _cardWhy.ClientSize.Height,
+                whyScrollBar = _cardWhy.ScrollBars.ToString(),
                 cardScrolls = _card.VerticalScroll.Visible,
                 cardHeight = _card.ClientSize.Height,
                 paneWidth = Width,
@@ -1605,12 +1609,13 @@ namespace FlareAI.Flare.UI
         private static void Line(RichTextBox box, string text, FontStyle style)
         {
             if (string.IsNullOrEmpty(text) || box.Tag as string == MoreTag) return;
-            var room = WhyMaxChars - box.TextLength;
+            var room = WhyMaxChars - box.TextLength - (box.TextLength > 0 ? 1 : 0);   // the line break counts too
             if (text.Length > room)
             {
                 var cut = Math.Max(0, room);
                 var space = cut > 0 ? text.LastIndexOf(' ', cut - 1) : -1;
-                text = (space > 0 ? text.Substring(0, space) : text.Substring(0, cut)).TrimEnd() + " and more";
+                var kept = (space > 0 ? text.Substring(0, space) : text.Substring(0, cut)).TrimEnd();
+                text = kept.Length > 0 ? kept + " and more" : "and more";
                 box.Tag = MoreTag;
             }
             box.SelectionStart = box.TextLength;

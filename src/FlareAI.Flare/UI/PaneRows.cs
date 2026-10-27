@@ -84,6 +84,9 @@ namespace FlareAI.Flare.UI
         /// <summary>The tallest the why text gets (logical px), so a huge team-guide row can't break the control.</summary>
         public const int WhyCeiling = 30000;
 
+        /// <summary>The ceiling in device pixels at any DPI: Windows controls stop working past about 32,767 px.</summary>
+        public const int WhyCeilingMax = 32000;
+
         /// <summary>
         /// The card's parts in a card <paramref name="cardHeight"/> tall: what changes gets its full height when there is room,
         /// shrinking to <paramref name="diffMin"/> (two lines) before why goes under <paramref name="whyMin"/>. Why takes the rest,

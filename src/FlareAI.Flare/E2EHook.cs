@@ -133,6 +133,7 @@ namespace FlareAI.Flare
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
                 case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
+                case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
                 case "replace": Replace(Active(), arg, (string)c["text"]); return null;
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
@@ -232,6 +233,22 @@ namespace FlareAI.Flare
                 if (pane.ClientSize == before) throw new InvalidOperationException("Flare didn't resize the docked pane.");
             }
             return new { width = pane.ClientSize.Width, height = pane.ClientSize.Height };
+        }
+
+        /// <summary>
+        /// Floats the docked issues pane as Flare's Float command does (a no-op when it is already a window), then sizes it
+        /// when <paramref name="width"/> and <paramref name="height"/> are given. Returns the pane's size and whether it floats.
+        /// </summary>
+        private static object FloatPane(FindingsPanel pane, int width, int height)
+        {
+            var floating = FlarePane.Float(width, height);
+            Application.DoEvents();   // let Flare build the floating window before it is sized
+            if (width > 0 && height > 0 && pane.ClientSize != new System.Drawing.Size(width, height))
+            {
+                try { SizePane(pane, width, height); }
+                catch (InvalidOperationException) { }   // the floating window took UndockedSize instead
+            }
+            return new { floating, width = pane.ClientSize.Width, height = pane.ClientSize.Height };
         }
 
         private static FindingsPanel Pane()

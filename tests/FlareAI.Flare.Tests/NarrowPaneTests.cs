@@ -447,13 +447,33 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void TabbingIntoAWhyBoxBelowTheFold_BringsItsTopIntoView()
+        {
+            WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
+            {
+                form.Activate();
+                Assert.True(card.VerticalScroll.Visible);
+                diff.Focus();
+                card.AutoScrollPosition = new Point(0, 0);
+                Pump(null, 50);
+                Assert.True(why.Top >= card.ClientSize.Height, "the why box should start below the fold (top " + why.Top + ", card " + card.ClientSize.Height + ")");
+                why.Select();   // what Tab does when it reaches the box (Select, then the card scrolls it into view)
+                Pump(null, 50);
+                Assert.True(why.Focused, "Tab didn't reach the why text");
+                Assert.True(why.Top >= 0 && why.Top < card.ClientSize.Height,
+                            "the focused why text is off screen (top " + why.Top + ", card " + card.ClientSize.Height + ")");
+            });
+        }
+
+        [Fact]
         public void ClickingIntoATallWhyBox_DoesNotMoveTheCard()
         {
             WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
             {
                 form.Activate();
                 Assert.True(card.VerticalScroll.Visible);
-                card.AutoScrollPosition = new Point(0, 40);
+                // Scrolled so the why text starts halfway down the card: part of it is on screen.
+                card.AutoScrollPosition = new Point(0, Math.Max(10, why.Top - card.AutoScrollPosition.Y - card.ClientSize.Height / 2));
                 Pump(null, 50);
                 var before = card.AutoScrollPosition.Y;
                 Assert.True(before < 0);
