@@ -232,6 +232,13 @@ Describe 'Review, checks and comments' {
         Format-StuckComment "build" 2 "budget" | Should Match '`budget`'
         Format-StuckComment "build" 2 "anything an agent wrote" | Should Match '`build-failed`'
     }
+    It 'runs the AI scenarios on a factory branch only when the change touches the AI' {
+        foreach ($p in "src/FlareAI.Core/Llm/AnthropicClient.cs", "src/FlareAI.Core/Prompts/review.md", "src/FlareAI.Core/Actions/ReviewSession.cs", "tests/e2e/scenarios/ai-turned-off.ps1") { $p | Should Match $rules.aiPaths }
+        foreach ($p in "src/FlareAI.Core/Style/StyleEngine.cs", "src/FlareAI.Core/Actions/RuleChanges.cs", "tests/e2e/scenarios/rules-edit.ps1", "src/FlareAI.Flare/UI/FindingsPanel.cs") { $p | Should Not Match $rules.aiPaths }
+        $e2e = Get-Content (Join-Path $root '.github\workflows\e2e.yml') -Raw
+        $e2e | Should Match 'aiPaths'
+        $e2e | Should Match "startsWith\(github\.ref_name, 'factory/'\) && secrets\.FACTORY_TEST_ANTHROPIC_KEY"
+    }
     It 'keeps the limits the spec names in rules/factory.json' {
         $rules.limits.chunksPerIssue | Should Be 12
         $rules.limits.cardTokens | Should Be 80000

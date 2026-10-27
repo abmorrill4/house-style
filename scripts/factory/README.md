@@ -46,8 +46,9 @@ tests\e2e\Get-E2EHistory.ps1 -Runs 50         # how each scenario has done latel
   leftover files, Windows updates, disk growth. `-Refresh` makes the VM as it is now the new base. Run it after
   updating the VM's tools, and about monthly so Windows updates and the runner version stay current. Its log is
   `E:\HouseStyle\vm\reset-factory.log`.
-- **The ai-\* e2e scenarios** run on pushes to `main`, nightly at 10:23 UTC (well after the reset) and by hand, never on
-  a branch push. Their results vary from run to run, so they don't judge a change.
+- **The ai-\* e2e scenarios** run on pushes to `main`, nightly at 10:23 UTC (well after the reset), by hand, and on a
+  build factory branch whose change touches the AI (`aiPaths` in `rules/factory.json`), where they gate the merge.
+  Other branch pushes skip them.
 - **Get-E2EHistory** reads the last runs' `results.json` artifacts and shows each scenario's passes, test failures,
   VM failures and passes on retry. A scenario that keeps passing only on a retry points at the VM. One that fails now
   and then as a test failure is flaky.
@@ -307,7 +308,16 @@ Guards against report text steering the agent:
 - The agents' output, the rerun tests' output and dry-run comments go to `C:\HouseStyle\factory-logs` on the VM, never
   the job log. This repo is public, so its job logs are too. A failed run logs only "report n is stuck", and the
   reason is on the private report. The report file is deleted before agent-written tests run.
-- e2e runs on `factory/*` branches get no API key, so their `ai-*` scenarios are skipped.
+- e2e runs on `factory/*` branches get their own test keys, never the main `ANTHROPIC_API_KEY`:
+  - `FACTORY_TEST_ANTHROPIC_KEY`, from the Max plan's API allowance
+  - Bifrost needs no secret. When the AI scenarios run, `tests/e2e/Start-TestGateway.ps1` starts a private Bifrost
+    gateway on the VM. It listens on localhost only, forwards with the run's Anthropic key, and uses a gateway key made
+    up for that run. The pinned build (v2.3.2) is downloaded once and its SHA-256 is checked before every start.
+    Owner step: set `$Sha256` in that script from a verified download.
+
+  The `ai-*` scenarios run only when the branch's change touches the AI (`aiPaths`). Such a branch fails e2e without
+  its Anthropic key, rather than skipping them. A spec that needs AI proof for other code adds an `ai-*` scenario,
+  which counts as touching the AI.
 - The e2e workflow has no concurrency group, because the single `flare` runner already queues its jobs. A group keeps
   only one waiting run and cancels the rest. The factory has its own group, so two factory runs never overlap.
 - Each e2e scenario has a watchdog (`-ScenarioMinutes`, 12 by default, above the scenarios' own waits). A hung

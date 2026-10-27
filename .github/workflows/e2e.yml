@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0   # a factory branch's diff from main decides whether the ai-* scenarios run
 
       - name: Check the factory VM is ready
         shell: powershell
@@ -33,14 +34,31 @@ jobs:
       - name: Run the scenarios in Flare
         shell: powershell
         env:
-          # The ai-* scenarios vary from run to run, so they run only on main, nightly and by hand, never on a branch
-          # push. factory/* branches hold agent-written code and never get the key, even when run by hand.
-          ANTHROPIC_API_KEY: ${{ !startsWith(github.ref_name, 'factory/') && (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && secrets.ANTHROPIC_API_KEY || '' }}
+          # The ai-* scenarios need AI, so they run where there's a key: main, nightly, by hand, and the build factory's
+          # factory/* branches whose change touches the AI (rules/factory.json aiPaths), where they gate the merge
+          # (owner decision 2026-10-26). factory/* branches hold agent-written code, so they get their own keys
+          # (FACTORY_TEST_ANTHROPIC_KEY, from the Max plan's API allowance), never the main ANTHROPIC_API_KEY. Other
+          # branch pushes skip the ai-* scenarios. Secrets are masked in the log. Bifrost scenarios use a private gateway
+          # the run starts on this machine (tests/e2e/Start-TestGateway.ps1), so there's no Bifrost secret.
+          ANTHROPIC_API_KEY: ${{ startsWith(github.ref_name, 'factory/') && secrets.FACTORY_TEST_ANTHROPIC_KEY || ((github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && secrets.ANTHROPIC_API_KEY || '') }}
         run: |
+          if ($env:GITHUB_REF_NAME -like 'factory/*') {
+            # Only a change that touches the AI runs the ai-* scenarios. rules/ is owner-only for the factory, so the
+            # branch can't change the list. A change that needs them and has no key fails instead of skipping AI.
+            $aiPaths = (Get-Content rules\factory.json -Raw | ConvertFrom-Json).aiPaths
+            $changed = @(git -c core.quotePath=false diff --name-only --no-renames origin/main...HEAD)
+            $touchesAi = @($changed | Where-Object { $_ -match $aiPaths }).Count -gt 0
+            if (-not $touchesAi) { $env:ANTHROPIC_API_KEY = '' }
+            elseif (-not $env:ANTHROPIC_API_KEY) { Write-Host "::error::This change touches the AI and needs the FACTORY_TEST_ANTHROPIC_KEY secret to run the ai-* scenarios."; exit 1 }
+          }
           $noAi = -not $env:ANTHROPIC_API_KEY
-          if ($noAi) { Write-Host "Skipping the ai-* scenarios: they run on main, nightly and by hand." }
-          & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi
-          exit $LASTEXITCODE
+          if ($noAi) { Write-Host "Skipping the ai-* scenarios: this run has no key, or the change doesn't touch the AI." }
+          $gateway = $null
+          # Dot-sourced: it sets the gateway's URL and key here. If it can't start, only the Bifrost scenarios fail.
+          if (-not $noAi) { try { $gateway = . .\tests\e2e\Start-TestGateway.ps1 } catch { Write-Host "::warning::$($_.Exception.Message) Bifrost scenarios will fail." } }
+          try { & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi; $code = $LASTEXITCODE }
+          finally { if ($gateway) { $gateway | Stop-Process -Force -ErrorAction SilentlyContinue } }
+          exit $code
 
       - name: Upload results
         if: always()
