@@ -131,6 +131,12 @@ Describe 'Plans and paths' {
         Get-PlanProblem (Plan @(Ch @("src/A.cs") "opus")) $lim | Should Match 'opus'
         foreach ($p in "../x.cs", "C:/x.cs", "/etc/x", "src/../../x") { Get-PlanProblem (Plan @(Ch @($p))) $lim | Should Match 'outside' }
     }
+    It 'refuses a test named by two chunks, since the earlier one can''t pass it (#19)' {
+        function T($name) { $c = Ch @("tests/A.cs"); $c | Add-Member test ([pscustomobject]@{ name = $name; channel = "scenarios" }); $c }
+        Get-PlanProblem (Plan @((T "A.B.C"), (Ch @("src/A.cs")), (T "A.B.C"))) $lim | Should Match 'A\.B\.C is named by 2 chunks'
+        Get-PlanProblem (Plan @((T "A.B.C"), (T "A.B.D"))) $lim | Should BeNullOrEmpty
+        $buildScript | Should Match '(?s)if \(\$problem -and \$problem -ne "too-big"\).{0,300}"plan-again"'
+    }
     It 'holds what runs on the owner PC or ships outside the plugin code, and names git would quote' {
         $held = @(".claude/settings.json", ".claude/hooks/session-start.ps1", "scripts/release/Install.ps1", "scripts/package.ps1", "tools/FlareAI.Updater/Program.cs",
                   "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/flaui/X.cs", "CLAUDE.md", "src/FlareAI.Core/Update/$([char]0xE9).cs", '"src/FlareAI.Core/Update/\303\251.cs"', "src/a b.cs")

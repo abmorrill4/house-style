@@ -278,6 +278,13 @@ function Invoke-Issue([int]$n, $facts, $state) {
         $plan = Invoke-AgentTwice $s "plan" "hs-plan" "sonnet" $card "" "plan"   # no tools: it plans from the spec and the map
         if (-not $plan) { Stop-Issue "build-failed" }
         $problem = Get-PlanProblem $plan $limits
+        if ($problem -and $problem -ne "too-big") {
+            # One re-plan with the reason, before going back to the owner.
+            Add-Note $s "plan rejected, planning again: $problem"
+            $plan = Invoke-AgentTwice $s "plan-again" "hs-plan" "sonnet" ($card + "`n`n## Your last plan was rejected`n$problem. Return the whole plan again with that fixed.") "" "plan"
+            if (-not $plan) { Stop-Issue "build-failed" }
+            $problem = Get-PlanProblem $plan $limits
+        }
         if ($problem -eq "too-big") { Stop-Issue "too-big" }
         if ($problem) { Add-Note $s "plan rejected: $problem"; Stop-Issue "build-failed" }
         if (@(Get-OwnerOnlyPaths @($plan.chunks | ForEach-Object { $_.files })).Count) { Stop-Issue "owner-only-path" }

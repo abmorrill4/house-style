@@ -148,6 +148,9 @@ function Get-PlanProblem($plan, $limits) {
             if ($PlanChannels -notcontains ("" + $c.test.channel)) { return "a chunk names test channel '$($c.test.channel)'" }
         }
     }
+    # Each chunk's test has to pass when that chunk is done, so a test named twice fails the earlier chunk (#19).
+    $twice = @($chunks | Where-Object { $_.test -and $_.test.name } | Group-Object { $_.test.name } | Where-Object Count -gt 1 | Select-Object -First 1)
+    if ($twice.Count) { return "test $($twice[0].Name) is named by $($twice[0].Count) chunks, but a chunk's test must pass when that chunk is built, so name it only in the chunk that makes it pass" }
     $null
 }
 
