@@ -149,7 +149,7 @@ function Get-IssueFacts([int]$n) {
         $code = $LASTEXITCODE
         $err = (@($o | Where-Object { $_ -is [Management.Automation.ErrorRecord] }) -join " ").Trim()
         $issue = try { (@($o | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) -join "`n" | ConvertFrom-Json).data.repository.issue } catch { $null }
-        if (-not $code -and $issue) { $editors = @($issue.userContentEdits.nodes | ForEach-Object { $_.editor.login }); break }
+        if (-not $code -and $issue) { $editors = @($issue.userContentEdits.nodes | ForEach-Object { if ($_.editor.login) { $_.editor.login } else { "<deleted account>" } }); break }   # a deleted account still counts as someone else
         $editError = if ($err) { $err } else { "gh exited $code with no issue in the answer" }
     }
     if ($editError.Length -gt 300) { $editError = $editError.Substring(0, 300) }
