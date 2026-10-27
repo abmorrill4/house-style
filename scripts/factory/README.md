@@ -196,8 +196,8 @@ approves issues, and Claude builds those through the work loop. The fix path in 
 
 One repository variable, read by `factory.yml` and `Invoke-Factory.ps1`:
 
-- **`off`**, unset, or anything it can't read, the retired `live` and `shadow` included: `factory.yml` doesn't start the job, and
-  `Invoke-Factory.ps1` checks again and stops before it reads or writes anything.
+- **`off`**, unset, or anything it can't read, the retired `live` and `shadow` included: `factory.yml` doesn't start
+  the job, and `Invoke-Factory.ps1` checks again and stops before it reads or writes anything.
 - **`on`**: the factory triages and routes, and posts only on the private report.
 
 It doesn't touch releases. To stop those, `gh workflow disable nightly`. Turning triage on is
