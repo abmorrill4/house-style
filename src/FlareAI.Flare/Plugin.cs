@@ -251,6 +251,8 @@ namespace FlareAI.Flare
         private Action RawHandlerFor(CommandInfo c)
         {
             if (c == Commands.LintTopic) return OnLintTopic;
+            if (c == Commands.LintRulesOnly) return () => OnChooseChecks(true);
+            if (c == Commands.LintRulesAndAi) return () => OnChooseChecks(false);
             if (c == Commands.Rewrite) return OnRewrite;
             if (c == Commands.Ask) return OnAsk;
             if (c == Commands.LintProject) return OnLintProject;
@@ -306,7 +308,24 @@ namespace FlareAI.Flare
 
         // ---- actions -----------------------------------------------------------------
 
-        private void OnLintTopic() { RunAction(Commands.LintTopic.Label, ActionKind.CheckStyle, null); }
+        /// <summary>Lint Topic with the remembered checks (the ribbon button, right-click, Reopen Issues with no pane).</summary>
+        private void OnLintTopic() { LintTopicWith(LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks)); }
+
+        /// <summary>Rules Only or Rules and AI Review from Lint Topic's menu: remembered, then linted that way. The choice
+        /// goes straight into the lint, so a failed save can't change which checks run.</summary>
+        private void OnChooseChecks(bool rulesOnly)
+        {
+            LintChecksChoice.TrySave(rulesOnly ? LintChecksChoice.Rules : LintChecksChoice.RulesAndAi, v =>
+            {
+                var s = PluginSettings.Load(); s.LintChecks = v; s.Save();
+            });
+            ShowLintChoice(rulesOnly);   // order 6 fills this in; add it now as an empty private method
+            LintTopicWith(rulesOnly);
+        }
+
+        private void LintTopicWith(bool rulesOnly) { RunAction(Commands.LintTopic.Label, ActionKind.CheckStyle, null, rulesOnly); }
+        private void ShowLintChoice(bool rulesOnly) { }
+
         private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
 
         private void OnAsk()
@@ -733,7 +752,7 @@ namespace FlareAI.Flare
             }
         }
 
-        private void RunAction(string title, ActionKind kind, string instruction)
+        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false)
         {
             try
             {
@@ -748,7 +767,7 @@ namespace FlareAI.Flare
                 if (kind == ActionKind.CheckStyle)
                 {
                     // Docked (or floating) and modeless: the author works through the list while editing.
-                    ShowFindings(adapter, runner, true);
+                    ShowFindings(adapter, runner, true, rulesOnly);
                     return;
                 }
                 using (var f = new ResultForm(title, runner, adapter, kind, instruction))
@@ -836,9 +855,9 @@ namespace FlareAI.Flare
 
         private static readonly ReviewCache Reviews = new ReviewCache(300, Path.Combine(PluginSettings.SettingsDirectory, "reviews.json"));
 
-        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart)
+        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart, bool rulesOnly)
         {
-            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings }, _nav.GetParentForm());
+            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings, RulesOnly = rulesOnly }, _nav.GetParentForm());
         }
 
         /// <summary>
@@ -883,7 +902,7 @@ namespace FlareAI.Flare
                 // Style-guide topics list the very words they ban; following into one (e.g. via Guide ↗) would flood the panel.
                 if (path.IndexOf(@"\Resources\StyleGuide\", StringComparison.OrdinalIgnoreCase) >= 0) return;
                 var runner = NewRunner(adapter, true, true);
-                if (runner != null) ShowFindings(adapter, runner, false);
+                if (runner != null) ShowFindings(adapter, runner, false, LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks));
             }
             catch (Exception ex) { Diagnostics.Log("DocumentSwitched", ex); ErrorReporter.Background(OwnerForm, "House Style couldn't lint the topic you opened.", ex); }
         }
