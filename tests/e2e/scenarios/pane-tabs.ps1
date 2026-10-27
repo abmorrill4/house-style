@@ -13,6 +13,8 @@ $settings = Join-Path $run.Project "Content\billpay\settings.htm"
 
 # Lint Topic alone shows no tabs.
 Send-E2E open $faq | Out-Null
+# faq.htm's own issues are Rewrite ones, which Change can't fix without AI: add a word a plain Change fixes.
+Send-E2E replace "Most changes to a payee appear" -Extra @{ text = "Most changes to a payee utilize the queue and appear" } | Out-Null
 Invoke-Ribbon "Lint Topic"
 $topic = (Wait-PaneDone).pane.panel
 Assert-E2E ($topic.tab -eq "topic") "Lint Topic shows the topic tab (tab: $($topic.tab))"
@@ -43,8 +45,8 @@ Assert-E2E ($s.id -eq $proj.id) "the Project tab shows the same results Lint Pro
 Send-E2E click "By file" | Out-Null
 $rows = Rows
 $i = [array]::FindIndex([object[]]$rows, [Predicate[object]]{ param($r)
-    $r.file -and $r.file -notlike "*faq.htm" -and $r.file -notlike "*settings.htm" -and $r.excerpt -and $r.text -notlike "*$check*" -and $r.text -like "*Change*" })
-Assert-E2E ($i -ge 0) "Lint Project listed an issue Change can fix in another file (rows: $(($rows.text) -join ' | '))"
+    $r.file -like "*faq.htm" -and $r.excerpt -like "*utiliz*" -and $r.text -notlike "*$check*" -and $r.text -like "*Change*" })
+Assert-E2E ($i -ge 0) "Lint Project listed the utilize issue Change can fix in faq.htm (rows: $(($rows.text) -join ' | '))"
 $changedFile = $rows[$i].file
 $before = CaptionCount (Panel).tabs[1]
 Send-E2E rowMenu "(select only)" -Extra @{ index = $i } | Out-Null
@@ -60,7 +62,7 @@ Assert-E2E ($again.tab -eq "project") "Reopen Issues shows the Project tab again
 Assert-E2E ($again.id -eq $proj.id) "Reopen Issues showed the last project results"
 Send-E2E click "This Topic" | Out-Null
 $s = Wait-Tab "topic" "the This Topic tab after Reopen Issues"
-Assert-E2E ($s.id -eq $topic.id) "the topic's results came back with Reopen Issues"
+Assert-E2E ($s.title -like "*faq.htm*") "the topic's issues came back with Reopen Issues (title: $($s.title))"   # Change reloaded faq.htm, so the panel may be a new lint of it
 
 # A topic switch follows the open topic on This Topic and leaves Project alone.
 Send-E2E open $settings | Out-Null
@@ -109,12 +111,14 @@ Wait-Until { $r = @(Rows | Where-Object { $_.file -eq $goFile -and $_.excerpt -e
 
 # Lint Project with no topic lint shows no tabs, and Go To doesn't add one.
 $run = Start-FlareE2E -Fixture $Fixture -Force
+$faqOnly = Join-Path $run.Project "Content\billpay\faq.htm"
+Send-E2E open $faqOnly | Out-Null   # open, but never linted
 Invoke-Ribbon "Lint Project"
 $only = (Wait-PaneDone 300).pane.panel
 Assert-E2E ($only.tab -eq "project") "Lint Project alone shows the project tab"
 Send-E2E click "By file" | Out-Null
 $rows = Rows
-$g = [array]::FindIndex([object[]]$rows, [Predicate[object]]{ param($r) $r.file -and $r.text -notlike "*$check*" })
+$g = [array]::FindIndex([object[]]$rows, [Predicate[object]]{ param($r) $r.file -and $r.file -notlike "*faq.htm" -and $r.text -notlike "*$check*" })
 Assert-E2E ($g -ge 0) "Lint Project listed an issue to go to"
 $name = [IO.Path]::GetFileName($rows[$g].file)
 Send-E2E rowMenu "Go To" -Extra @{ index = $g } | Out-Null

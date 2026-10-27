@@ -117,7 +117,7 @@ namespace FlareAI.Flare
                 state.Debounce.Stop(); state.Debounce.Start();   // a moment after typing stops
             };
             doc.Saved += (s, e) => OnSaved(doc, state);
-            doc.Closing += (s, e) => { PanelHost.ClearTopic(path); Detach(path); };
+            doc.Closing += (s, e) => { ClearTopicWhenGone(path); Detach(path); };
             // First markers for a topic the plugin already knows about (pane open on it).
             UpdateMarkers(doc);
         }
@@ -127,6 +127,31 @@ namespace FlareAI.Flare
             var mi = new ToolStripMenuItem(command.ContextLabel) { ToolTipText = command.Tooltip };
             mi.Click += (s, e) => Safe.Run(command.Label, action);
             return mi;
+        }
+
+        /// <summary>
+        /// Drops the topic's tab once the topic is really closed. Flare also raises Closing when it reloads a topic that a
+        /// Change from Lint Project edited, and the topic is open again a moment later.
+        /// </summary>
+        private void ClearTopicWhenGone(string path)
+        {
+            var wait = new Timer { Interval = 1500 };
+            wait.Tick += (s, e) =>
+            {
+                wait.Stop(); wait.Dispose();
+                try
+                {
+                    bool open = false;
+                    foreach (var o in _host.GetEditorContext().GetDocuments())
+                    {
+                        var d = o as IDocument;
+                        if (d != null && SamePath(SafePath(d), path)) { open = true; break; }
+                    }
+                    if (!open) PanelHost.ClearTopic(path);
+                }
+                catch (Exception ex) { Diagnostics.Log("clear topic", ex); }
+            };
+            wait.Start();
         }
 
         private void Detach(string path)

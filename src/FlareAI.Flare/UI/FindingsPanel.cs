@@ -57,7 +57,7 @@ namespace FlareAI.Flare.UI
         private readonly RadioButton _byRule, _byFile;
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
-        private readonly RadioButton _tabTopic, _tabProject;
+        private readonly TabRadio _tabTopic, _tabProject;
         private readonly Button _excluded, _export;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
@@ -428,8 +428,8 @@ namespace FlareAI.Flare.UI
             foreach (var b in new[] { _tourNext, _tourSkip, _tourDone }) b.BackColor = SystemColors.Control;
             // Tab bar: This Topic and Project tabs
             _tabs = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = false };
-            _tabTopic = new RadioButton { Text = "This &Topic", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 4, 0) };
-            _tabProject = new RadioButton { Text = "&Project", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
+            _tabTopic = new TabRadio { Text = "This &Topic", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 4, 0) };
+            _tabProject = new TabRadio { Text = "&Project", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
             _tabs.Controls.Add(_tabTopic);
             _tabs.Controls.Add(_tabProject);
             _tabTopic.Click += (s, e) => { if (Slot != PaneSlot.Topic) { var h = TabRequested; if (h != null) h(PaneSlot.Topic); } };
@@ -2156,6 +2156,12 @@ namespace FlareAI.Flare.UI
         }
 
         void IReviewHost.ShowError(string whatHappened, string whatToDo, Exception details, string action) { Notify.Error(this, whatHappened, whatToDo, details, action); }
+    }
+
+    /// <summary>A tab button. A plain radio button clicks itself when it gets the focus, which switched tabs whenever a panel was shown.</summary>
+    internal sealed class TabRadio : RadioButton
+    {
+        protected override void OnEnter(EventArgs e) { }
     }
 
     /// <summary>A one-field text prompt (Edit / Refine).</summary>

@@ -79,7 +79,7 @@ namespace FlareAI.Flare.UI
 
             panel.WatchWrites(true);
             if (front) Display(panel, flareMainForm);
-            else SyncHost();
+            else { SyncHost(); panel.Begin(); }   // a hidden panel still lints
             PushCounts();
         }
 
