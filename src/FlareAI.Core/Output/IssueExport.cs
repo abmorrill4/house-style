@@ -84,10 +84,39 @@ namespace FlareAI.Core.Output
             return s;
         }
 
-        /// <summary>The Link field. Empty until order 3 adds the formula.</summary>
+        /// <summary>The longest HYPERLINK formula Excel takes in a cell's worth of text that we write here.</summary>
+        public const int MaxFormula = 255;
+
+        /// <summary>The HYPERLINK formula that opens the topic file, or "" when the path can't make a file link.</summary>
+        internal static string Link(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "";
+            if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0) return "";
+            if (!Path.IsPathRooted(path)) return "";
+
+            Uri uri;
+            try
+            {
+                uri = new Uri(path);
+            }
+            catch (UriFormatException)
+            {
+                return "";
+            }
+            if (!uri.IsFile) return "";
+
+            var url = uri.AbsoluteUri;
+            if (url.Contains("\"")) return "";
+
+            var formula = "=HYPERLINK(\"" + url + "\",\"" + LinkText + "\")";
+            return formula.Length > MaxFormula ? "" : formula;
+        }
+
+        /// <summary>The Link field: the formula, CSV-quoted, or "". It's the only cell that isn't neutralised.</summary>
         private static string LinkField(string path)
         {
-            return "";
+            var link = Link(path);
+            return link.Length == 0 ? "" : "\"" + link.Replace("\"", "\"\"") + "\"";
         }
 
         /// <summary>The status line after a save. The count is grouped the way the writer's culture groups digits.</summary>

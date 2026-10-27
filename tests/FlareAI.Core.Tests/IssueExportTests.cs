@@ -131,5 +131,56 @@ namespace FlareAI.Core.Tests
             Assert.True(watch.Elapsed.TotalSeconds < 10, "took " + watch.Elapsed.TotalSeconds + " s");
             Assert.Equal(50001, csv.Count(c => c == '\n'));
         }
+        private static string LastLine(string csv)
+        {
+            var lines = csv.Split(new[] { "\r\n" }, StringSplitOptions.None);
+            return lines[1];
+        }
+
+        [Fact]
+        public void ToCsv_LinkIsAHyperlinkFormula_ToTheEscapedFileUrl()
+        {
+            var row = Blank("a.htm", "Error", "i", "Open");
+            row.Path = @"C:\Docs\My Project\Content\a#b\100% done.htm";
+            var csv = IssueExport.ToCsv(new[] { row });
+
+            Assert.True(LastLine(csv).EndsWith(
+                ",Open,\"=HYPERLINK(\"\"file:///C:/Docs/My%20Project/Content/a%23b/100%25%20done.htm\"\",\"\"Open file\"\")\"",
+                StringComparison.Ordinal), LastLine(csv));
+        }
+
+        [Fact]
+        public void ToCsv_LinkForAUncPath_IsAFileServerUrl()
+        {
+            var row = Blank("a.htm", "Error", "i", "Open");
+            row.Path = @"\\server\share\P\Content\x y.htm";
+            var csv = IssueExport.ToCsv(new[] { row });
+
+            Assert.True(LastLine(csv).EndsWith(
+                ",Open,\"=HYPERLINK(\"\"file://server/share/P/Content/x%20y.htm\"\",\"\"Open file\"\")\"",
+                StringComparison.Ordinal), LastLine(csv));
+        }
+
+        public static System.Collections.Generic.IEnumerable<object[]> PathsWithoutALink()
+        {
+            yield return new object[] { null };
+            yield return new object[] { "" };
+            yield return new object[] { @"billpay\faq.htm" };
+            yield return new object[] { @"\Content\a.htm" };
+            yield return new object[] { @"C:foo\a.htm" };
+            yield return new object[] { @"C:\P\a""b.htm" };
+            yield return new object[] { "C:\\" + new string('a', 240) + ".htm" };
+        }
+
+        [Theory]
+        [MemberData(nameof(PathsWithoutALink))]
+        public void ToCsv_LeavesTheLinkEmpty_ForAQuoteARelativePathOrAFormulaOver255Characters(string path)
+        {
+            var row = Blank("a.htm", "Error", "i", "Open");
+            row.Path = path;
+            var csv = IssueExport.ToCsv(new[] { row });
+
+            Assert.True(LastLine(csv).EndsWith(",Open,", StringComparison.Ordinal), LastLine(csv));
+        }
     }
 }
