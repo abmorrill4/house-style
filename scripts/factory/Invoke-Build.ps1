@@ -281,7 +281,7 @@ function Invoke-Issue([int]$n, $facts, $state) {
         if ($problem -and $problem -ne "too-big") {
             # One re-plan with the reason, before going back to the owner.
             Add-Note $s "plan rejected, planning again: $problem"
-            $plan = Invoke-AgentTwice $s "plan-again" "hs-plan" "sonnet" ($card + "`n`n## Your last plan was rejected`n$problem. Return the whole plan again with that fixed.") "" "plan"
+            $plan = Invoke-AgentTwice $s "replan" "hs-plan" "sonnet" ($card + "`n`n## Your last plan was rejected`n$problem. Return the whole plan again with that fixed.") "" "plan"
             if (-not $plan) { Stop-Issue "build-failed" }
             $problem = Get-PlanProblem $plan $limits
         }

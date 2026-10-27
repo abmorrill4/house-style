@@ -135,7 +135,7 @@ Describe 'Plans and paths' {
         function T($name) { $c = Ch @("tests/A.cs"); $c | Add-Member test ([pscustomobject]@{ name = $name; channel = "scenarios" }); $c }
         Get-PlanProblem (Plan @((T "A.B.C"), (Ch @("src/A.cs")), (T "A.B.C"))) $lim | Should Match 'A\.B\.C is named by 2 chunks'
         Get-PlanProblem (Plan @((T "A.B.C"), (T "A.B.D"))) $lim | Should BeNullOrEmpty
-        $buildScript | Should Match '(?s)if \(\$problem -and \$problem -ne "too-big"\).{0,300}"plan-again"'
+        $buildScript | Should Match '(?s)if \(\$problem -and \$problem -ne "too-big"\).{0,300}"replan"'
     }
     It 'holds what runs on the owner PC or ships outside the plugin code, and names git would quote' {
         $held = @(".claude/settings.json", ".claude/hooks/session-start.ps1", "scripts/release/Install.ps1", "scripts/package.ps1", "tools/FlareAI.Updater/Program.cs",
