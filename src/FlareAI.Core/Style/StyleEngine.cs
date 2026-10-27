@@ -128,6 +128,7 @@ namespace FlareAI.Core.Style
             catch (Exception ex) { lock (_gate) if (_logged.Add(g + "|copy")) Diagnostics.Log("style guide copy", ex); return false; }
             if (copy == null || string.IsNullOrEmpty(copy.Path) || !Directory.Exists(copy.Path)) return false;
             list.Add(copy.Path);
+            if (originals != null) originals[copy.Path] = g;
             if (copied != null) copied.Add(string.Format(CopyNotice, g, CopyDate(copy.CopiedUtc, DateTime.Now)));
             lock (_gate) if (_logged.Add(g + "|copy-used")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with its saved copy");
             return true;
@@ -209,7 +210,7 @@ namespace FlareAI.Core.Style
             var onRead = GuideRead;
             if (onRead != null)
                 foreach (var g in read)
-                    try { onRead(g); }
+                    try { if (!IsEmpty(g, layers)) onRead(g); }   // an empty guide never replaces the last good copy
                     catch (Exception ex) { lock (_gate) if (_logged.Add("guide-read|" + ex.GetType().Name)) Diagnostics.Log("style guide copy", ex); }
             return comp;
         }
@@ -225,11 +226,17 @@ namespace FlareAI.Core.Style
                 if (_bundled != null && SamePath(g, _bundled)) continue;
                 if (!string.IsNullOrEmpty(PersonalGuide) && SamePath(g, PersonalGuide)) continue;
                 if (GuideCopy.IsCopy(g)) continue;   // a copy never stands for an empty guide: the unreachable notice says it
-                var l = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
-                if (l == null || l.Items.Count > 0 || l.Rules.Count > 0 || l.Overrides.Count > 0 || l.Glossary.Count > 0 || l.Variables.Count > 0) continue;
+                if (!IsEmpty(g, layers)) continue;
                 return EmptyNotice + " The folder is " + g + ".";
             }
             return null;
+        }
+
+        /// <summary>True when guide <paramref name="g"/> loaded with no rule bullets, lint rows, override rows, glossary terms or variables.</summary>
+        private static bool IsEmpty(string g, List<GuideLayer> layers)
+        {
+            var l = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
+            return l != null && l.Items.Count == 0 && l.Rules.Count == 0 && l.Overrides.Count == 0 && l.Glossary.Count == 0 && l.Variables.Count == 0;
         }
 
         // ---- where a rule comes from ------------------------------------------------------------------------

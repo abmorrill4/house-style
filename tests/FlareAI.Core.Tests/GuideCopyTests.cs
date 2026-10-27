@@ -71,7 +71,7 @@ namespace FlareAI.Core.Tests
 
         private static IEnumerable<string> Files(string root)
         {
-            return Directory.GetFiles(root, "*", SearchOption.AllDirectories).Select(f => f.Substring(root.Length + 1)).OrderBy(f => f);
+            return Directory.GetFiles(root, "*", SearchOption.AllDirectories).Select(f => f.Substring(root.Length + 1)).Where(f => f != GuideCopy.RecordName).OrderBy(f => f);
         }
 
         [Fact]
@@ -258,10 +258,12 @@ namespace FlareAI.Core.Tests
             var hash = Path.GetFileName(_copies.PathFor(g));
             Write(g, @"Content\Resources\StyleGuide\" + hash + ".json", "{\"source\":\"\\\\\\\\evil\\\\share\",\"stamp\":\"x\",\"copiedUtc\":\"2001-01-01T00:00:00Z\"}");
             Write(g, hash + ".json", "{}");
+            Write(g, GuideCopy.RecordName, "{\"copiedUtc\":\"2001-01-01T00:00:00Z\"}");
+            Write(g, @"Content\Resources\StyleGuide\" + GuideCopy.RecordName, "{\"copiedUtc\":\"2001-01-01T00:00:00Z\"}");
             Assert.True(_copies.Refresh(g));
             var copy = _copies.Find(g);
             Assert.True(copy.CopiedUtc > DateTime.UtcNow.AddMinutes(-5));
-            Assert.DoesNotContain("evil", File.ReadAllText(_copies.PathFor(g) + ".json"));
+            Assert.DoesNotContain("evil", File.ReadAllText(Path.Combine(_copies.PathFor(g), GuideCopy.RecordName)));
         }
 
         [Fact]
@@ -298,7 +300,7 @@ namespace FlareAI.Core.Tests
             Assert.NotNull(_copies.Find(a));
             Assert.Null(_copies.Find(b));
             Assert.False(Directory.Exists(_copies.PathFor(b)));
-            Assert.False(File.Exists(_copies.PathFor(b) + ".json"));
+
         }
 
         [Fact]
@@ -370,6 +372,43 @@ namespace FlareAI.Core.Tests
             Assert.DoesNotContain(hits, x => e.SourceName(e.Compose(null), x.Layer, x.RuleId) == StyleEngine.StarterRules);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AGuideWithNoLayerTxt_HasTheSameRuleIdsOffline_AndItsTurnedOffRulesStayOff(bool project)
+        {
+            var team = Path.Combine(_dir, @"Share\TeamGuide");
+            if (project) GuideCopyTests.Write(team, "Guide.flprj", "<CatapultProject />");
+            var style = project ? @"Content\Resources\StyleGuide\" : "";
+            GuideCopyTests.Write(team, style + "Words.htm", GuideCopyTests.Topic("frobnicate") + "");
+            GuideCopyTests.Write(team, style + "More.htm", GuideCopyTests.Topic("blorp"));
+            var e = Engine(team);
+            var onlineIds = e.Rules(null).Where(r => r.Id != null && r.Layer != "google").Select(r => r.Id).OrderBy(x => x).ToList();
+            Assert.NotEmpty(onlineIds);
+            var blorp = Lint(e, "We blorp it.").First(h => h.Match == "blorp").RuleId;
+            GuideOverrides.Set(team, blorp, "off", "Not for us.");
+            Assert.DoesNotContain(Lint(e, "We blorp it."), h => h.Match == "blorp");   // online, and GuideRead saves the copy with the row
+
+            GoOffline(team);
+            Assert.StartsWith("House Style couldn't reach", e.Notice(null));
+            var offlineIds = e.Rules(null).Where(r => r.Id != null && r.Layer != "google").Select(r => r.Id).OrderBy(x => x).ToList();
+            Assert.Equal(onlineIds, offlineIds);
+            Assert.DoesNotContain(Lint(e, "We blorp it."), h => h.Match == "blorp");   // the team's turned-off rule stays off
+            Assert.Contains(Lint(e, "We frobnicate it."), h => h.Match == "frobnicate");
+        }
+
+        [Fact]
+        public void AReachableButEmptyGuide_KeepsTheLastGoodCopy()
+        {
+            var team = Guide("Team", "frobnicate");
+            var e = Engine(team);
+            e.Notice(null);
+            var saved = _copies.Find(team).CopiedUtc;
+            File.Delete(Path.Combine(team, @"Content\Resources\StyleGuide\Company\Team.htm"));
+            Assert.StartsWith(StyleEngine.EmptyNotice, e.Notice(null));
+            Assert.Equal(saved, _copies.Find(team).CopiedUtc);
+            Assert.True(File.Exists(Path.Combine(_copies.Find(team).Path, @"Content\Resources\StyleGuide\Company\Team.htm")));
+        }
         [Fact]
         public void Notice_OneGuideWithACopy_OneWithout_NamesEach()
         {

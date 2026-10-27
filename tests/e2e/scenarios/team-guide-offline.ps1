@@ -46,7 +46,7 @@ $p = Lint-Topic
 $team = Row $p "frobnicate"
 Assert-E2E ($null -ne $team -and $team.source -like "Our rules*") "Lint Topic found the team's own rule (rows: $(Sources $p))"
 $copies = Join-Path $run.AppData "team-guide-copies"
-Wait-Until { @(Get-ChildItem $copies -Filter "*.json" -File -ErrorAction SilentlyContinue).Count -gt 0 } 60 "the saved copy of the team guide" | Out-Null
+Wait-Until { @(Get-ChildItem $copies -Recurse -Filter "house-style-copy.record" -File -ErrorAction SilentlyContinue).Count -gt 0 } 60 "the saved copy of the team guide" | Out-Null
 
 # 2. Offline: the copy stands in, its rules say Our rules, and the status names the folder and the copy's date.
 $away = "$guide-offline"

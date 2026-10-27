@@ -53,7 +53,7 @@ Assert-E2E ($p.status -notmatch "couldn't be read") "no guide notice while the f
 # 2. The folder goes missing (offline, renamed) and House Style has no copy of it yet (#246 covers the copy in
 # team-guide-offline.ps1): the pane says so, and the starter rules stand in. The copy saved after step 1 is removed first.
 $copies = Join-Path $run.AppData "team-guide-copies"
-Wait-Until { @(Get-ChildItem $copies -Filter "*.json" -File -ErrorAction SilentlyContinue).Count -gt 0 } 60 "the saved copy of the team guide" | Out-Null
+Wait-Until { @(Get-ChildItem $copies -Recurse -Filter "house-style-copy.record" -File -ErrorAction SilentlyContinue).Count -gt 0 } 60 "the saved copy of the team guide" | Out-Null
 Remove-Item $copies -Recurse -Force
 $away = "$guide-offline"
 Rename-Item $guide (Split-Path $away -Leaf)

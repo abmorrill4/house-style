@@ -71,7 +71,13 @@ namespace FlareAI.Core.Style
         /// <summary>The copy's folder for a configured guide. Depends only on the configured path, never on the guide's contents.</summary>
         public string PathFor(string guideRoot) { return System.IO.Path.Combine(Folder, Hash(guideRoot)); }
 
-        private string RecordFor(string guideRoot) { return PathFor(guideRoot) + ".json"; }
+        /// <summary>
+        /// The record (source, stamp, date) inside the copy's folder. Its extension is one the copy never takes from a guide,
+        /// so no file in the guide can replace it, and it moves with the copy in one step, so its date always matches.
+        /// </summary>
+        public const string RecordName = "house-style-copy.record";
+
+        private string RecordFor(string guideRoot) { return System.IO.Path.Combine(PathFor(guideRoot), RecordName); }
 
         /// <summary>
         /// True when <paramref name="path"/> is inside a saved copy (any writer data folder): a copy is never written to.
@@ -190,6 +196,8 @@ namespace FlareAI.Core.Style
                     File.Copy(System.IO.Path.Combine(root, f.Rel), to);
                 }
 
+                File.WriteAllText(System.IO.Path.Combine(temp, RecordName), JsonConvert.SerializeObject(new Record { Source = root, Stamp = stamp, CopiedUtc = DateTime.UtcNow }, Formatting.Indented), new UTF8Encoding(false));
+
                 string old = null;
                 if (Directory.Exists(target))
                 {
@@ -198,11 +206,6 @@ namespace FlareAI.Core.Style
                 }
                 Directory.Move(temp, target);
                 temp = null;
-                var json = JsonConvert.SerializeObject(new Record { Source = root, Stamp = stamp, CopiedUtc = DateTime.UtcNow }, Formatting.Indented);
-                var recTemp = target + ".json.tmp-" + Guid.NewGuid().ToString("N");
-                File.WriteAllText(recTemp, json, new UTF8Encoding(false));
-                if (File.Exists(target + ".json")) File.Delete(target + ".json");
-                File.Move(recTemp, target + ".json");
                 if (old != null) TryDelete(old);
                 return true;
             }
@@ -240,7 +243,7 @@ namespace FlareAI.Core.Style
             var dir = System.IO.Path.GetDirectoryName(target);
             var name = System.IO.Path.GetFileName(target);
             foreach (var d in Directory.GetDirectories(dir, name + ".tmp-*")) TryDelete(d);
-            foreach (var f in Directory.GetFiles(dir, name + ".json.tmp-*")) try { File.Delete(f); } catch (Exception) { }
+            foreach (var f in Directory.GetFiles(dir, name + ".json*")) try { File.Delete(f); } catch (Exception) { }   // records of earlier builds
             foreach (var d in Directory.GetDirectories(dir, name + ".old-*"))
             {
                 if (!Directory.Exists(target)) { try { Directory.Move(d, target); continue; } catch (Exception) { } }
