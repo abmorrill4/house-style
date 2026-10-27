@@ -176,36 +176,53 @@ namespace FlareAI.Flare
             {
                 IRibbonGroup group;
                 if (!groups.TryGetValue(c.Group, out group)) groups[c.Group] = group = tab.AddNewRibbonGroup(c.Group);
-                if (c == Commands.Help && AddHelpMenu(group)) continue;
-                var button = group.AddRibbonButton(Button(c));
-                try { if (button != null) button.ToolTip = c.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + c.Id, ex); }
+                IList<CommandInfo> items;
+                object split = null;
+                if (Commands.SplitMenus.TryGetValue(c, out items)) split = AddSplitMenu(group, c, items);
+                object control = split;
+                if (control == null)
+                {
+                    var button = group.AddRibbonButton(Button(c));
+                    try { if (button != null) button.ToolTip = c.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + c.Id, ex); }
+                    control = button;
+                    // No split button: Lint Topic's checks become buttons of their own, so the choice stays on the ribbon.
+                    if (c == Commands.LintTopic && items != null)
+                        foreach (var m in items)
+                        {
+                            var b = group.AddRibbonButton(Button(m));
+                            try { if (b != null) b.ToolTip = m.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + m.Id, ex); }
+                        }
+                }
+                if (c == Commands.LintTopic) _lintTopicControl = control;
             }
+            try { ShowLintChoice(LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks)); }
+            catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
 
+        private object _lintTopicControl;
+
         /// <summary>
-        /// Help as a split button: the button opens the user guide; its menu has What's New and Start the Tour Again.
-        /// Called by reflection (IRibbonGroup.AddRibbonSplitMenuButton and IRibbonMenu.AddMenuItem are in Flare's API but
-        /// not in the compile-only stubs). False when Flare can't make it; then Help is a plain button.
+        /// A command as a split button: the button runs the command; its menu has the items. Called by reflection
+        /// (IRibbonGroup.AddRibbonSplitMenuButton and IRibbonMenu.AddMenuItem are in Flare's API but not in the compile-only
+        /// stubs). Returns the split button, or null when Flare can't make one; nothing has been added then, so the caller
+        /// adds a plain button. Covers Lint Topic's checks and Help's menu.
         /// </summary>
-        private bool AddHelpMenu(IRibbonGroup group)
+        private object AddSplitMenu(IRibbonGroup group, CommandInfo command, IList<CommandInfo> items)
         {
             try
             {
-                var c = Commands.Help;
                 var add = typeof(IRibbonGroup).GetMethod("AddRibbonSplitMenuButton", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string), typeof(RibbonIconSize), typeof(string), typeof(string), typeof(string) });
-                if (add == null) return false;
-                var menu = add.Invoke(group, new object[] { c.Label, new DelegateCommand(HandlerFor(c)), null, IconPath(c.Icon + ".png"), RibbonIconSize.Large, c.Label, c.Tooltip, c.KeyTip });
-                if (menu == null) return false;
                 System.Reflection.MethodInfo item = null;
-                foreach (var i in menu.GetType().GetInterfaces())
-                    if (i.Name == "IRibbonMenu") item = i.GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
-                if (item == null) item = menu.GetType().GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
-                if (item == null) { Diagnostics.Log("Help menu: no AddMenuItem"); return true; }
-                foreach (var m in Commands.HelpMenu)
+                if (add != null)
+                    item = add.ReturnType.GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
+                if (add == null || item == null) { Diagnostics.Log("split button " + command.Id + ": not available"); return null; }
+                var menu = add.Invoke(group, new object[] { command.Label, new DelegateCommand(HandlerFor(command)), null, IconPath(command.Icon + ".png"), RibbonIconSize.Large, command.Label, command.Tooltip, command.KeyTip });
+                if (menu == null) return null;
+                foreach (var m in items)
                     item.Invoke(menu, new object[] { m.Label, new DelegateCommand(HandlerFor(m)), null, IconPath(m.Icon + "-16.png") });
-                return true;
+                return menu;
             }
-            catch (Exception ex) { Diagnostics.Log("Help menu", ex); return false; }
+            catch (Exception ex) { Diagnostics.Log("split button " + command.Id, ex); return null; }
         }
 
         /// <summary>
@@ -324,7 +341,14 @@ namespace FlareAI.Flare
         }
 
         private void LintTopicWith(bool rulesOnly) { RunAction(Commands.LintTopic.Label, ActionKind.CheckStyle, null, rulesOnly); }
-        private void ShowLintChoice(bool rulesOnly) { }
+        /// <summary>Lint Topic's tooltip: the approved one, plus a sentence while Rules Only is the remembered choice.</summary>
+        private void ShowLintChoice(bool rulesOnly)
+        {
+            var text = rulesOnly ? Commands.LintTopic.Tooltip + " " + Commands.RulesOnlyNote : Commands.LintTopic.Tooltip;
+            var element = _lintTopicControl as System.Windows.FrameworkElement;
+            if (element == null) { Diagnostics.Log("lint choice tooltip: no control"); return; }
+            try { element.ToolTip = text; } catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
+        }
 
         private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
 
