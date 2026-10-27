@@ -390,14 +390,15 @@ namespace FlareAI.Flare.Tests
         [Fact]
         public void LongRule_IsMeasuredAtTheWidthItIsDrawnAt_AsThePaneCrossesTheScrollBarThreshold()
         {
-            // Taller and taller panes at one width: somewhere the card stops needing its scroll bar (and its text gets wider).
-            WithLongRuleCard(260, 400, (form, panel, card, why, diff, decision) =>
+            // Wider and wider panes at one height (CI screens are small, so not taller): somewhere the card stops needing its
+            // scroll bar, and its text gets wider.
+            WithLongRuleCard(150, 700, (form, panel, card, why, diff, decision) =>
             {
                 bool sawScroll = false, sawFit = false;
-                for (var h = 400; h <= 1300; h += 20)
+                for (var w = 150; w <= 700; w += 10)
                 {
-                    form.ClientSize = new Size(260, h); Pump(null, 120);
-                    AssertWhole("260x" + h + ": ", card, why, diff, decision);
+                    form.ClientSize = new Size(w, 700); Pump(null, 120);
+                    AssertWhole(w + "x700: ", card, why, diff, decision);
                     if (card.VerticalScroll.Visible) sawScroll = true; else sawFit = true;
                 }
                 Assert.True(sawScroll, "the card never scrolled");
