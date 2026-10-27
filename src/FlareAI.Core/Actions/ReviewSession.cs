@@ -355,6 +355,7 @@ namespace FlareAI.Core.Actions
                 f.IsFixed = false; f.Written = false;
                 f.IsStale = f.ContextChanged = !exact;
                 if (exact) revived++; else stale++;
+                Record(f, dom, new Dictionary<XmlNode, string>());   // the count now is the new baseline for the check of hand fixes
             }
             if (revived + stale == 0) return 0;
             Sort();

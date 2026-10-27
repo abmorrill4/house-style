@@ -205,6 +205,100 @@ namespace FlareAI.Scenarios.Review
             finally { Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled; }
         }
 
+        private static List<StyleFinding> Lint(FlareSimDocument doc)
+        {
+            var style = new StyleEngine(new[] { Repo.StyleGuide }, Repo.StyleGuide);
+            var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(style, doc.SourcePath), 16000, style, doc.SourcePath);
+            return runner.Lint(runner.PickAllBlocks(doc));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void HandEdit_ThenUndo_BringsTheIssueBack_WithAndWithoutLiveCheck(bool live)
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool."));
+            var s = Session(doc);
+            s.Add(Lint(doc));
+            Assert.Single(s.Findings, f => f.Excerpt == "utilize");
+            RunOf(doc, 0).Value = "Please use the tool.";
+            s.AfterEdit(live ? Lint(doc) : null);
+            RunOf(doc, 0).Value = "Please utilize the tool.";
+            s.AfterEdit(live ? Lint(doc) : null);
+            Assert.Equal("The change was undone. The issue is back.", s.Status);
+            Assert.Single(s.Findings, f => f.Excerpt == "utilize" && !f.IsFixed);
+            Assert.Single(s.Findings, f => f.Excerpt == "utilize");
+        }
+
+        [Fact]
+        public void HandEdit_RuleIssue_WithLiveCheckOn_IsStruckThrough_NotRemoved()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool."));
+            var s = Session(doc);
+            s.Add(Lint(doc));
+            RunOf(doc, 0).Value = "Please use the tool.";
+            s.AfterEdit(Lint(doc));
+            var f = s.Findings.Single(x => x.Excerpt == "utilize");
+            Assert.True(f.IsFixed);
+            Assert.EndsWith("You fixed 1 issue.", s.Status);
+        }
+
+        [Fact]
+        public void JoinTwoParagraphs_LeavesTheirIssuesOpen_ThenFixingTheMovedOneMarksIt()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool.", "Then utilize the menu."));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1);
+            s.Add(new[] { a, b });
+            var body = BlockSelector.FindBody(doc.Document);
+            RunOf(doc, 0).Value = "Please utilize the tool. Then utilize the menu.";
+            body.RemoveChild(body.SelectNodes("p")[1]);
+            s.AfterEdit(null);
+            Assert.False(a.IsFixed);
+            Assert.False(b.IsFixed);
+            RunOf(doc, 0).Value = "Please utilize the tool. Then use the menu.";
+            s.AfterEdit(null);
+            Assert.True(b.IsFixed);
+            Assert.False(a.IsFixed);
+        }
+
+        [Fact]
+        public void MoveSentenceToAnotherParagraph_MarksTheAiIssueFixed_UndoBringsItBack()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Intro text here. Please utilize the tool now.", "Other."));
+            var s = Session(doc);
+            var f = Find(doc, "Please utilize the tool now", null);
+            f.Source = "ai"; f.Layer = "ai"; f.Replacement = null;
+            s.Add(new[] { f });
+            RunOf(doc, 0).Value = "Intro text here.";
+            RunOf(doc, 1).Value = "Other. Please utilize the tool now.";
+            s.AfterEdit(null);
+            Assert.True(f.IsFixed && f.FixedByEdit);
+            RunOf(doc, 0).Value = "Intro text here. Please utilize the tool now.";
+            RunOf(doc, 1).Value = "Other.";
+            s.AfterEdit(null);
+            Assert.False(f.IsFixed);
+            Assert.Equal("The change was undone. The issue is back.", s.Status);
+        }
+
+        [Fact]
+        public void UndoneChangeWithChangedSurroundings_KeepsItsTextChangedRow()
+        {
+            var doc = FlareSimDocument.FromXml(Topic(TwoWords));
+            var s = Session(doc);
+            var f = Find(doc, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.Accept();
+            doc.Undo();
+            var run = TextRuns.Of(new List<XmlNode> { f.Block }).First(r => r.Value.Contains("utilize"));
+            run.Value = run.Value.Replace("Please", "Kindly").Replace("Then utilize", "Then employ");
+            Assert.Equal(1, s.RecheckApplied());
+            s.AfterEdit(null);
+            Assert.True(f.IsStale);
+            Assert.False(f.FixedByEdit);
+        }
+
         private sealed class ScenarioHost : IReviewHost
         {
             public bool Confirm(string message, string action) { return true; }
