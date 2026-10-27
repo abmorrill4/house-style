@@ -211,7 +211,7 @@ function Invoke-RibbonMenu([Parameter(Mandatory)][string]$Button, [Parameter(Man
         $parts[-1].Patterns.Invoke.Pattern.Invoke()
     }
     # The menu is a popup window of Flare's, not inside the ribbon: search the desktop for this process's menu items.
-    $cond = $script:Cf.ByName($Item).And($script:Cf.ByControlType($script:CT::MenuItem))
+    $cond = $script:Cf.ByName($Item).And($script:Cf.ByControlType($script:CT::MenuItem).Or($script:Cf.ByControlType($script:CT::Button)))
     $m = Wait-Until {
         $hit = $null
         $w = Get-FlareWindow; if ($w) { $hit = $w.FindFirstDescendant($cond) }
@@ -223,7 +223,9 @@ function Invoke-RibbonMenu([Parameter(Mandatory)][string]$Button, [Parameter(Man
         }
         $hit
     } 10 "menu item $Item under $Button"
-    $m.Patterns.Invoke.Pattern.Invoke()
+    Write-Host "   (menu item $Item`: $($m.ControlType), invoke $($m.Patterns.Invoke.IsSupported))"
+    if ($m.Patterns.Invoke.IsSupported) { $m.Patterns.Invoke.Pattern.Invoke() }
+    else { $m.Click() }   # a writer's click: moves the mouse there
 }
 
 <# One field of this run's plugin settings (settings.json in the run folder). Never the API key, and never the whole file. #>
