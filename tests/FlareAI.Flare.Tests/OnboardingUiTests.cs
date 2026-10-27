@@ -507,12 +507,29 @@ namespace FlareAI.Flare.Tests
         private static void Sta(Action body)
         {
             Exception error = null;
-            var t = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
+            // A failed step can leave a form unable to dispose, and that error then hides the step's: keep the first
+            // assertion or timeout raised on the test's thread too.
+            Exception first = null;
+            Thread ui = null;
+            var raised = new List<string>();
+            EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> seen = (s, e) =>
+            {
+                if (Thread.CurrentThread != ui) return;
+                if (raised.Count < 8) raised.Add(e.Exception.GetType().Name + ": " + e.Exception.Message + " at " + (e.Exception.StackTrace ?? "").Split('\n').FirstOrDefault());
+                if (first == null && (e.Exception is Xunit.Sdk.XunitException || e.Exception is TimeoutException)) first = e.Exception;
+            };
+            var t = ui = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
             t.SetApartmentState(ApartmentState.STA);
             t.IsBackground = true;
-            t.Start();
-            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
-            if (error != null) throw new Exception(error.Message, error);
+            AppDomain.CurrentDomain.FirstChanceException += seen;
+            try
+            {
+                t.Start();
+                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            }
+            finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
+            if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);
+            if (error != null) throw new Exception(error.Message + " Raised on the test's thread: " + string.Join(" | ", raised.ToArray()), error);
         }
     }
 }
