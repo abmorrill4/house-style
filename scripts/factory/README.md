@@ -309,7 +309,8 @@ Guards against report text steering the agent:
 - The agents' output, the rerun tests' output and dry-run comments go to `C:\HouseStyle\factory-logs` on the VM, never
   the job log. This repo is public, so its job logs are too. A failed run logs only "report n is stuck", and the
   reason is on the private report. The report file is deleted before agent-written tests run.
-- e2e runs on `factory/*` branches never get the main `ANTHROPIC_API_KEY`. Their AI scenarios go through the owner's
+- The e2e runner never gets the main `ANTHROPIC_API_KEY`, because it also runs agent-written code from `factory/*`
+  branches and keeps state between jobs. All its AI scenarios go through the owner's
   Bifrost gateway (`https://aigw.praeviderant.com`, or the `BIFROST_URL` variable) with a virtual key that's for
   the Flare VM only (`BIFROST_VK`, or `FACTORY_TEST_ANTHROPIC_KEY` where it was first saved). The gateway publishes only its AI paths, and every e2e run checks that it answers.
 

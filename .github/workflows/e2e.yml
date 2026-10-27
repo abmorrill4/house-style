@@ -36,13 +36,13 @@ jobs:
         env:
           # The ai-* scenarios need AI, so they run on main, nightly, by hand, and on the build factory's factory/*
           # branches whose change touches the AI (rules/factory.json aiPaths), where they gate the merge (owner decision
-          # 2026-10-26). factory/* branches hold agent-written code, so they never get ANTHROPIC_API_KEY: they reach AI
-          # only through the owner's Bifrost gateway (aigw.praeviderant.com), with a virtual key that is for this Flare VM's runs only
-          # (owner, 2026-10-27; saved as FACTORY_TEST_ANTHROPIC_KEY, BIFROST_VK wins when set). Other branch pushes skip
-          # the ai-* scenarios. Secrets are masked in the log.
-          ANTHROPIC_API_KEY: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && secrets.ANTHROPIC_API_KEY || '' }}
+          # 2026-10-26). This runner also runs agent-written code from factory/* branches and keeps state between jobs,
+          # so it never gets ANTHROPIC_API_KEY. All its AI goes through the owner's Bifrost gateway
+          # (aigw.praeviderant.com) with a virtual key that is for this Flare VM only (owner, 2026-10-27; saved as
+          # FACTORY_TEST_ANTHROPIC_KEY, BIFROST_VK wins when set). Other branch pushes skip the ai-* scenarios.
           HOUSESTYLE_TEST_BIFROST_KEY: ${{ (startsWith(github.ref_name, 'factory/') || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (secrets.BIFROST_VK || secrets.FACTORY_TEST_ANTHROPIC_KEY) || '' }}
           HOUSESTYLE_TEST_BIFROST_URL: ${{ vars.BIFROST_URL || 'https://aigw.praeviderant.com' }}
+          ANTHROPIC_API_KEY: ''   # blanks any copy in the runner's own environment
         run: |
           $factory = $env:GITHUB_REF_NAME -like 'factory/*'
           if ($factory) {
@@ -54,13 +54,13 @@ jobs:
             if (-not $touchesAi) { $env:HOUSESTYLE_TEST_BIFROST_KEY = '' }
             elseif (-not $env:HOUSESTYLE_TEST_BIFROST_KEY) { Write-Host "::error::This change touches the AI and needs the Bifrost key secret to run the ai-* scenarios."; exit 1 }
           }
-          $noAi = -not $env:ANTHROPIC_API_KEY -and -not $env:HOUSESTYLE_TEST_BIFROST_KEY
+          $noAi = -not $env:HOUSESTYLE_TEST_BIFROST_KEY
           if ($noAi) { Write-Host "Skipping the ai-* scenarios: this run has no key, or the change doesn't touch the AI." }
-          # Checked on every run, so any push shows whether this runner reaches the gateway. A factory run that needs it fails.
+          # Checked on every run, so any push shows whether this runner reaches the gateway. A run that needs it fails.
           try { $null = Invoke-WebRequest "$env:HOUSESTYLE_TEST_BIFROST_URL/health" -UseBasicParsing -TimeoutSec 10; Write-Host "The AI gateway answers." }
           catch {
-            if ($factory -and -not $noAi) { Write-Host "::error::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"; exit 1 }
-            Write-Host "::warning::The AI gateway doesn't answer from this runner, so the Bifrost scenarios will fail: $($_.Exception.Message)"
+            if (-not $noAi) { Write-Host "::error::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"; exit 1 }
+            Write-Host "::warning::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"
           }
           & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi
           exit $LASTEXITCODE
