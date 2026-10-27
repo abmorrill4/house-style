@@ -103,7 +103,7 @@ $head = try { "$(git -C $repo rev-parse --abbrev-ref HEAD 2>$null)@$(git -C $rep
 foreach ($f in $files) {
     Write-Host "== $($f.BaseName)"
     # Mistakes a static check finds cost no Flare launch.
-    $problems = @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo)
+    $problems = try { @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo) } catch { @("the preflight check itself failed: $($_.Exception.Message)") }
     if ($problems.Count) {
         $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @() }
     } else {

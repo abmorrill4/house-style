@@ -47,7 +47,7 @@ $owner = "abmorrill4"
 $tmp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $here = Split-Path (Split-Path $PSScriptRoot)   # repo root
 $allowed = '^(src|tests|styleguide/Company|docs/user-guide|changes)/'
-$denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
+$denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1|Test-E2EScenario\.ps1)$|^tests/e2e/flaui/'
 # Routes act on the public repo only in the retired live mode, and never in a dry run.
 $routeMode = $factoryMode   # on from here on
 $live = $routeMode -eq "live" -and -not $DryRun

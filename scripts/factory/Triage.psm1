@@ -600,7 +600,7 @@ function Get-AddedText([string]$diff) {
 # the scenarios' recorded output, the corpus and its ground truth, the test kit and isolation wiring, project wiring,
 # and the e2e harness (which the factory also refuses outright). Any change here, new files included, is for review.
 $TestProtected = '^tests/(.+/)?(baselines|fixtures|golden)/|^tests/FlareAI\.Scenarios/Output/|^corpus/|^tests/FlareAI\.TestKit/|^tests/Isolation/|' +
-                 '\.csproj$|(^|/)Directory\.(Build|Packages)\.|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
+                 '\.csproj$|(^|/)Directory\.(Build|Packages)\.|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1|Test-E2EScenario\.ps1)$|^tests/e2e/flaui/'
 
 # The test-tamper guard. A reproduction test is a new test, so a new test file is fine, and so is a hunk in an existing
 # test file that only adds whole new tests (Test-WholeTests). Everything else is listed: a deleted file, a hunk that

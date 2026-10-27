@@ -37,7 +37,11 @@ foreach ($e in $errors) { Problem "doesn't parse: $($e.Message)" $e.Extent }
 $hook = [IO.File]::ReadAllText((Join-Path $RepoRoot "src\FlareAI.Flare\E2EHook.cs"))
 $verbs = @([regex]::Matches($hook, 'case "(\w+)":') | ForEach-Object { $_.Groups[1].Value })
 $source = (Get-ChildItem (Join-Path $RepoRoot "src\FlareAI.Flare") -Recurse -Filter *.cs | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
-$topics = @(Get-ChildItem (Join-Path $Fixture "Content") -Recurse -Include *.htm, *.html -ErrorAction SilentlyContinue)
+# Each topic's text as the editor shows it: tags dropped, entities decoded, white space collapsed.
+function Flat([string]$s) { ($s -replace '\s+', ' ').Trim() }
+$topics = @(Get-ChildItem (Join-Path $Fixture "Content") -Recurse -Include *.htm, *.html -ErrorAction SilentlyContinue | ForEach-Object {
+    Flat ([System.Net.WebUtility]::HtmlDecode(([IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8) -replace '<[^>]+>', '')))
+})
 
 # A string argument's literal text, or $null when it's built from variables.
 function Literal($el) {
@@ -51,8 +55,12 @@ $typed = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Languag
 })
 
 # Files the scenario writes itself (Set-Content $topic ...) needn't be in the fixture.
-$written = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in "Set-Content", "Out-File", "Copy-Item", "New-Item" }, $true) |
-    ForEach-Object { $_.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.VariableExpressionAst] } | ForEach-Object { $_.VariablePath.UserPath } })
+# A variable counts as written when any command that makes files (Set-, Add-, Out-, Copy-, Move-, New-) or any .NET
+# Write call takes it.
+$written = @($ast.FindAll({ param($n)
+        ($n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -match '^(Set|Add|Out|Copy|Move|New)-') -or
+        ($n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -match 'Write|Copy|Move|Create') }, $true) |
+    ForEach-Object { $_.FindAll({ param($v) $v -is [System.Management.Automation.Language.VariableExpressionAst] }, $true) | ForEach-Object { $_.VariablePath.UserPath } })
 # A call inside Fails { ... } is meant to fail, so it's not checked.
 function InFails($n) { for ($p = $n.Parent; $p; $p = $p.Parent) { if ($p -is [System.Management.Automation.Language.CommandAst] -and $p.GetCommandName() -eq "Fails") { return $true } }; $false }
 
@@ -67,7 +75,7 @@ foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Lan
             if ($first -in "replace", "select" -and $args1.Count -ge 2) {
                 $text = Literal $args1[1]
                 if ($text -and -not ($typed | Where-Object { $_.Contains($text) }) -and
-                    -not ($topics | Select-String -SimpleMatch -Pattern $text -List -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+                    -not ($topics | Where-Object { $_.Contains((Flat $text)) } | Select-Object -First 1)) {
                     Problem "Send-E2E $first `"$text`": no fixture topic has that text, and the scenario doesn't type it." $c.Extent
                 }
             }
@@ -84,7 +92,8 @@ foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Lan
                 $assign = $c.Parent; while ($assign -and $assign -isnot [System.Management.Automation.Language.AssignmentStatementAst]) { $assign = $assign.Parent }
                 $var = if ($assign -and $assign.Left -is [System.Management.Automation.Language.VariableExpressionAst]) { $assign.Left.VariablePath.UserPath }
                 $exists = try { Test-Path -LiteralPath (Join-Path $Fixture $rel) } catch { $false }   # a control character makes the path illegal
-                if ($rel -and -not ($var -and $written -contains $var) -and -not $exists) { Problem "Join-Path $($args1[0].Extent.Text) `"$rel`": the fixture has no such file." $c.Extent }
+                # Only a path held in a variable the scenario never writes must already be in the fixture.
+                if ($rel -and $var -and $written -notcontains $var -and -not $exists) { Problem "Join-Path $($args1[0].Extent.Text) `"$rel`": the fixture has no such file." $c.Extent }
             }
         }
     }
