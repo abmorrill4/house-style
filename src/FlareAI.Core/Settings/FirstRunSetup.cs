@@ -34,6 +34,8 @@ namespace FlareAI.Core.Settings
         public bool HadFeedbackFolder { get; private set; }
         /// <summary>False when the window's last write check on <see cref="FeedbackFolder"/> failed (the summary says requests wait).</summary>
         public bool FeedbackWritable { get; set; } = true;
+        /// <summary>The folder the settings already had (Settings saves it unchecked): only a newly typed one is checked.</summary>
+        private string _storedFeedbackFolder;
 
         /// <summary>The answers that describe the current settings, so running setup again starts from them.</summary>
         public static SetupAnswers From(PluginSettings s)
@@ -51,6 +53,7 @@ namespace FlareAI.Core.Settings
                 UseTeamGuide = last != null,
                 TeamGuideFolder = last ?? "",
                 FeedbackFolder = s.FeedbackFolder ?? "",
+                _storedFeedbackFolder = s.FeedbackFolder ?? "",
                 HadFeedbackFolder = !string.IsNullOrWhiteSpace(s.FeedbackFolder)
             };
         }
@@ -89,6 +92,8 @@ namespace FlareAI.Core.Settings
             if (GuideSkipped || !UseTeamGuide) return null;
             var folder = (FeedbackFolder ?? "").Trim();
             if (folder.Length == 0) return null;
+            // Already saved (by Settings, which doesn't check it): setup has no field to fix it in, so it never blocks.
+            if (string.Equals(folder, (_storedFeedbackFolder ?? "").Trim(), StringComparison.OrdinalIgnoreCase)) return null;
             if (folder.IndexOfAny(Path.GetInvalidPathChars()) >= 0) return "The feedback folder has characters a folder name can't have. Check it and try again.";
             if (!IsFullPath(folder)) return @"Enter the full path of the team feedback folder, such as \\server\share\Feedback or D:\Feedback.";
             return null;
@@ -145,7 +150,9 @@ namespace FlareAI.Core.Settings
                     foreach (var e in existing) if (string.Equals(e.Trim().TrimEnd('\\', '/'), folder, StringComparison.OrdinalIgnoreCase)) known = true;
                     if (!known) s.StyleLayers = folder;   // a folder already in a multi-guide list keeps the list
                     // Blank keeps the current folder: setup never clears it.
-                    if ((FeedbackFolder ?? "").Trim().Length > 0) s.FeedbackFolder = TrimFolder(FeedbackFolder);
+                    var typed = (FeedbackFolder ?? "").Trim();
+                    if (typed.Length > 0 && !string.Equals(typed, (_storedFeedbackFolder ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+                        s.FeedbackFolder = TrimFolder(typed);
                 }
             }
             return true;

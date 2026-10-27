@@ -282,6 +282,21 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void ApplyTo_StoredRelativeFeedbackFolder_DoesntBlockSetup()
+        {
+            // Settings saves the folder without the full-path check, and setup has no field to fix it in yet.
+            var s = new PluginSettings { StyleLayers = @"D:\team", FeedbackFolder = @"%TEAM%\feedback" };
+            var again = SetupAnswers.From(s);
+            again.AiSkipped = true;
+            Assert.Null(again.FeedbackProblem());
+            string error;
+            Assert.True(again.ApplyTo(s, out error), error);
+            Assert.Equal(@"%TEAM%\feedback", s.FeedbackFolder);
+            again.FeedbackFolder = "other";   // a newly typed one is still checked
+            Assert.NotNull(again.FeedbackProblem());
+        }
+
+        [Fact]
         public void Summary_SaysWhereRequestsGo_OnlyWithATeamGuide()
         {
             var s = new PluginSettings { FeedbackFolder = @"\\server\feedback" };

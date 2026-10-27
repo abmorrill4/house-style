@@ -153,13 +153,13 @@ namespace FlareAI.Flare
         {
             at = -1;
             var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
-            if (string.IsNullOrEmpty(text) || body == null) throw new InvalidOperationException("No text " + text);
+            if (string.IsNullOrEmpty(text) || body == null) throw new InvalidOperationException("No text " + text + " in one text run");
             foreach (var run in FlareAI.Core.Style.TextRuns.Of(new List<System.Xml.XmlNode> { body }))
             {
                 at = run.Value.IndexOf(text, StringComparison.Ordinal);
                 if (at >= 0) return run;
             }
-            throw new InvalidOperationException("No text " + text);
+            throw new InvalidOperationException("No text " + text + " in one text run");
         }
 
         /// <summary>One tracked, undoable change, as typing makes: Flare raises ContentChanged and the pane reacts on the next pause.</summary>

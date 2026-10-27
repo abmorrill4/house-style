@@ -65,12 +65,13 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one and fails "Flare didn't resize
   the docked pane." `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
-  as typing does. **`select`** (`arg`) selects the first match. Both fail "No text {arg}" or "No topic is open."
+  as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
+  it). Both fail "No text {arg} in one text run" or "No topic is open."
   `Send-E2E replace "log in" -Extra @{ text = "sign in" }; Send-E2E select "sign in"`
 - **`save`** saves the active topic as Ctrl+S does (check-on-save treats it as the writer's save). Returns `saved`.
 - **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
   instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
-  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
+  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Nothing calls it until #238 adds Export. `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
 - **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}".
   `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no

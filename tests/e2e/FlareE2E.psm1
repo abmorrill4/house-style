@@ -234,7 +234,7 @@ function Get-E2ESetting([Parameter(Mandatory)][string]$Name) {
     if ($Name -eq "ProtectedApiKey") { throw "Get-E2ESetting won't read ProtectedApiKey." }
     if (-not $script:Run) { throw "No run: call Start-FlareE2E first." }
     $file = Join-Path $script:Run.AppData "settings.json"
-    $s = Get-Content $file -Raw | ConvertFrom-Json
+    $s = Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
     $p = $s.PSObject.Properties[$Name]
     if ($p) { return $p.Value }
     return $null

@@ -305,7 +305,7 @@ namespace FlareAI.Flare.UI
         {
             var preview = _settings.Clone();   // nothing is saved until Finish
             string error;
-            return _answers.ApplyTo(preview, out error) ? FirstRun.Summary(preview) : error;
+            return _answers.ApplyTo(preview, out error) ? FirstRun.Summary(preview, _answers.FeedbackWritable) : error;
         }
 
         private static void OpenGuide()
