@@ -131,7 +131,7 @@ namespace FlareAI.Scenarios.Rules
                 t.Fx.Session.TurnOffRule();
 
                 Assert.False(Directory.Exists(t.Guide));
-                Assert.Contains(t.Fx.Host.Errors, e => e.StartsWith("House Style can't reach your team's style guide.") && e.Contains(t.Guide));
+                Assert.Contains(t.Fx.Host.Errors, e => e.Contains(GuideWriteException.UnreachableMessage) && e.Contains(t.Guide));
                 Assert.Contains("not changed", t.Fx.Session.Status);
                 Assert.Contains(t.Fx.Session.Findings, x => x.RuleId == EMail);
                 Directory.Move(away, t.Guide);

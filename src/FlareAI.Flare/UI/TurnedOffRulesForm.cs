@@ -97,11 +97,16 @@ namespace FlareAI.Flare.UI
             }
             catch (Exception ex) { Diagnostics.Log("turned-off rules", ex); _head.Text = "Could not read the turned-off rules: " + ex.Message; return; }
 
+            var engine = _style as StyleEngine;
+            Composition comp = null;
+            if (engine != null) try { comp = engine.Compose(_project); } catch (Exception ex) { Diagnostics.Log("turned-off rules: sources", ex); }
             foreach (var o in entries)
             {
                 GuideRule rule;
                 var name = rules.TryGetValue(o.RuleId, out rule) ? rule.Section + ": " + rule.Display : o.RuleId + (o.IsAiName ? " (AI judgment)" : "");
-                var item = new ListViewItem(new[] { name, rule != null ? Cap(rule.Layer) : LayerOf(o), o.Scope, Severity.Label(o.Setting ?? ""), o.By, o.Date, o.Note, o.RequestId != null ? "Approved request" : "" }) { Tag = o, ToolTipText = o.RuleId + " · " + o.File };
+                // Where the rule comes from, as the Issues pane says it (Google, Our rules, Starter rules, This project).
+                var source = rule == null ? LayerOf(o) : engine != null ? engine.SourceName(comp, rule.Layer, rule.Id) : ReviewSession.SourceName(rule.Layer);
+                var item = new ListViewItem(new[] { name, source, o.Scope, Severity.Label(o.Setting ?? ""), o.By, o.Date, o.Note, o.RequestId != null ? "Approved request" : "" }) { Tag = o, ToolTipText = o.RuleId + " · " + o.File };
                 _list.Items.Add(item);
             }
             _list.ShowItemToolTips = true;
@@ -158,9 +163,8 @@ namespace FlareAI.Flare.UI
         {
             if (o.IsAiName) return "AI";
             var cut = o.RuleId.IndexOfAny(new[] { ':', '.' });
-            return cut > 0 ? Cap(o.RuleId.Substring(0, cut)) : "Google";   // a bare name is a Google rule
+            return cut > 0 ? ReviewSession.SourceName(o.RuleId.Substring(0, cut)) : "Google";   // a bare name is a Google rule
         }
 
-        private static string Cap(string s) { return string.IsNullOrEmpty(s) ? "" : char.ToUpperInvariant(s[0]) + s.Substring(1); }
     }
 }

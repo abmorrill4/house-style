@@ -154,6 +154,47 @@ namespace FlareAI.Scenarios.Governance
         }
 
         [Fact]
+        public void Owner_DisablesARuleInTheRulesBrowser_WhileTheTeamFolderIsMissing_NothingIsWritten_AndTheFolderIsNotRecreated()
+        {
+            // #235: the team's folder went offline after the rules browser opened. Writing would leave a near-empty guide in its place.
+            using (var fx = new Fixture())
+            {
+                var owner = fx.As(Lead);
+                var rule = fx.Catalog(owner).Find(fx.Target.Key);
+                var away = fx.Guide + "-offline";
+                Directory.Move(fx.Guide, away);
+
+                var ex = Assert.Throws<GuideWriteException>(() => RuleChanges.Change(owner, rule, Choice(true, "off", "Not for our members."), null, fx.TopicPath));
+                Assert.StartsWith(GuideWriteException.UnreachableMessage, ex.Message);
+                Assert.Contains(fx.Guide, ex.Message);
+                Assert.False(Directory.Exists(fx.Guide));
+                Assert.Empty(fx.RequestFiles());
+                Directory.Move(away, fx.Guide);
+                Assert.Equal(RuleState.On, fx.Catalog(owner).Find(fx.Target.Key).State);
+            }
+        }
+
+        [Fact]
+        public void Owner_TurnsADefaultBackOn_WhileTheTeamFolderIsMissing_NothingIsWritten_AndTheFolderIsNotRecreated()
+        {
+            using (var fx = new Fixture())
+            {
+                // The team's copy has no rows of its own, so a shipped default (a Google rule off by default) is in effect.
+                File.Delete(Path.Combine(fx.Guide, @"Company\Google-overrides.htm"));
+                var owner = fx.As(Lead);
+                var rule = fx.Catalog(owner).Rules.First(r => r.State == RuleState.Off && r.Change != null && r.Change.IsDefault);
+                var away = fx.Guide + "-offline";
+                Directory.Move(fx.Guide, away);
+
+                var ex = Assert.Throws<GuideWriteException>(() => RuleChanges.Restore(owner, rule, null));
+                Assert.StartsWith(GuideWriteException.UnreachableMessage, ex.Message);
+                Assert.False(Directory.Exists(fx.Guide));
+                Directory.Move(away, fx.Guide);
+                Assert.Equal(RuleState.Off, fx.Catalog(owner).Find(rule.Key).State);
+            }
+        }
+
+        [Fact]
         public void Owner_TurnsOffARule_WithTheRulesOnTheSameWords_AndNoneOfThemFlagsThoseWords()
         {
             using (var fx = new Fixture())

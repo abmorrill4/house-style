@@ -58,7 +58,7 @@ namespace FlareAI.Core.Style
                     // fallback (the plugin sets one) it is unreachable, not silently dropped. Without one (MCP, tools) it's skipped.
                     if (Fallback == null) continue;
                     unreadable.Add("Can't reach " + g + ".");
-                    lock (_gate) if (_logged.Add(g + "|missing")) Diagnostics.Log("Style guide " + g + " can't be reached; checking with the fallback guide");
+                    lock (_gate) if (_logged.Add(g + "|missing")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with the fallback guide");
                     continue;
                 }
                 var why = WhyUnreadable(g);

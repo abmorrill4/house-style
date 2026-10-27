@@ -250,7 +250,7 @@ namespace FlareAI.Flare.UI
             lines.Add("From " + (ShowNames ? r.Writer : "a writer") + " on " + (r.Created > DateTime.MinValue ? r.Created.ToLocalTime().ToString("yyyy-MM-dd") : "an earlier date") + (r.IsLegacy ? " (sent before requests were tracked)" : "") + ".");
             lines.Add("Reason: " + (string.IsNullOrEmpty(r.Reason) ? "(none given)" : r.Reason));
             GuideRule rule;
-            if (r.RuleId != null && _rules.TryGetValue(r.RuleId, out rule)) lines.Add("Rule " + rule.Id + " (" + rule.Layer + " · " + rule.Section + "): " + rule.Display);
+            if (r.RuleId != null && _rules.TryGetValue(r.RuleId, out rule)) lines.Add("Rule " + rule.Id + " (" + SourceOf(rule) + " · " + rule.Section + "): " + rule.Display);
             else if (!string.IsNullOrEmpty(r.RuleText)) lines.Add("Rule: " + r.RuleText);
             if (r.Kind == RequestKinds.Wording) lines.Add("New wording asked for: " + r.Wording);
             if (r.Kind == RequestKinds.ProjectException)
@@ -295,7 +295,7 @@ namespace FlareAI.Flare.UI
             GuideRule rule;
             var known = _rules.TryGetValue(it.Rule ?? "", out rule);
             Write(ItemTitle(it), FontStyle.Bold);
-            if (known) Write("Rule " + rule.Id + " (" + rule.Layer + " · " + rule.Section + "): " + rule.Display, FontStyle.Italic);
+            if (known) Write("Rule " + rule.Id + " (" + SourceOf(rule) + " · " + rule.Section + "): " + rule.Display, FontStyle.Italic);
             foreach (var line in it.Evidence) Write("• " + line, FontStyle.Regular);
             Write(Advice(it.Kind), FontStyle.Italic);
             _detail.Select(0, 0);

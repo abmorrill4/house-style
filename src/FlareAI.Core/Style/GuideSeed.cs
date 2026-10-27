@@ -325,5 +325,16 @@ namespace FlareAI.Core.Style
         {
             Target = target;
         }
+
+        private GuideWriteException(string target, string message) : base(message) { Target = target; }
+
+        /// <summary>The first sentence of <see cref="Unreachable"/>'s message.</summary>
+        public const string UnreachableMessage = "House Style can't reach your team's style guide.";
+
+        /// <summary>The team's guide folder isn't there (offline, renamed): nothing is written.</summary>
+        public static GuideWriteException Unreachable(string folder)
+        {
+            return new GuideWriteException(folder, UnreachableMessage + " Check that " + folder + " is available, then try again.");
+        }
     }
 }

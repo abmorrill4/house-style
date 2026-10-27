@@ -222,9 +222,8 @@ namespace FlareAI.Core.Tests
                 e.Notice(null); e.Notice(null); e.Invalidate(); e.Notice(null);
                 var logged = lines.Where(l => l.Contains("can't be reached")).ToList();
                 Assert.Single(logged);
-                var anonymized = ReportBuilder.Anonymize(logged[0], new PluginSettings { StyleLayers = missing });
-                Assert.DoesNotContain(missing, anonymized);
-                Assert.Contains("[team guide]", anonymized);
+                Assert.DoesNotContain(missing, logged[0]);    // the folder's name only, never its full path
+                Assert.Contains("TeamGuide", logged[0]);
             }
             finally { Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled; }
         }

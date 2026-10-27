@@ -872,14 +872,6 @@ namespace FlareAI.Core.Actions
             }
             var choice = _host.ChooseRuleSetting(described, rule != null && guide != null, personal, others);
             if (choice == null) return;
-            // The team's folder isn't there (offline, renamed): writing would make a new, nearly empty guide in its place.
-            if (choice.ForTeam && guide != null && !personal && !System.IO.Directory.Exists(guide))
-            {
-                _host.ShowError("House Style can't reach your team's style guide.",
-                                "Nothing was changed, and the rule still applies. Check that " + guide + " is available, then try again.", null, "Disable Rule");
-                Status = Summary() + "  The rule was not changed.";
-                return;
-            }
             var path = f.DocumentPath ?? _doc.SourcePath;
             var target = choice.ForTeam ? guide : ProjectOverridesPath(path);
             var changed = new List<string>();

@@ -23,6 +23,10 @@ namespace FlareAI.Core.Style
         public static string Set(Team team, string ruleId, string setting, string reason)
         {
             if (team == null) throw new ArgumentNullException("team");
+            // A team folder that isn't there (offline, renamed): writing would leave a near-empty guide in its place. The
+            // writer's own guide is different: it is created on first use.
+            if (!team.IsPersonal && !string.IsNullOrEmpty(team.GuideRoot) && !Directory.Exists(team.GuideRoot))
+                throw GuideWriteException.Unreachable(team.GuideRoot);
             team.EnsureOwner();
             return Set(team.WritableGuide(), ruleId, setting, reason, team.Writer, DateTime.Now);
         }
