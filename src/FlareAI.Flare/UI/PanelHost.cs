@@ -109,6 +109,7 @@ namespace FlareAI.Flare.UI
             if (_pane == null || _pane.IsDisposed) return true;   // shown in House Style's own window, not docked
             if (width > 0 && height > 0) _pane.UndockedSize = new Size(width, height);
             if (!_pane.IsFloating && _pane.PaneDock != null) _pane.PaneDock.FloatPane(_pane);
+            if (!_pane.IsFloating) _pane.PerformFloating();   // the pane's own Float command
             return _pane.IsFloating;
         }
 

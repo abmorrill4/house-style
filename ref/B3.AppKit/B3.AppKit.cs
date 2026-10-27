@@ -57,6 +57,7 @@ namespace B3.AppKit
         public void BringPaneToFront(bool @focus = true) { throw null; }
         public bool PerformClose() { throw null; }
         public bool IsFloating { get { throw null; } }
+        public void PerformFloating() { throw null; }
         public global::B3.AppKit.IPaneDock PaneDock { get { throw null; } set { } }
         public global::System.Drawing.Size UndockedSize { get { throw null; } set { } }
         public string Title { get { throw null; } set { } }

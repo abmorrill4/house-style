@@ -248,7 +248,9 @@ namespace FlareAI.Flare
                 try { SizePane(pane, width, height); }
                 catch (InvalidOperationException) { }   // the floating window took UndockedSize instead
             }
-            return new { floating, width = pane.ClientSize.Width, height = pane.ClientSize.Height };
+            var hosts = new List<string>();   // what holds the pane, for a scenario's failure message
+            for (Control p = pane.Parent; p != null && hosts.Count < 8; p = p.Parent) hosts.Add(p.GetType().Name);
+            return new { floating, width = pane.ClientSize.Width, height = pane.ClientSize.Height, hosts };
         }
 
         private static FindingsPanel Pane()
