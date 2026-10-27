@@ -71,6 +71,26 @@ namespace FlareAI.Core.Actions
 
         private readonly string _project;
 
+        /// <summary>Raised on the writing thread just before House Style writes to a document (its path, may be null).</summary>
+        public static event Action<string> Writing;
+        /// <summary>Raised just after that write, even when it failed.</summary>
+        public static event Action<string> Wrote;
+
+        /// <summary>Every text write House Style makes goes through here, so the writer's own edits are told apart from ours.</summary>
+        public static void WriteTracked(string path, Action write)
+        {
+            RaiseWrite(Writing, path);
+            try { write(); }
+            finally { RaiseWrite(Wrote, path); }
+        }
+
+        private static void RaiseWrite(Action<string> e, string path)
+        {
+            if (e == null) return;
+            foreach (Action<string> h in e.GetInvocationList())
+                try { h(path); } catch (Exception ex) { Diagnostics.Log("write event: " + path + " " + ex.GetType().Name); }
+        }
+
         /// <param name="project">Path of the topic (any path inside its Flare project) for the project style layer; null for none.</param>
         /// <param name="routing">Model and effort per task; null = built-in defaults.</param>
         public ActionRunner(ILlmClient llm, PromptBuilder prompts, int maxTokens, IStyleService style = null, string project = null, Routing routing = null)
@@ -324,6 +344,7 @@ namespace FlareAI.Core.Actions
             _comp = null;   // the labels follow the guide this lint uses
             var lines = new List<TextLine>();
             var owners = new List<string>();
+            var texts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var done = 0;
             foreach (var path in paths)
             {
@@ -334,6 +355,7 @@ namespace FlareAI.Core.Actions
                     xml.Load(path);
                     var body = BlockSelector.FindBody(xml);
                     if (body == null) continue;
+                    texts[path] = HandFixes.ScopeText(body);
                     var blocks = new List<XmlNode>();
                     foreach (XmlNode c in body.ChildNodes) if (c.NodeType == XmlNodeType.Element) blocks.Add(c);
                     foreach (var l in TextLines.Of(blocks, VariableValue)) { lines.Add(l); owners.Add(path); }
@@ -355,6 +377,12 @@ namespace FlareAI.Core.Actions
                     f.Block = null;
                     findings.Add(f);
                 }
+            }
+            foreach (var f in findings)
+            {
+                string t;
+                if (string.IsNullOrEmpty(f.Excerpt) || f.DocumentPath == null || !texts.TryGetValue(f.DocumentPath, out t)) continue;
+                f.SeenInBody = f.Seen = HandFixes.Count(t, f.Excerpt);   // project issues have no block: both are body counts
             }
             Diagnostics.Log("Project lint: " + paths.Count + " files, " + lines.Count + " lines, " + findings.Count + " findings");
             return findings;
@@ -855,6 +883,13 @@ namespace FlareAI.Core.Actions
         /// </summary>
         public int ApplyFixes(IDocumentAdapter doc, IEnumerable<StyleFinding> findings, string operationName)
         {
+            var n = 0;
+            WriteTracked(doc.SourcePath, () => n = ApplyFixesNow(doc, findings, operationName));
+            return n;
+        }
+
+        private int ApplyFixesNow(IDocumentAdapter doc, IEnumerable<StyleFinding> findings, string operationName)
+        {
             var order = new Dictionary<XmlNode, int>();
             var body = BlockSelector.FindBody(doc.Document);
             if (body == null) return 0;
@@ -1097,7 +1132,7 @@ namespace FlareAI.Core.Actions
                 throw new InvalidOperationException("The paragraph has pending tracked changes and this edit cannot be applied word by word. Accept or reject them (Review tab) first.");
             var refusal = NodeWrites.Refusal(proposal.OriginalBlocks, proposal.ProposedBlocks);
             if (refusal != null) throw new InvalidOperationException(refusal);   // never the Redo crash path (variables)
-            doc.ReplaceBlocks(operationName, proposal.OriginalBlocks, proposal.ProposedBlocks);
+            WriteTracked(doc.SourcePath, () => doc.ReplaceBlocks(operationName, proposal.OriginalBlocks, proposal.ProposedBlocks));
             Diagnostics.Log("Applied " + operationName + ": " + proposal.OriginalBlocks.Count + " → " + proposal.ProposedBlocks.Count + " blocks");
             return "Applied as a paragraph-level tracked change (the edit restructures the text).";
         }

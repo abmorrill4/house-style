@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
@@ -334,7 +335,13 @@ namespace FlareAI.Flare.Tests
         // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
 
         /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>
-        private static void WithPane(Action<FindingsPanel, Form, ListView> body)
+        private static void WithPane(Action<FindingsPanel, Form, ListView> body, int width = 500, int height = 800)
+        {
+            WithPaneDoc((doc, panel, form, list) => body(panel, form, list), width, height);
+        }
+
+        /// <summary>As <see cref="WithPane(Action{FindingsPanel, Form, ListView}, int, int)"/>, and hands the body the fake document too.</summary>
+        private static void WithPaneDoc(Action<FlareSimDocument, FindingsPanel, Form, ListView> body, int width, int height)
         {
             Sta(() =>
             {
@@ -342,7 +349,7 @@ namespace FlareAI.Flare.Tests
                 var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(Rewords(r))(r)), new PromptBuilder(null), 1024);
                 var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
                 using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
-                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(width, height), Font = SystemFonts.MessageBoxFont })
                 {
                     panel.Dock = DockStyle.Fill;
                     form.Controls.Add(panel);
@@ -351,7 +358,7 @@ namespace FlareAI.Flare.Tests
                     var list = All(panel).OfType<ListView>().Single();
                     Pump(() => list.Items.Count == 2 && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
                          15000, () => list.Items.Count + " rows: " + string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
-                    body(panel, form, list);
+                    body(doc, panel, form, list);
                 }
             });
         }
@@ -419,7 +426,116 @@ namespace FlareAI.Flare.Tests
             finally { Environment.SetEnvironmentVariable(E2EHook.EnvVar, old); }
         }
 
-        private const string TwoParagraphs = "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Transfers</h1>" +
+        // ---- Mark as Fixed (#237): the menus, the card head and the hand-fix strike-through -----------------------
+
+        private static object Prop(object o, string name) { return o.GetType().GetProperty(name).GetValue(o, null); }
+        private static string Head(FindingsPanel p) { return (string)Prop(Prop(p.E2EState(), "card"), "head"); }
+        private static string StatusOf(FindingsPanel p) { return (string)Prop(p.E2EState(), "status"); }
+        private static ContextMenuStrip RejectMenu(FindingsPanel p)
+        {
+            return (ContextMenuStrip)typeof(FindingsPanel).GetField("_rejectMenu", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(p);
+        }
+        private static ToolStripItem MarkItem(ListView list) { return list.ContextMenuStrip.Items.Cast<ToolStripItem>().Single(i => i.Text == "Mark as Fixed"); }
+        private static Button ChangeButton(Control panel)
+        {
+            return All(panel).OfType<Button>().Single(b => b.Parent.AccessibleName == "Decision for the selected issue" && b.Text == "Change");
+        }
+        /// <summary>The writer's edit: the run that holds <paramref name="contains"/> gets <paramref name="text"/>, as the DOM changes in Flare.</summary>
+        private static void EditRun(FlareSimDocument sim, string contains, string text)
+        {
+            var run = sim.Document.SelectNodes("//text()").Cast<System.Xml.XmlNode>().OfType<System.Xml.XmlText>().First(t => t.Value.Contains(contains));
+            run.Value = text;
+        }
+
+        [Theory]
+        [InlineData(180, 640)]
+        [InlineData(500, 800)]
+        public void HandFix_StrikesTheRow_AndTheCardSaysFixed(int width, int height)
+        {
+            WithPaneDoc((sim, panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                EditRun(sim, "Please note that the fee", "The fee is waived for members who move money between their own accounts.");
+                panel.AfterEdit(null);
+                Pump(null, 300);
+
+                Assert.True(list.Items[0].Font.Strikeout, width + "x" + height + ": the hand-fixed row isn't struck through");
+                Assert.Contains("✓", list.Items[0].Text);
+                Assert.True(list.Items[0].Selected, "the fixed row should stay selected");
+                Assert.Contains("fixed", Head(panel));
+                Assert.DoesNotContain("changed", Head(panel));
+                Assert.Contains("fixed", list.AccessibleDescription);
+                Assert.False(ChangeButton(panel).Enabled, "Change should be disabled on a fixed row");
+            }, width, height);
+        }
+
+        [Theory]
+        [InlineData(150, 640)]
+        [InlineData(500, 800)]
+        public void RowMenu_MarkAsFixed_AfterGoTo_EnabledOnStale_DisabledOnChanged(int width, int height)
+        {
+            WithPaneDoc((sim, panel, form, list) =>
+            {
+                var items = panel.E2ERowMenu(0, null);
+                Assert.Equal(items.IndexOf("Go To") + 1, items.IndexOf("Mark as Fixed"));
+
+                EditRun(sim, "Please note that the fee", "The fee is waived for members who move money between their own accounts.");
+                panel.RefreshLint(new List<StyleFinding>());
+                Pump(null, 300);
+                panel.E2ERowMenu(0, null);
+                Assert.True(MarkItem(list).Enabled, "a text-changed row can be marked fixed");
+                Assert.Equal("Mark as Fixed", MarkItem(list).AccessibleName);
+
+                // The writer fixes the second issue by hand (a Change click here left the layout tests stale in the same run).
+                EditRun(sim, "In order to move money", "To move money");
+                panel.AfterEdit(null);
+                Pump(null, 300);
+                var fixedRow = list.Items.Cast<ListViewItem>().ToList().FindIndex(i => i.Text.Contains("✓"));
+                Assert.True(fixedRow >= 0, "the Change should have fixed a row");
+                panel.E2ERowMenu(fixedRow, null);
+                Assert.False(MarkItem(list).Enabled, "a fixed row can't be marked again");
+            }, width, height);
+        }
+
+        [Theory]
+        [InlineData(150, 640)]
+        [InlineData(500, 800)]
+        public void IgnoreMenu_KeepsTheFirstReason_AndMarkAsFixedSitsBetweenSeparatorsAfterSkip(int width, int height)
+        {
+            WithPane((panel, form, list) =>
+            {
+                var menu = RejectMenu(panel).Items.Cast<ToolStripItem>().ToList();
+                Assert.Equal("The suggestion is wrong", menu[0].Text);
+                var skip = menu.FindIndex(i => i.Text == "Skip for Now");
+                Assert.True(skip > 0, "Skip for Now is in the menu");
+                Assert.IsType<ToolStripSeparator>(menu[skip + 1]);
+                Assert.Equal("Mark as Fixed", menu[skip + 2].Text);
+                Assert.IsType<ToolStripSeparator>(menu[skip + 3]);
+                Assert.Equal("Report False Positive…", menu[skip + 4].Text);
+            }, width, height);
+        }
+
+        [Theory]
+        [InlineData(150, 640)]
+        [InlineData(500, 800)]
+        public void MarkAsFixed_FromTheIgnoreMenu_StrikesTheRow(int width, int height)
+        {
+            WithPane((panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                var ignore = All(panel).OfType<Button>().Single(b => b.Text.StartsWith("Ignore", StringComparison.Ordinal) && b.Visible);
+                ignore.PerformClick();
+                panel.E2EMenuPick("Mark as Fixed");
+                Pump(null, 300);
+
+                Assert.True(list.Items[0].Font.Strikeout, "the row isn't struck through");
+                Assert.EndsWith("Marked as fixed.", StatusOf(panel));
+            }, width, height);
+        }
+
+        private const string TwoParagraphs ="<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Transfers</h1>" +
                                              "<p>Please note that the fee is waived for members who move money between their own accounts.</p>" +
                                              "<p>In order to move money, open the Transfers page.</p></body></html>";
 

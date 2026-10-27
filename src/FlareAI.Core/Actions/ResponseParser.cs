@@ -56,6 +56,14 @@ namespace FlareAI.Core.Actions
         [Newtonsoft.Json.JsonIgnore] public bool ContextChanged { get; set; }
         /// <summary>Its replacement was written into the document by Apply (so the document can take it back).</summary>
         [Newtonsoft.Json.JsonIgnore] public bool Written { get; set; }
+        /// <summary>The writer's edit removed this text (a check found it). A later check can take it back (Ctrl+Z).</summary>
+        [Newtonsoft.Json.JsonIgnore] public bool FixedByEdit { get; set; }
+        /// <summary>The writer chose Mark as Fixed. No check takes it back; only Lint Again does.</summary>
+        [Newtonsoft.Json.JsonIgnore] public bool MarkedFixed { get; set; }
+        /// <summary>How often the excerpt was in its paragraph at the last check; -1 when not recorded.</summary>
+        [Newtonsoft.Json.JsonIgnore] public int Seen { get; set; } = -1;
+        /// <summary>How often the excerpt was in the file's body at the last check; -1 when not recorded.</summary>
+        [Newtonsoft.Json.JsonIgnore] public int SeenInBody { get; set; } = -1;
         /// <summary>The writer asked the style guide owners to change this finding's rule and is waiting for an answer ("Request sent").</summary>
         [Newtonsoft.Json.JsonIgnore] public bool RequestSent { get; set; }
 

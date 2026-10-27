@@ -1,0 +1,1 @@
+- Issues you fix by typing in the editor show as fixed, in a topic and in Lint Project and Lint Folder reports. Use Mark as Fixed when you've fixed an issue and it's still listed.

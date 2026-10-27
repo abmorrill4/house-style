@@ -87,15 +87,32 @@ namespace FlareAI.Flare
             state.Debounce.Tick += (s, e) =>
             {
                 state.Debounce.Stop();
-                // A project check's fix undone in this file (Ctrl+Z) is live again in the project list.
                 var panel = PanelHost.Current;
-                if (panel != null && panel.IsProjectReport) try { panel.RecheckApplied(); } catch (Exception ex) { Diagnostics.Log("recheck applied", ex); }
-                if (PluginSettings.Load().LiveCheck) LiveCheck(doc, state);
+                List<StyleFinding> lint = null;
+                var mine = false;
+                if (PluginSettings.Load().LiveCheck)
+                {
+                    try
+                    {
+                        FlareDocumentAdapter adapter;
+                        lint = Lint(doc, out adapter);
+                        if (lint != null)
+                        {
+                            state.Lint = lint;
+                            mine = panel != null && !panel.IsProjectReport && SamePath(panel.TopicPath, adapter.SourcePath);
+                        }
+                    }
+                    catch (Exception ex) { lint = null; Diagnostics.Log("live check", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the topic as you type.", ex); }
+                }
+                // Undone changes, issues fixed by hand, then Live check's lint: one order, in the pane (it raises Changed, so the markers follow).
+                if (panel != null) try { panel.AfterEdit(mine ? lint : null); } catch (Exception ex) { Diagnostics.Log("after edit: " + ex.GetType().Name); }
+                if (lint != null && !mine) UpdateMarkers(doc);
             };
             doc.ContentChanged += (s, e) =>
             {
                 var panel = PanelHost.Current;
-                if (!(panel != null && panel.IsProjectReport) && !PluginSettings.Load().LiveCheck) return;
+                var watch = panel != null && (panel.IsProjectReport || SamePath(panel.TopicPath, path));
+                if (!watch && !PluginSettings.Load().LiveCheck) return;
                 state.Debounce.Stop(); state.Debounce.Start();   // a moment after typing stops
             };
             doc.Saved += (s, e) => OnSaved(doc, state);
@@ -135,25 +152,15 @@ namespace FlareAI.Flare
             return lint;
         }
 
-        private void LiveCheck(IDocument doc, DocState state)
-        {
-            try
-            {
-                FlareDocumentAdapter adapter;
-                var lint = Lint(doc, out adapter);
-                if (lint == null) return;
-                state.Lint = lint;
-                var panel = PanelHost.Current;
-                if (panel != null && !panel.IsProjectReport && SamePath(panel.TopicPath, adapter.SourcePath)) panel.RefreshLint(lint);   // raises Changed → markers
-                else UpdateMarkers(doc);
-            }
-            catch (Exception ex) { Diagnostics.Log("live check", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the topic as you type.", ex); }
-        }
-
         private void OnSaved(IDocument doc, DocState state)
         {
             try
             {
+                var saved = SafePath(doc);
+                var report = PanelHost.Current;
+                if (report != null && report.IsProjectReport && saved != null && report.Covers(saved))
+                    try { report.RecheckSaved(saved, new FlareDocumentAdapter(doc).Document); }   // the saved document's own DOM; nothing read from disk
+                    catch (Exception ex) { Diagnostics.Log("recheck saved: " + saved + " " + ex.GetType().Name); }
                 var settings = PluginSettings.Load();
                 if (!settings.CheckOnSave) return;
                 if (FlareAI.Core.Editing.SelfSaves.IsOwn(SafePath(doc))) return;   // the plugin's own save (Apply in Check project): no notice

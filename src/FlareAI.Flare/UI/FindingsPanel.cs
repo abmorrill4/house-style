@@ -152,6 +152,8 @@ namespace FlareAI.Flare.UI
             _session.StatusChanged += text => _status.Text = text;
             _session.BatchReported += ShowResult;
             _session.Happened += OnHappened;
+            _session.IsShown = () => PanelHost.Current == this;
+            Disposed += (s, e) => _session.WatchWrites(false);
             // Keep the first check's scope: Go to selects text in the editor, which must not shrink a Check again.
             _wholeTopic = string.IsNullOrEmpty(doc.SelectionText);
             Title = PaneTitle + " · " + System.IO.Path.GetFileName(doc.SourcePath ?? "");
@@ -252,6 +254,10 @@ namespace FlareAI.Flare.UI
             _rejectMenu.Items.Add(new ToolStripSeparator());
             _rejectMenu.Items.Add("Skip for Now", null, (s, e) => Safe.Run("Skip", _session.Skip));
             _rejectMenu.Items.Add(new ToolStripSeparator());
+            var markFixed = _rejectMenu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
+            markFixed.AccessibleName = "Mark as Fixed";
+            _rejectMenu.Items.Add(new ToolStripSeparator());
+            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; };
             _rejectMenu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
             card.Controls.Add(actions);   // in tab order: the decision first, then the text
             card.Controls.Add(_ruleActions);
@@ -908,6 +914,8 @@ namespace FlareAI.Flare.UI
         {
             var menu = new ContextMenuStrip();
             var goTo = menu.Items.Add("Go To", null, (s, e) => Safe.Run("Go To", () => _session.GoToCurrent()));
+            var markFixed = menu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
+            markFixed.AccessibleName = "Mark as Fixed";
             var open = menu.Items.Add("Open File", null, (s, e) => Safe.Run("Open File", () => _session.OpenFileOfCurrent()));
             menu.Items.Add("Copy File Path", null, (s, e) => Safe.Run("Copy File Path", () =>
             {
@@ -931,6 +939,7 @@ namespace FlareAI.Flare.UI
                 _session.Current = f;   // the menu's commands act on the session's current row; the selection handler runs later
                 if (f == null) { e.Cancel = true; return; }
                 goTo.Enabled = !f.IsFixed;
+                markFixed.Enabled = !f.IsFixed;
                 open.Enabled = _session.FilePathOf(f) != null;
                 report.Enabled = !string.IsNullOrEmpty(f.Excerpt);
                 var folder = _files != null && f.DocumentPath != null ? LintExclusions.EntryFor(f.DocumentPath, true) : null;
@@ -1487,6 +1496,15 @@ namespace FlareAI.Flare.UI
             _session.RefreshLint(lint);   // not in a project report
         }
 
+        /// <summary>A moment after typing stops: undone changes come back, issues the writer fixed by hand show as fixed, then Live check's lint (or null).</summary>
+        public void AfterEdit(List<StyleFinding> lint) { if (_reviewing) return; _session.AfterEdit(lint); }
+        /// <summary>A file in this report was saved: issues the writer fixed in it show as fixed.</summary>
+        public void RecheckSaved(string path, System.Xml.XmlDocument dom) { if (_reviewing) return; _session.RecheckSaved(path, dom); }
+        /// <summary>True when the report has issues in this file.</summary>
+        public bool Covers(string path) { return _session.Covers(path); }
+        /// <summary>Starts or stops telling House Style's own writes from the writer's (while the pane is shown).</summary>
+        internal void WatchWrites(bool on) { _session.WatchWrites(on); }
+
         private ListViewGroup GroupFor(StyleFinding f)
         {
             string key, label;
@@ -1645,7 +1663,7 @@ namespace FlareAI.Flare.UI
                 : f.DocumentPath.EndsWith(".flsnp", StringComparison.OrdinalIgnoreCase)
                     ? "In snippet " + System.IO.Path.GetFileName(f.DocumentPath) + ", used in " + UsesLabel(_session.SnippetUses(f.DocumentPath)) + ". A change here changes all of them."
                     : "In " + System.IO.Path.GetFileName(f.DocumentPath);
-            _cardHead.Text = A11y.SeverityLabel(f.Severity) + "  ·  " + LayerLabel(f) + "  ·  " + KindLabel(f) + (f.IsFixed ? "  ·  changed" : f.IsStale ? "  ·  text changed" : "")
+            _cardHead.Text = A11y.SeverityLabel(f.Severity) + "  ·  " + LayerLabel(f) + "  ·  " + KindLabel(f) + (f.IsFixed ? (f.FixedByEdit || f.MarkedFixed ? "  ·  fixed" : "  ·  changed") : f.IsStale ? "  ·  text changed" : "")
                              + (where.Length > 0 ? "\n" + where : "");
 
             _list.AccessibleDescription = (_cardHead.Text + ". " + f.Suggestion).Replace("\n", " ");   // what a screen reader says for the selected row
