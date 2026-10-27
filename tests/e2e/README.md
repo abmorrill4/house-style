@@ -65,8 +65,10 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one and fails "Flare didn't resize
   the docked pane." `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
 - **`paneFloat`** (`width`, `height`, both optional) floats the docked pane as Flare's Float command does and sizes the
-  window. Returns `floating`, `width` and `height` (the pane's size afterwards). Use it before `paneSize` when the docked
-  pane won't resize. `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
+  window. Returns `floating`, `width`, `height` (the pane's size afterwards) and `hosts` (the controls that hold it).
+  In Flare 22 the pane sits in Flare's WPF dock (`SidebarView < WinFormsAdapter`), where the B3.AppKit float calls do
+  nothing, so it returns `floating = false` there. Check `height` and skip a tall-pane check when it didn't grow.
+  `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
   as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
   it). Both fail "No text {arg} in one text run" or "No topic is open."
