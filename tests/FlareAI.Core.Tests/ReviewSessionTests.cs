@@ -89,6 +89,63 @@ namespace FlareAI.Core.Tests
 
         private string TopicText() { return BlockSelector.FindBody(_topic.Document).InnerText; }
 
+        // ---- fixed by hand ------------------------------------------------------------------------
+
+        private static XmlText FirstRun(FakeDocumentAdapter doc, int paragraph)
+        {
+            return (XmlText)BlockSelector.FindBody(doc.Document).SelectNodes("p")[paragraph].FirstChild;
+        }
+
+        [Fact]
+        public void RecheckEdited_SkipsFindingsWithoutAnExcerpt()
+        {
+            var s = Session();
+            var f = Find(_topic, "utilize", "use");
+            f.Excerpt = "";
+            s.Add(new[] { f });
+            FirstRun(_topic, 0).Value = "Please use the tool. The user can see it.";
+            Assert.Equal(0, s.RecheckEdited());
+            Assert.False(f.IsFixed);
+        }
+
+        [Fact]
+        public void RecheckEdited_ExcerptNotInTheText_StaysOpen()
+        {
+            var s = Session();
+            var f = Find(_topic, "utilize", "use");
+            f.Excerpt = "zzz";
+            s.Add(new[] { f });
+            FirstRun(_topic, 0).Value = "Please use the tool. The user can see it.";
+            Assert.Equal(0, s.RecheckEdited());
+            Assert.False(f.IsFixed);
+        }
+
+        [Fact]
+        public void RecheckEdited_ExcerptWithRegexCharacters_CountsLiterally()
+        {
+            FirstRun(_topic, 0).Value = "Go (see [Note b) now.";
+            var s = Session();
+            var f = Find(_topic, "(see [Note", null);
+            s.Add(new[] { f });
+            FirstRun(_topic, 0).Value = "Go now.";
+            Assert.Equal(1, s.RecheckEdited());
+            Assert.True(f.IsFixed && f.FixedByEdit);
+        }
+
+        [Fact]
+        public void RecheckEdited_DetachedBlock_ComparesBodyCountWithBodyBaseline()
+        {
+            var s = Session();
+            var first = Find(_topic, "utilize", "use");
+            var second = Find(_topic, "utilize", "use", occurrence: 1);
+            s.Add(new[] { first, second });
+            var body = BlockSelector.FindBody(_topic.Document);
+            body.RemoveChild(body.SelectNodes("p")[0]);
+            Assert.Equal(1, s.RecheckEdited());
+            Assert.True(first.IsFixed);
+            Assert.False(second.IsFixed);
+        }
+
         // ---- Apply -------------------------------------------------------------------------------
 
         [Fact]
