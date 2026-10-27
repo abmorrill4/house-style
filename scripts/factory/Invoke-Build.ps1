@@ -120,8 +120,11 @@ function Invoke-AgentTwice($s, $stage, $agent, $model, $card, $tools, $turnsKey)
 
 # This attempt's calls only: a re-readied issue starts fresh, so an earlier attempt's spending doesn't count against it.
 function Get-AttemptCalls($s) {
-    $since = [datetime]::Parse($s.started).ToUniversalTime()
-    Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue -and [datetime]::Parse($_.at).ToUniversalTime() -ge $since }
+    # A state with no readable start counts every call. Ledger times are whole seconds, so the start is too.
+    $inv = [Globalization.CultureInfo]::InvariantCulture; $utc = [Globalization.DateTimeStyles]::AdjustToUniversal
+    $since = try { [datetime]::Parse($s.started, $inv, $utc) } catch { [datetime]::MinValue }
+    $since = $since.AddTicks(-($since.Ticks % [TimeSpan]::TicksPerSecond))
+    Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue -and $(try { [datetime]::Parse($_.at, $inv, $utc) -ge $since } catch { $true }) }
 }
 function Save-State($s) { $s | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $notesDir "$($s.issue)\state.json") -Encoding UTF8 }
 function Add-Note($s, [string]$text) { Add-Content (Join-Path $notesDir "$($s.issue)\notes.md") "$(Get-Date -Format o) $text" -Encoding UTF8 }
@@ -455,7 +458,7 @@ try {
             Add-Content (Join-Path $notesDir "$($pick.n)\notes.md") "$(Get-Date -Format o) stopped: $code. $m" -ErrorAction SilentlyContinue
             if (-not $DryRun) {
                 Pub issue edit $pick.n -R $repo --add-label "factory:stuck" --remove-label "factory:working" | Out-Null
-                Pub issue comment $pick.n -R $repo --body-file (New-BodyFile (Format-StuckComment "build" $(if ($s) { @(Read-Ledger | Where-Object { $_.kind -eq 'call' -and $_.issue -eq $pick.n }).Count } else { 0 }) $code)) | Out-Null
+                Pub issue comment $pick.n -R $repo --body-file (New-BodyFile (Format-StuckComment "build" $(if ($s) { @(Get-AttemptCalls $s).Count } else { 0 }) $code)) | Out-Null
             }
             if (-not $DryRun) { Write-IssueSummary $s $code }   # a dry run's stop isn't an outcome the budget should learn from
             Write-Host "#$($pick.n) went back to the owner: $code"

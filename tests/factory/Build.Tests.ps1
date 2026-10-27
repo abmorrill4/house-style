@@ -169,7 +169,7 @@ Describe 'Overnight run fixes (2026-10-27)' {
 
 Describe 'Budget per attempt' {
     It 'counts only calls since this attempt started, for the budget and the summary' {
-        $buildScript | Should Match '(?s)function Get-AttemptCalls.{0,200}\$_\.at\).ToUniversalTime\(\) -ge \$since'
+        $buildScript | Should Match '(?s)function Get-AttemptCalls.{0,300}catch \{ \[datetime\]::MinValue \}.{0,300}Parse\(\$_\.at, \$inv, \$utc\) -ge \$since'
         $buildScript | Should Match '\$spent = .{0,20}Get-AttemptCalls \$s'
         $buildScript | Should Match '\$calls = @\(Get-AttemptCalls \$s\)'
     }
