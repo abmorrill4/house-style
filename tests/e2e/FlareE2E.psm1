@@ -74,9 +74,19 @@ function Get-FlareWindow([string]$Name) {
 .PARAMETER Ai       Turn AI review on (needs ANTHROPIC_API_KEY, from the environment or the repo's .env).
 .PARAMETER Force    Close a Flare that is already running (its unsaved work is lost).
 .PARAMETER Settings More plugin settings for this run (for example StyleLayers, to point at a team guide).
+.PARAMETER Bifrost  Turn AI on through the company AI service (Bifrost) instead of Anthropic. Needs
+                    HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY. Name such scenarios ai-* too. With -Ai
+                    and only the Bifrost key set, the scenario goes through Bifrost anyway.
 #>
 function Start-FlareE2E {
-    param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Force, [string]$RunRoot = (Get-E2ERoot), [hashtable]$Settings = @{})
+    param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Bifrost, [switch]$Force, [string]$RunRoot = (Get-E2ERoot), [hashtable]$Settings = @{})
+    # A run with only the Bifrost key (a factory branch on the Flare VM) sends every AI scenario through the gateway.
+    if ($Ai -and -not $env:ANTHROPIC_API_KEY -and $env:HOUSESTYLE_TEST_BIFROST_KEY) { $Bifrost = $true }
+    if ($Bifrost) {
+        if (-not $env:HOUSESTYLE_TEST_BIFROST_URL -or -not $env:HOUSESTYLE_TEST_BIFROST_KEY) { throw "-Bifrost needs HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY." }
+        $Ai = $true
+        $Settings = @{ Provider = 1; BaseUrl = $env:HOUSESTYLE_TEST_BIFROST_URL } + $Settings   # LlmProvider.Bifrost
+    }
     $script:Run = $null
     $running = Get-Process Flare -ErrorAction SilentlyContinue
     if ($running) {
@@ -103,6 +113,9 @@ function Start-FlareE2E {
     # A fresh install asks for its UI language at start until this is set (its OK button can't be automated).
     New-ItemProperty "HKCU:\Software\MadCap Software\Flare" -Name RunSelectLanguageUIOnStartup -Value False -PropertyType String -Force | Out-Null
 
+    # The plugin reads its key from ANTHROPIC_API_KEY for either service, so a Bifrost run hands Flare the Bifrost key.
+    $savedKey = $env:ANTHROPIC_API_KEY
+    if ($Bifrost) { $env:ANTHROPIC_API_KEY = $env:HOUSESTYLE_TEST_BIFROST_KEY }
     if ($Ai -and -not $env:ANTHROPIC_API_KEY) {
         # The repo's .env: this checkout's, else the main checkout's (worktrees don't have one).
         $repo = Split-Path (Split-Path $PSScriptRoot)
@@ -116,7 +129,7 @@ function Start-FlareE2E {
     }
     $env:HOUSESTYLE_E2E_DIR = $hook
     try { $proc = Start-Process $flare -ArgumentList "`"$($flprj.FullName)`"" -PassThru }
-    finally { Remove-Item Env:HOUSESTYLE_E2E_DIR }
+    finally { Remove-Item Env:HOUSESTYLE_E2E_DIR; if ($Bifrost) { $env:ANTHROPIC_API_KEY = $savedKey } }
     $script:Run = [pscustomobject]@{ Dir = $dir; Hook = $hook; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
 
     # Trial copies show the licensing wizard at every start: continue in trial mode.
