@@ -148,6 +148,41 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- Export Issues (#238) ----------------------------------------------------------------------------------
+
+        [Fact]
+        public void RowsFrom_LeavesOutAiFindings_AndMapsLevelStatusAndTopic()
+        {
+            WithPane((panel, form, list) =>
+            {
+                const string path = @"C:\Proj\Content\billpay\faq.htm";
+                StyleFinding Company(bool fixedNow, bool stale) => new StyleFinding
+                {
+                    Layer = "company", Severity = "warning", Rule = "Company.WordList",
+                    Excerpt = "utilize", Replacement = "use", DocumentPath = path, IsFixed = fixedNow, IsStale = stale
+                };
+                var a = Company(true, false);
+                var b = Company(false, true);
+                var c = Company(false, false);
+                var d = Company(false, false); d.Layer = "ai";
+                var e = Company(false, false); e.RuleLayer = "google";
+
+                var rows = panel.RowsFrom(new[] { a, b, c, d, e });
+
+                Assert.Equal(3, rows.Count);
+                Assert.Equal(@"billpay\faq.htm", rows[0].Topic);
+                Assert.Equal("Warning", rows[0].Level);
+                Assert.Equal("Changed", rows[0].Status);
+                Assert.Equal("Change \"utilize\" to \"use\"", rows[0].Issue);
+                Assert.Equal(path, rows[0].Path);
+                Assert.Equal("Text changed", rows[1].Status);
+                Assert.Equal("Open", rows[2].Status);
+                Assert.DoesNotContain("✓", rows[0].Issue + rows[1].Issue + rows[2].Issue);
+                Assert.DoesNotContain("⚠", rows[0].Issue + rows[1].Issue + rows[2].Issue);
+                Assert.All(rows, r => Assert.StartsWith("Our rules", r.Source));
+            });
+        }
+
         // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
 
         /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>

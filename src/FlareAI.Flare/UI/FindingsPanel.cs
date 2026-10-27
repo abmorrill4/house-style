@@ -1498,14 +1498,22 @@ namespace FlareAI.Flare.UI
         private static string ProposalText(StyleFinding f)
         {
             var mark = f.IsFixed ? "✓ " : f.IsStale ? "⚠ " : "";
+            return mark + ProposalBody(f);
+        }
+
+        private static string ProposalBody(StyleFinding f)
+        {
             switch (f.Kind)
             {
-                case "variable": return mark + "Use variable " + f.Variable + " for \"" + f.Excerpt + "\"";
-                case "restructure": return mark + "Rewrite \"" + Shorten(f.Excerpt, 48) + "\"";
-                case "manual": return mark + FlareAI.Core.Style.RuleWording.FromName(f.Rule) + " in \"" + Shorten(f.Excerpt, 36) + "\"";
-                default: return mark + ChangeText.Row(f.Excerpt, f.Replacement);
+                case "variable": return "Use variable " + f.Variable + " for \"" + f.Excerpt + "\"";
+                case "restructure": return "Rewrite \"" + Shorten(f.Excerpt, 48) + "\"";
+                case "manual": return FlareAI.Core.Style.RuleWording.FromName(f.Rule) + " in \"" + Shorten(f.Excerpt, 36) + "\"";
+                default: return ChangeText.Row(f.Excerpt, f.Replacement);
             }
         }
+
+        /// <summary>An AI issue (no guide rule behind it, or one the model judged); those stay out of the export (#238).</summary>
+        private static bool IsAi(StyleFinding f) { return f.RuleLayer != null || string.IsNullOrEmpty(f.Layer) || f.Layer == "ai"; }
 
         private static string Shorten(string s, int n) { return ReviewSession.Shorten(s, n); }
 
@@ -1539,6 +1547,29 @@ namespace FlareAI.Flare.UI
         private List<StyleFinding> Open() { return _session.Open(); }
 
         private string Summary() { return _session.Summary(); }
+
+        /// <summary>The non-AI findings as export rows, in input order (#238). The ✓ and ⚠ marks stay in the pane only.</summary>
+        internal List<FlareAI.Core.Output.IssueExport.Row> RowsFrom(IEnumerable<StyleFinding> findings)
+        {
+            var rows = new List<FlareAI.Core.Output.IssueExport.Row>();
+            foreach (var f in findings)
+            {
+                if (IsAi(f)) continue;
+                rows.Add(new FlareAI.Core.Output.IssueExport.Row
+                {
+                    Topic = f.DocumentPath == null ? "" : RelativeToContent(f.DocumentPath),
+                    Level = A11y.SeverityWord(f.Severity),
+                    Issue = ProposalBody(f),
+                    Rule = ReadableRule(f),
+                    Source = LayerLabel(f),
+                    Text = f.Excerpt,
+                    SuggestedText = f.Replacement,
+                    Status = FlareAI.Core.Output.IssueExport.StatusOf(f.IsFixed, f.IsStale, _session.IsSkipped(f)),
+                    Path = f.DocumentPath
+                });
+            }
+            return rows;
+        }
 
         // ---- the card ----------------------------------------------------------------------------
 
