@@ -30,8 +30,11 @@ namespace FlareAI.Flare.UI
 
         public static void Show(FindingsPanel panel, Form flareMainForm)
         {
+            var old = _current;
+            if (old != null && old != panel) try { old.WatchWrites(false); } catch (Exception ex) { Diagnostics.Log("unwatch: " + ex.GetType().Name); }
             _current = _last = panel;
-            panel.CloseRequested += (s, e) => { if (_current == panel) _current = null; };
+            panel.WatchWrites(true);
+            panel.CloseRequested += (s, e) => { try { if (_current == panel) _current = null; } finally { panel.WatchWrites(false); } };
             if (!_paneBroken)
             {
                 try
