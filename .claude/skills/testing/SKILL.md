@@ -54,6 +54,46 @@ behavior. If the bug is a crash, catch it in the test (`var ex = Record.Exceptio
 `-BaseOnly` checks just the base side, for a reproduction written before the fix. It covers `core`, `scenarios`,
 `flare-tests`, `rule-fixtures` and `pester` today.
 
+## Writing and proving an e2e scenario
+
+Each real-Flare run takes minutes, so get the scenario right before it runs, and learn from each failure before the
+next run. The hs-e2e agent follows these steps. Anyone else writing a scenario does too.
+
+**Before writing**
+1. Prove the logic on a cheaper channel first (`flare-tests` or `scenarios`). The scenario proves only what Flare
+   adds, such as docking, the ribbon and Flare's events. Keep it to one behavior and about 40 lines. Split a longer
+   one.
+2. Pick the test data from facts, not guesses.
+   - Open the fixture topic (`corpus/DigitalBanking/Content/...`) and find the exact text you'll act on.
+   - A Change needs an issue whose fix is a word swap. Rewrite issues need AI.
+   - When no topic has what you need, put the topic in a known state first with `Send-E2E replace`.
+3. List every Flare behavior the scenario relies on, and look each one up in `docs/flare-api-notes.md`. Name any you
+   couldn't find as assumptions in your report.
+4. Start from the closest existing scenario, and use only the verbs and helpers in `tests/e2e/README.md`.
+
+**Writing:** use the Edit and Write tools only. Never write a file through Python, sed, echo or a here-string. Their
+escapes turn `\b` and `\f` into control characters.
+
+**Running**
+1. Run `-Channel e2e-check -Scenario <name>` and fix every problem it lists. It takes seconds and needs no Flare.
+2. Run `-Channel e2e -Scenario <name>`, one scenario at a time.
+3. After a failure, read these before changing anything:
+   - the last line of `E:\HouseStyle\e2e\history.log`
+   - the `error` in `results.json`
+   - `<scenario>-state.json` and `<scenario>.png` in the same folder
+4. Name the cause as one of:
+   - `test-data`: the text or issue the scenario expected isn't there
+   - `flare-behavior`: Flare did something the notes don't say
+   - `product-bug`: the plugin is wrong
+   - `test-code`: a mistake in the scenario
+   - `vm`: Flare itself didn't come up
+5. Write one ledger line for the run: run, failing check, cause, evidence and what you changed.
+6. A `flare-behavior` cause goes into `docs/flare-api-notes.md` in the same commit.
+7. A `product-bug` cause stops the run. Report it with its evidence, and the session sends it to a builder.
+
+**Limits:** stop and report after 2 runs that fail at the same check, or after 5 runs in all. A `vm` retry doesn't
+count toward either.
+
 ## Rules for every test
 - Never put report text, names or private paths in a test. Write your own minimal example; the repo is public.
 - Never call the live API, the live Worker or GitHub from a test. Use `ScriptedLlmClient`, `MockLlmServer`,

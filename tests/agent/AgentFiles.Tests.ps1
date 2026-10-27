@@ -35,6 +35,7 @@ $expected = [ordered]@{
     'hs-order'              = 'haiku/medium'
     'hs-order-sonnet'       = 'sonnet/medium'
     'hs-integrate'          = 'sonnet/medium'
+    'hs-e2e'                = 'sonnet/medium'
 }
 # Same job on a higher tier: the body must be the same, so the two never drift.
 $tierPairs = @{
@@ -47,7 +48,7 @@ $allowedTools = @('Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash')
 # tests, reviewer only reads. Every other agent has no Bash at all.
 $bashRoles = @{
     'hs-repro' = 'worker'; 'hs-repro-opus' = 'worker'; 'hs-fix' = 'worker'; 'hs-fix-opus' = 'worker'; 'hs-rules' = 'worker'; 'hs-build' = 'worker'
-    'hs-order' = 'worker'; 'hs-order-sonnet' = 'worker'; 'hs-integrate' = 'worker'
+    'hs-order' = 'worker'; 'hs-order-sonnet' = 'worker'; 'hs-integrate' = 'worker'; 'hs-e2e' = 'worker'
     'hs-review-correctness' = 'tester'; 'hs-skeptic' = 'tester'; 'hs-skeptic-opus' = 'tester'
     'hs-review-adversarial' = 'reviewer'; 'hs-review-consistency' = 'reviewer'; 'hs-review-security' = 'reviewer'
 }

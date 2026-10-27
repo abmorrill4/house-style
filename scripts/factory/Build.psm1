@@ -120,7 +120,7 @@ function Get-CardTokens([string]$text) { [int][Math]::Ceiling(("" + $text).Lengt
 # What the build factory may never change without the owner: Triage.psm1's $OwnerOnly, plus everything that runs on the
 # owner's PC or ships outside the plugin's own code (Claude settings and hooks, every script including the installer,
 # the updater, the e2e harness that judges the e2e check, CLAUDE.md).
-$FactoryOwnerOnly = '^\.claude/|^scripts/|^tests/factory/|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1|flaui/)|^tools/FlareAI\.Updater/|^CLAUDE\.md$'
+$FactoryOwnerOnly = '^\.claude/|^scripts/|^tests/factory/|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1|Test-E2EScenario\.ps1|flaui/)|^tools/FlareAI\.Updater/|^CLAUDE\.md$'
 
 # The planned or changed paths on the owner-only lists, forward slashes, repo-relative. A path that isn't plain printable
 # ASCII counts as owner-only too: git quotes such names, and a quoted name would slip past every anchored pattern.

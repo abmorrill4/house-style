@@ -7,7 +7,7 @@ Import-Module (Join-Path $repo 'scripts\agent\AgentCommon.psm1') -Force
 Describe 'Get-TestChannel' {
     It 'lists the channels cheapest first, as the spec orders them' {
         $c = @(Get-TestChannel)
-        ($c | ForEach-Object Name) -join ',' | Should Be 'rule-fixtures,bench,core,scenarios,flare-tests,pester,vitest,conformance,e2e,full'
+        ($c | ForEach-Object Name) -join ',' | Should Be 'rule-fixtures,bench,core,scenarios,flare-tests,pester,vitest,conformance,e2e-check,e2e,full'
         for ($i = 1; $i -lt $c.Count; $i++) { $c[$i].Order -ge $c[$i - 1].Order | Should Be $true }
     }
 }
@@ -37,6 +37,11 @@ Describe 'Get-ChannelCommand' {
     It 'refuses AI scenarios and unknown scenarios on e2e' {
         { Get-ChannelCommand -Channel e2e -RepoRoot $repo -Scenario 'ai-no-double' } | Should Throw 'API key'
         { Get-ChannelCommand -Channel e2e -RepoRoot $repo -Scenario 'no-such-scenario' } | Should Throw "There's no scenario"
+    }
+    It 'checks one e2e scenario without Flare' {
+        $c = Get-ChannelCommand -Channel e2e-check -RepoRoot $repo -Scenario 'reopen-issues'
+        ($c.ArgumentList -join ' ') | Should Match 'Test-E2EScenario\.ps1 -Path tests/e2e/scenarios/reopen-issues\.ps1'
+        { Get-ChannelCommand -Channel e2e-check -RepoRoot $repo -Scenario 'no-such-scenario' } | Should Throw "There's no scenario"
     }
     It 'runs e2e scenarios without AI' {
         $c = Get-ChannelCommand -Channel e2e -RepoRoot $repo -Scenario 'reopen-issues'

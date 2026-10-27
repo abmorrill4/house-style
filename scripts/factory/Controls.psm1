@@ -26,13 +26,13 @@ function Get-TriageTools([string]$testChannel) { "Read,Grep,Glob,Edit,Write,Bash
 function Get-FixTools([string]$testChannel) { "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),$(Get-TestChannelTool $testChannel)" }
 $ReviewTools = "Read,Grep,Glob,Write"
 # Paths agents may not edit, as permission rules relative to the checkout: the agent scripts and the e2e harness.
-$ProtectedEdits = "scripts/**", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui/**"
+$ProtectedEdits = "scripts/**", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/Test-E2EScenario.ps1", "tests/e2e/flaui/**"
 $DisallowedTools = "WebFetch,WebSearch,Bash(gh:*),Bash(curl:*),Bash(git push:*)," + (@($ProtectedEdits | ForEach-Object { "Edit(./$_),Write(./$_)" }) -join ",")
 
 # The files the agents' test runs depend on, which the factory copies from the base commit before each agent and
 # checks again afterwards: the agent scripts (test-channel.ps1 and the secret scrubbing in AgentCommon.psm1) and the
 # e2e harness.
-$AgentToolPaths = "scripts/agent", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/flaui"
+$AgentToolPaths = "scripts/agent", "tests/e2e/Run-FlareE2E.ps1", "tests/e2e/FlareE2E.psm1", "tests/e2e/Test-E2EScenario.ps1", "tests/e2e/flaui"
 
 # Hashes of every file under $dir, path -> SHA-256, to check a copy wasn't changed. Build output (bin, obj: the e2e
 # harness restores FlaUI there) doesn't count.
