@@ -309,15 +309,12 @@ Guards against report text steering the agent:
 - The agents' output, the rerun tests' output and dry-run comments go to `C:\HouseStyle\factory-logs` on the VM, never
   the job log. This repo is public, so its job logs are too. A failed run logs only "report n is stuck", and the
   reason is on the private report. The report file is deleted before agent-written tests run.
-- e2e runs on `factory/*` branches get their own test keys, never the main `ANTHROPIC_API_KEY`:
-  - `FACTORY_TEST_ANTHROPIC_KEY`, from the Max plan's API allowance
-  - Bifrost needs no secret. When the AI scenarios run, `tests/e2e/Start-TestGateway.ps1` starts a private Bifrost
-    gateway on the VM. It listens on localhost only, forwards with the run's Anthropic key, and uses a gateway key made
-    up for that run. The pinned build (v2.3.2) is downloaded once and its SHA-256 is checked before every start.
-    Owner step: set `$Sha256` in that script from a verified download.
+- e2e runs on `factory/*` branches never get the main `ANTHROPIC_API_KEY`. Their AI scenarios go through the owner's
+  Bifrost gateway (`https://aigw.praeviderant.com`, or the `BIFROST_URL` variable) with a virtual key that's for
+  the Flare VM only (`BIFROST_VK`, or `FACTORY_TEST_ANTHROPIC_KEY` where it was first saved). The gateway publishes only its AI paths, and every e2e run checks that it answers.
 
   The `ai-*` scenarios run only when the branch's change touches the AI (`aiPaths`). Such a branch fails e2e without
-  its Anthropic key, rather than skipping them. A spec that needs AI proof for other code adds an `ai-*` scenario,
+  the Bifrost key or the gateway, rather than skipping them. A spec that needs AI proof for other code adds an `ai-*` scenario,
   which counts as touching the AI.
 - The e2e workflow has no concurrency group, because the single `flare` runner already queues its jobs. A group keeps
   only one waiting run and cancels the rest. The factory has its own group, so two factory runs never overlap.

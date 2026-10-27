@@ -251,7 +251,9 @@ Describe 'Review, checks and comments' {
         foreach ($p in "src/FlareAI.Core/Style/StyleEngine.cs", "src/FlareAI.Core/Actions/RuleChanges.cs", "tests/e2e/scenarios/rules-edit.ps1", "src/FlareAI.Flare/UI/FindingsPanel.cs") { $p | Should Not Match $rules.aiPaths }
         $e2e = Get-Content (Join-Path $root '.github\workflows\e2e.yml') -Raw
         $e2e | Should Match 'aiPaths'
-        $e2e | Should Match "startsWith\(github\.ref_name, 'factory/'\) && secrets\.FACTORY_TEST_ANTHROPIC_KEY"
+        $e2e | Should Match "ANTHROPIC_API_KEY: \$\{\{ \(github\.ref == 'refs/heads/main'"   # never a factory branch
+        $e2e | Should Match "HOUSESTYLE_TEST_BIFROST_KEY: \$\{\{ \(startsWith\(github\.ref_name, 'factory/'\)"
+        $e2e | Should Match "runs-on: \[self-hosted, windows, flare\]"   # the key is for the Flare VM only
     }
     It 'keeps the limits the spec names in rules/factory.json' {
         $rules.limits.chunksPerIssue | Should Be 12

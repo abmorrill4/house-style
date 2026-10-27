@@ -74,11 +74,14 @@ function Get-FlareWindow([string]$Name) {
 .PARAMETER Ai       Turn AI review on (needs ANTHROPIC_API_KEY, from the environment or the repo's .env).
 .PARAMETER Force    Close a Flare that is already running (its unsaved work is lost).
 .PARAMETER Settings More plugin settings for this run (for example StyleLayers, to point at a team guide).
-.PARAMETER Bifrost  Turn AI on through the company AI service (Bifrost) instead of Anthropic: needs
-                    HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY. Name such scenarios ai-* too.
+.PARAMETER Bifrost  Turn AI on through the company AI service (Bifrost) instead of Anthropic. Needs
+                    HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY. Name such scenarios ai-* too. With -Ai
+                    and only the Bifrost key set, the scenario goes through Bifrost anyway.
 #>
 function Start-FlareE2E {
     param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Bifrost, [switch]$Force, [string]$RunRoot = (Get-E2ERoot), [hashtable]$Settings = @{})
+    # A run with only the Bifrost key (a factory branch on the Flare VM) sends every AI scenario through the gateway.
+    if ($Ai -and -not $env:ANTHROPIC_API_KEY -and $env:HOUSESTYLE_TEST_BIFROST_KEY) { $Bifrost = $true }
     if ($Bifrost) {
         if (-not $env:HOUSESTYLE_TEST_BIFROST_URL -or -not $env:HOUSESTYLE_TEST_BIFROST_KEY) { throw "-Bifrost needs HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY." }
         $Ai = $true
