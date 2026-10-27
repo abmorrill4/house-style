@@ -36,7 +36,8 @@ namespace FlareAI.Flare.UI
         private bool _stopped;
         // card
         private readonly Label _cardHead;
-        private readonly RichTextBox _cardDiff, _cardWhy;
+        private readonly RichTextBox _cardDiff;
+        private readonly CardTextBox _cardWhy;   // shown in full: the card grows or scrolls, the box never does
         private readonly Button _accept, _changeAll, _goTo, _openFile, _reject, _edit, _refine, _reanalyze, _rule, _legend;
         // getting started: the guided first lint's hint strip, the checklist in the empty state, and the focused first Lint Project
         private readonly LinkLabel _checklist;
@@ -210,7 +211,7 @@ namespace FlareAI.Flare.UI
             // The card: what, why, impact, and the decision.
             // Laid out by LayoutCard (not docking): heading, what changes, why, then the buttons, each measured at the card's
             // width; when the pane is too short for all of it the card scrolls instead of stacking controls on each other.
-            var card = _card = new Panel { Dock = DockStyle.Fill };
+            var card = _card = new CardPanel { Dock = DockStyle.Fill };
             // Vertical scrolling only: the parts are laid out to the card's width, so a horizontal bar is never needed (and
             // left to AutoScroll the two bars can keep each other on screen).
             card.HorizontalScroll.Maximum = 0;
@@ -220,8 +221,10 @@ namespace FlareAI.Flare.UI
             _cardHead = new Label { AutoSize = false, Height = 34, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
             _cardDiff = DiffView.Create();
             _cardDiff.Height = 64; _cardDiff.BackColor = SystemColors.Window;
-            _cardWhy = DiffView.Create();
+            _cardWhy = DiffView.CreateFull();
             _cardWhy.BackColor = SystemColors.Control;
+            ((CardPanel)card).KeepPlace = _cardWhy;   // clicking or tabbing into the why text doesn't move the card
+            _cardWhy.SelectionChanged += (s, e) => KeepCaretInView();
             var actions = _actions = new FlowLayoutPanel { AutoSize = false, WrapContents = true, Padding = new Padding(0, 4, 0, 0) };
             // A rule row's card: change it everywhere, step through it, disable it, or put it aside for now.
             _ruleActions = new FlowLayoutPanel { AutoSize = false, WrapContents = true, Padding = new Padding(0, 4, 0, 0), Visible = false };
@@ -667,8 +670,9 @@ namespace FlareAI.Flare.UI
 
         /// <summary>
         /// Places the card's parts top to bottom at the card's width: the heading (wrapped), what changes (at least two
-        /// lines), the buttons (wrapped) and why (the rest, at least three lines). Nothing overlaps; a card too short for
-        /// all of it scrolls. Then asks the splitter for the height the card needs.
+        /// lines), the buttons (wrapped) and why (all of its text, at least three lines, so it never has a scroll bar of its
+        /// own). Nothing overlaps; a card too short for all of it scrolls as a whole. Then asks the splitter for the height
+        /// the card needs.
         /// </summary>
         private void LayoutCard()
         {
@@ -685,22 +689,29 @@ namespace FlareAI.Flare.UI
                 var diffMin = 2 * _cardDiff.Font.Height + S(8);
                 var diffFull = Math.Max(diffMin, S(DiffHeight));
                 var whyMin = 3 * _cardWhy.Font.Height + S(6);
+                var ceiling = S(PaneRows.WhyCeiling);
                 var top = S(6); var gap = S(4);
                 int head, buttons;
                 MeasureCard(flow, full, out head, out buttons);
-                var whyText = TextRenderer.MeasureText(string.IsNullOrEmpty(_cardWhy.Text) ? " " : _cardWhy.Text, _cardWhy.Font, new Size(Math.Max(20, full - S(10)), 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + S(8);
-                _cardWanted = top + head + diffFull + PaneRows.Clamp(whyText, whyMin, S(160)) + buttons + 3 * gap;
+                var whyText = MeasureWhy(full);
+                var whyWanted = Math.Min(ceiling, Math.Max(whyText, whyMin));
+                _cardWanted = top + head + diffFull + whyWanted + buttons + 3 * gap;
+                // What the card asked for before the why text was shown in full (at most 160 px): the 60% cap never makes an
+                // ordinary card smaller than that.
+                _cardWantedShort = top + head + diffFull + PaneRows.Clamp(whyText, whyMin, S(160)) + buttons + 3 * gap;
                 var w = full;
-                var parts = PaneRows.CardLayout(_card.Height, top, head, buttons, diffMin, diffFull, whyMin, gap);
-                if (parts[2] > _card.Height)   // it will scroll: lay out beside the scroll bar
+                var parts = PaneRows.CardLayout(_card.Height, top, head, buttons, diffMin, diffFull, whyMin, whyText, ceiling, gap);
+                if (parts[2] > _card.Height)   // it will scroll: lay out beside the scroll bar, measuring the text again at that width
                 {
+                    // Decided once per pass: narrower text is never shorter, so the second layout scrolls too and can't flip back.
                     w = Math.Max(20, full - SystemInformation.VerticalScrollBarWidth);
                     MeasureCard(flow, w, out head, out buttons);
-                    parts = PaneRows.CardLayout(_card.Height, top, head, buttons, diffMin, diffFull, whyMin, gap);
+                    whyText = MeasureWhy(w);
+                    parts = PaneRows.CardLayout(_card.Height, top, head, buttons, diffMin, diffFull, whyMin, whyText, ceiling, gap);
                 }
                 int diff = parts[0], why = parts[1];
                 var y = top + _card.AutoScrollPosition.Y;   // ≤ 0 when the card is scrolled
-                // The decision comes right after what changes: in a short pane the why text is what scrolls, not the buttons.
+                // The decision comes right after what changes: in a short pane the card scrolls to the why text, the buttons stay put.
                 _cardHead.SetBounds(0, y, w, head); y += head + gap;
                 _cardDiff.SetBounds(0, y, w, diff); y += diff + gap;
                 if (flow != null) { flow.SetBounds(0, y, w, buttons); y += buttons + gap; }
@@ -719,6 +730,45 @@ namespace FlareAI.Flare.UI
             }
         }
 
+        private int _cardWantedShort;   // what the card would need with its why text held to the old 160 px box
+
+        /// <summary>
+        /// The why text's full height at width <paramref name="w"/>, read from the box itself (RichEdit's own line metrics, so
+        /// italic and bold lines and symbol fallback count). Before the box has a handle, a GDI estimate stands in.
+        /// </summary>
+        private int MeasureWhy(int w)
+        {
+            if (_cardWhy.TextLength == 0) return 0;
+            if (_cardWhy.Width != w) _cardWhy.Width = w;
+            var h = _cardWhy.ContentHeight();
+            if (h > 0) return h;
+            return TextRenderer.MeasureText(_cardWhy.Text, _cardWhy.Font, new Size(Math.Max(20, w - S(10)), 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + S(8);
+        }
+
+        /// <summary>Arrow keys and Page Down in the why text: the card scrolls so the caret's line stays in view.</summary>
+        private void KeepCaretInView()
+        {
+            if (_card == null || !_cardWhy.Focused || !_card.VerticalScroll.Visible) return;
+            var p = _cardWhy.GetPositionFromCharIndex(_cardWhy.SelectionStart);
+            var lineTop = _cardWhy.Top + p.Y;   // in the card's client area (Top already includes the scroll offset)
+            var lineBottom = lineTop + _cardWhy.Font.Height + S(4);
+            var scroll = -_card.AutoScrollPosition.Y;
+            if (lineTop < 0) scroll += lineTop;
+            else if (lineBottom > _card.ClientSize.Height) scroll += lineBottom - _card.ClientSize.Height;
+            else return;
+            _card.AutoScrollPosition = new Point(0, Math.Max(0, scroll));
+        }
+
+        /// <summary>The card: a tall control taking focus (the why text) doesn't scroll the card to its top.</summary>
+        private sealed class CardPanel : Panel
+        {
+            public Control KeepPlace;
+            protected override Point ScrollToControl(Control activeControl)
+            {
+                return activeControl != null && activeControl == KeepPlace ? DisplayRectangle.Location : base.ScrollToControl(activeControl);
+            }
+        }
+
         private bool _sizeCardPosted;
         private int _cardWidth;   // the width the card's buttons were last fitted to
 
@@ -732,7 +782,10 @@ namespace FlareAI.Flare.UI
             buttons = flow == null ? 0 : flow.GetPreferredSize(new Size(w, 0)).Height;
         }
 
-        /// <summary>The card gets the height it needs (or the writer's, once they dragged the splitter); the list gets what's left, at least a row.</summary>
+        /// <summary>
+        /// The card gets the height it needs, up to 60% of the pane for a long rule (or the writer's, once they dragged the
+        /// splitter); the list gets what's left, at least a row.
+        /// </summary>
         private void SizeCard()
         {
             if (_split == null || _split.Height <= 0 || _cardWanted <= 0 || _settingSplitter) return;
@@ -743,7 +796,7 @@ namespace FlareAI.Flare.UI
                 var wanted = _cardWanted;
                 var row = _list.SmallImageList != null ? _list.SmallImageList.ImageSize.Height : _list.Font.Height + S(6);
                 var listMin = _list.Font.Height + S(10) + row + S(4);   // the header and one row
-                var target = PaneRows.CardHeight(wanted, _cardByWriter, _split.Height, _split.SplitterWidth, listMin);
+                var target = PaneRows.CardHeight(wanted, _cardWantedShort, _cardByWriter, _split.Height, _split.SplitterWidth, listMin);
                 var distance = _split.Height - target - _split.SplitterWidth;
                 if (distance < _split.Panel1MinSize || Math.Abs(_split.SplitterDistance - distance) <= 1) return;
                 _settingSplitter = true;
@@ -922,7 +975,33 @@ namespace FlareAI.Flare.UI
                 rows.Add(new { text = i.Text, source = i.SubItems.Count > 1 ? i.SubItems[1].Text : "", file = f == null ? null : f.DocumentPath, rule = f == null ? null : f.Rule, excerpt = f == null ? null : f.Excerpt, layer = f == null ? null : f.Layer });
             }
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rows };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rows, card = E2ECard() };
+        }
+
+        /// <summary>
+        /// The card as laid out: the why text's full height comes from the box itself, so whyClipped is true when the box is
+        /// shorter than its text (the bug in #247).
+        /// </summary>
+        private object E2ECard()
+        {
+            var f = Current();
+            var rule = f == null ? null : _runner.RuleFor(f.RuleId);
+            var r = CurrentRule();
+            var content = _cardWhy.ContentHeight();
+            return new
+            {
+                row = _list.SelectedIndices.Count == 1 ? _list.SelectedIndices[0] : -1,
+                head = _cardHead.Text,
+                why = _cardWhy.Text,
+                ruleLine = r != null ? r.Reason : rule != null ? rule.Display : null,
+                whyContentHeight = content,
+                whyHeight = _cardWhy.ClientSize.Height,
+                whyClipped = content > _cardWhy.ClientSize.Height,
+                cardScrolls = _card.VerticalScroll.Visible,
+                cardHeight = _card.ClientSize.Height,
+                paneWidth = Width,
+                paneHeight = Height,
+            };
         }
 
         /// <summary>
@@ -1467,7 +1546,7 @@ namespace FlareAI.Flare.UI
         private void ShowCard()
         {
             var f = Current();
-            _cardDiff.Clear(); _cardWhy.Clear();
+            _cardDiff.Clear(); _cardWhy.Clear(); _cardWhy.Tag = null;
             var ruleRow = CurrentRule();
             var rows = RuleRows;
             _actions.Visible = !rows;
@@ -1519,9 +1598,21 @@ namespace FlareAI.Flare.UI
 
         private static string UsesLabel(int n) { return n + (n == 1 ? " topic" : " topics"); }
 
+        /// <summary>The most text the why box shows: past it, the text ends with "and more" (a team-guide row can be huge).</summary>
+        private const int WhyMaxChars = 4000;
+        private const string MoreTag = "and more";
+
         private static void Line(RichTextBox box, string text, FontStyle style)
         {
-            if (string.IsNullOrEmpty(text)) return;
+            if (string.IsNullOrEmpty(text) || box.Tag as string == MoreTag) return;
+            var room = WhyMaxChars - box.TextLength;
+            if (text.Length > room)
+            {
+                var cut = Math.Max(0, room);
+                var space = cut > 0 ? text.LastIndexOf(' ', cut - 1) : -1;
+                text = (space > 0 ? text.Substring(0, space) : text.Substring(0, cut)).TrimEnd() + " and more";
+                box.Tag = MoreTag;
+            }
             box.SelectionStart = box.TextLength;
             box.SelectionFont = new Font(box.Font, style);
             box.SelectionColor = SystemColors.ControlText;

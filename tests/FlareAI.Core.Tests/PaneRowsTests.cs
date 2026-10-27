@@ -148,13 +148,13 @@ namespace FlareAI.Core.Tests
             var line = PaneRows.S(15, scale);
             int top = S(6), head = 2 * line + S(6), buttons = S(164), gap = S(4), diffMin = 2 * line + S(8), diffFull = S(64), whyMin = 3 * line + S(6);
 
-            var tall = PaneRows.CardLayout(S(600), top, head, buttons, diffMin, diffFull, whyMin, gap);
+            var tall = PaneRows.CardLayout(S(600), top, head, buttons, diffMin, diffFull, whyMin, 0, PaneRows.S(PaneRows.WhyCeiling, scale), gap);
             Assert.Equal(diffFull, tall[0]);                           // room: what changes at full size…
             Assert.Equal(S(600), tall[2]);                             // …and why takes the rest, exactly
-            var tight = PaneRows.CardLayout(top + head + buttons + diffMin + whyMin + 3 * gap + S(10), top, head, buttons, diffMin, diffFull, whyMin, gap);
+            var tight = PaneRows.CardLayout(top + head + buttons + diffMin + whyMin + 3 * gap + S(10), top, head, buttons, diffMin, diffFull, whyMin, 0, PaneRows.S(PaneRows.WhyCeiling, scale), gap);
             Assert.Equal(diffMin + S(10), tight[0]);                    // short: the diff shrinks before why does
             Assert.Equal(whyMin, tight[1]);
-            var tiny = PaneRows.CardLayout(S(93), top, head, buttons, diffMin, diffFull, whyMin, gap);
+            var tiny = PaneRows.CardLayout(S(93), top, head, buttons, diffMin, diffFull, whyMin, 0, PaneRows.S(PaneRows.WhyCeiling, scale), gap);
             Assert.Equal(diffMin, tiny[0]);                            // never under two lines
             Assert.Equal(whyMin, tiny[1]);
             Assert.True(tiny[2] > S(93));                              // the card scrolls instead of stacking parts on each other
@@ -166,10 +166,63 @@ namespace FlareAI.Core.Tests
         public void TheCard_GetsWhatItNeeds_TheListWhatIsLeft_AtLeastARow(float scale)
         {
             var listMin = PaneRows.S(100, scale);
-            Assert.Equal(PaneRows.S(300, scale), PaneRows.CardHeight(PaneRows.S(300, scale), 0, PaneRows.S(800, scale), 6, listMin));
-            Assert.Equal(PaneRows.S(400, scale) - 6 - listMin, PaneRows.CardHeight(PaneRows.S(350, scale), 0, PaneRows.S(400, scale), 6, listMin));
-            Assert.Equal(PaneRows.S(500, scale), PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(500, scale), PaneRows.S(800, scale), 6, listMin));   // the writer's drag wins
-            Assert.Equal(25, PaneRows.CardHeight(PaneRows.S(300, scale), 0, PaneRows.S(100, scale), 6, listMin));
+            Assert.Equal(PaneRows.S(300, scale), PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), 0, PaneRows.S(800, scale), 6, listMin));
+            Assert.Equal(PaneRows.S(400, scale) - 6 - listMin, PaneRows.CardHeight(PaneRows.S(350, scale), PaneRows.S(350, scale), 0, PaneRows.S(400, scale), 6, listMin));
+            Assert.Equal(PaneRows.S(500, scale), PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), PaneRows.S(500, scale), PaneRows.S(800, scale), 6, listMin));   // the writer's drag wins
+            Assert.Equal(25, PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), 0, PaneRows.S(100, scale), 6, listMin));
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.25f)]
+        public void CardLayout_GivesWhyItsWholeText_AndTheTotalExceedsTheCard_WhenItDoesNotFit(float scale)
+        {
+            int S(int px) { return PaneRows.S(px, scale); }
+            var line = S(15);
+            int top = S(6), head = 2 * line + S(6), buttons = S(164), gap = S(4), diffMin = 2 * line + S(8), diffFull = S(64), whyMin = 3 * line + S(6);
+            var ceiling = S(PaneRows.WhyCeiling);
+
+            var shortRule = PaneRows.CardLayout(S(600), top, head, buttons, diffMin, diffFull, whyMin, 2 * line, ceiling, gap);
+            Assert.Equal(S(600), shortRule[2]);                        // a short rule: why takes the rest, as before
+            var longRule = 30 * line;
+            var tall = PaneRows.CardLayout(S(600), top, head, buttons, diffMin, diffFull, whyMin, longRule, ceiling, gap);
+            Assert.Equal(longRule, tall[1]);                           // the whole rule, no box of its own to scroll
+            Assert.Equal(diffFull, tall[0]);                           // what changes keeps its full size
+            Assert.True(tall[2] > S(600));                             // the card scrolls instead
+            Assert.Equal(top + head + gap + tall[0] + gap + tall[1] + gap + buttons, tall[2]);
+            var shortPane = PaneRows.CardLayout(S(300), top, head, buttons, diffMin, diffFull, whyMin, longRule, ceiling, gap);
+            Assert.Equal(longRule, shortPane[1]);
+            Assert.Equal(diffMin, shortPane[0]);                       // a short pane still gives up diff height first
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.25f)]
+        public void CardLayout_LimitsWhyToTheCeiling(float scale)
+        {
+            int S(int px) { return PaneRows.S(px, scale); }
+            var line = S(15);
+            var ceiling = S(PaneRows.WhyCeiling);
+            var huge = PaneRows.CardLayout(S(600), S(6), 2 * line, S(164), 2 * line, S(64), 3 * line, ceiling * 3, ceiling, S(4));
+            Assert.Equal(ceiling, huge[1]);
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.25f)]
+        public void CardHeight_CapsOnlyTheNewGrowthAtSixtyPercent_UnlessTheWriterDraggedTheSplitter(float scale)
+        {
+            int S(int px) { return PaneRows.S(px, scale); }
+            var listMin = S(60);
+            // A short rule in a 500 px pane: today's card height (the old 160 px box) is kept even above 60%.
+            Assert.Equal(S(340), PaneRows.CardHeight(S(340), S(340), 0, S(500), 6, listMin));
+            // A long rule: the card grows up to 60% of the pane, then scrolls; the list keeps the rest.
+            Assert.Equal((int)(0.6 * S(1000)), PaneRows.CardHeight(S(1400), S(380), 0, S(1000), 6, listMin));
+            Assert.Equal(S(520), PaneRows.CardHeight(S(520), S(380), 0, S(1000), 6, listMin));   // under 60%: all of it
+            // Never smaller than the card with the old short box, even past 60%.
+            Assert.Equal(S(380), PaneRows.CardHeight(S(1400), S(380), 0, S(500), 6, listMin));
+            // The writer's drag wins over the 60% cap.
+            Assert.Equal(S(800), PaneRows.CardHeight(S(1400), S(380), S(800), S(1000), 6, listMin));
         }
 
         [Theory]

@@ -81,28 +81,38 @@ namespace FlareAI.Flare.UI
 
         public static int Clamp(int value, int min, int max) { return Math.Max(min, Math.Min(max, value)); }
 
+        /// <summary>The tallest the why text gets (logical px), so a huge team-guide row can't break the control.</summary>
+        public const int WhyCeiling = 30000;
+
         /// <summary>
         /// The card's parts in a card <paramref name="cardHeight"/> tall: what changes gets its full height when there is room,
-        /// shrinking to <paramref name="diffMin"/> (two lines) before why goes under <paramref name="whyMin"/>; why takes the rest.
-        /// Returns { diff, why, total }: the parts stack heading, diff, buttons, why with <paramref name="gap"/> between them, so
-        /// nothing overlaps; a total above <paramref name="cardHeight"/> means the card scrolls.
+        /// shrinking to <paramref name="diffMin"/> (two lines) before why goes under <paramref name="whyMin"/>. Why takes the rest,
+        /// and always at least its whole text (<paramref name="whyContent"/>, up to <paramref name="whyCeiling"/>), so it never
+        /// needs a scroll bar of its own. Returns { diff, why, total }: the parts stack heading, diff, buttons, why with
+        /// <paramref name="gap"/> between them, so nothing overlaps; a total above <paramref name="cardHeight"/> means the card scrolls.
         /// </summary>
-        public static int[] CardLayout(int cardHeight, int top, int head, int buttons, int diffMin, int diffFull, int whyMin, int gap)
+        public static int[] CardLayout(int cardHeight, int top, int head, int buttons, int diffMin, int diffFull, int whyMin, int whyContent, int whyCeiling, int gap)
         {
             var remaining = cardHeight - top - head - buttons - 3 * gap;
             var diff = Clamp(remaining - whyMin, diffMin, Math.Max(diffMin, diffFull));
-            var why = Math.Max(whyMin, remaining - diff);
+            var why = Math.Max(Math.Max(whyMin, remaining - diff), Math.Min(whyContent, whyCeiling));
             return new[] { diff, why, top + head + gap + diff + gap + why + gap + buttons };
         }
+
+        /// <summary>The share of the pane a card may grow to on its own before it scrolls, so the list keeps a few rows.</summary>
+        public const double CardShare = 0.6;
 
         /// <summary>
         /// The card's height under the list: what it needs (<paramref name="wanted"/>) or what the writer dragged it to
         /// (<paramref name="byWriter"/>, 0 = never), leaving the list at least <paramref name="listMin"/>; never under 25 px.
+        /// A card that grows for a long rule stops at 60% of the pane and scrolls, but never gets smaller than it would be
+        /// with its why text held to the old short box (<paramref name="wantedShort"/>), so ordinary cards keep their height.
         /// </summary>
-        public static int CardHeight(int wanted, int byWriter, int splitHeight, int splitterWidth, int listMin)
+        public static int CardHeight(int wanted, int wantedShort, int byWriter, int splitHeight, int splitterWidth, int listMin)
         {
             var room = splitHeight - splitterWidth - listMin;
-            return Math.Max(25, Math.Min(byWriter > 0 ? byWriter : wanted, room));
+            var want = byWriter > 0 ? byWriter : Math.Min(wanted, Math.Max((int)(CardShare * splitHeight), wantedShort));
+            return Math.Max(25, Math.Min(want, room));
         }
 
         /// <summary>

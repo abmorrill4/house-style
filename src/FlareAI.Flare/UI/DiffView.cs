@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -14,6 +15,15 @@ namespace FlareAI.Flare.UI
         public static RichTextBox Create()
         {
             return new RichTextBox { ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = SystemColors.Window, DetectUrls = false, Font = SystemFonts.MessageBoxFont, ScrollBars = RichTextBoxScrollBars.Vertical };
+        }
+
+        /// <summary>
+        /// A box for text shown in full inside the scrolling card: no scroll bar of its own, plain text only (no links), and
+        /// the mouse wheel scrolls the card rather than the box.
+        /// </summary>
+        public static CardTextBox CreateFull()
+        {
+            return new CardTextBox { ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = SystemColors.Window, DetectUrls = false, Font = SystemFonts.MessageBoxFont, ScrollBars = RichTextBoxScrollBars.None };
         }
 
         /// <param name="dimUnchanged">Grey out lines with no changes, so the eye goes to the edits.</param>
@@ -49,6 +59,47 @@ namespace FlareAI.Flare.UI
             box.SelectionBackColor = back;
             box.SelectionFont = new Font(font, style);
             box.AppendText(text);
+        }
+    }
+
+    /// <summary>
+    /// A read-only RichTextBox that its parent sizes to its text: <see cref="ContentHeight"/> says how tall all of its text
+    /// is at its current width (from the box's own line metrics, not a GDI estimate), and the mouse wheel goes to the
+    /// parent, so the card scrolls instead of the box.
+    /// </summary>
+    public sealed class CardTextBox : RichTextBox
+    {
+        private const int WM_MOUSEWHEEL = 0x020A, EM_REQUESTRESIZE = 0x0400 + 65;
+        private int _requested;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        public CardTextBox() { ContentsResized += (s, e) => _requested = e.NewRectangle.Height; }
+
+        /// <summary>The height the box needs to show all its text at its current width, or 0 before it has a handle.</summary>
+        public int ContentHeight()
+        {
+            if (!IsHandleCreated || TextLength == 0) return 0;
+            _requested = 0;
+            SendMessage(Handle, EM_REQUESTRESIZE, IntPtr.Zero, IntPtr.Zero);   // raises ContentsResized with the text's full size
+            // The last line's top, measured from the first line's (so a box scrolled inside still measures right), plus a line.
+            var lines = GetPositionFromCharIndex(TextLength - 1).Y - GetPositionFromCharIndex(0).Y + Font.Height;
+            return Math.Max(_requested, lines) + 4;
+        }
+
+        /// <summary>The height ContentsResized last reported (for tests: the box's own answer, not the layout's).</summary>
+        public int RequestedHeight { get { return _requested; } }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEWHEEL && Parent != null && Parent.IsHandleCreated)
+            {
+                SendMessage(Parent.Handle, m.Msg, m.WParam, m.LParam);   // the card scrolls, the box never does
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
         }
     }
 }
