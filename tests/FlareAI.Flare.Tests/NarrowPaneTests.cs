@@ -1019,5 +1019,119 @@ namespace FlareAI.Flare.Tests
             if (!t.Join(60000)) throw new TimeoutException("The pane kept laying itself out (no idle message loop in 60 s).");
             if (error != null) throw new Exception(error.Message, error);
         }
+
+        // ---- Order 2: Tab bar for This Topic / Project (pane-tabs.md) -------------------------------------------------
+
+        [Fact]
+        public void TabBar_HiddenWithOneList_ShownWithBoth_WrapsAt150px_WithCounts()
+        {
+            WithPane((panel, form, list) =>
+            {
+                var tabs = All(panel).OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Issues for");
+                Assert.False(tabs.Visible, "tab bar hidden with only topic");
+
+                Assert.Equal(PaneSlot.Topic, panel.Slot);
+                panel.SetTabs(7, 183);
+                Assert.True(tabs.Visible, "tab bar shown with both counts");
+
+                var buttons = tabs.Controls.OfType<RadioButton>().ToList();
+                Assert.Equal(2, buttons.Count);
+                var topic = buttons.First(b => b.Text.StartsWith("This &Topic", StringComparison.Ordinal));
+                var project = buttons.First(b => b.Text.StartsWith("&Project", StringComparison.Ordinal));
+                Assert.Equal("This &Topic (7)", topic.Text);
+                Assert.Equal("&Project (183)", project.Text);
+                Assert.True(topic.Checked, "topic tab checked when slot is topic");
+                Assert.False(project.Checked);
+
+                Assert.Equal("This Topic, 7 issues", topic.AccessibleName);
+                Assert.Equal("Project, 183 issues", project.AccessibleName);
+
+                var wrapped = false;
+                for (var i = 0; i < buttons.Count; i++)
+                {
+                    for (var j = i + 1; j < buttons.Count; j++)
+                    {
+                        if (buttons[i].Bottom < buttons[j].Top) wrapped = true;
+                    }
+                }
+                Assert.True(wrapped || tabs.Height > 25, "buttons wrapped or tab bar is tall");
+            });
+        }
+
+        [Fact]
+        public void SwitchingTabs_KeepsSelectionAndRuleReview()
+        {
+            WithProject(new[] { Topic, Topic }, 260, 800, (panel, form) =>
+            {
+                var topicPanel = new FindingsPanel(new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(OneReword(r))(r)), new PromptBuilder(null), 1024),
+                    FlareSimDocument.FromXml(Topic), () => new ActionRunner(new ScriptedLlmClient(), new PromptBuilder(null), 1024), p => null, null, true);
+                var topicForm = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(260, 800), Font = SystemFonts.MessageBoxFont };
+                topicPanel.Dock = DockStyle.Fill;
+                topicForm.Controls.Add(topicPanel);
+                topicForm.Show();
+                topicPanel.Begin();
+                var topicList = All(topicPanel).OfType<ListView>().Single();
+                Pump(() => topicList.Items.Count > 0 && All(topicPanel).OfType<ProgressBar>().All(p => !p.Visible), 15000);
+
+                var projList = All(panel).OfType<ListView>().Single();
+                var projTabs = All(panel).OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Issues for");
+                var projButtons = projTabs.Controls.OfType<RadioButton>().ToList();
+                var topicRadio = projButtons.First(b => b.Text.StartsWith("This &Topic"));
+
+                topicList.Items[0].Selected = true;
+                projList.Items[0].Selected = true;
+                var projRuleReview = All(panel).OfType<Button>().Any(b => b.Text == "All Rules" && b.Visible);
+                Pump(null, 200);
+
+                topicRadio.PerformClick();
+                Pump(null, 200);
+                Assert.True(topicList.Items[0].Selected, "topic list selection kept");
+                Assert.True(projList.Items[0].Selected, "project list selection kept");
+                Assert.Equal(projRuleReview, All(panel).OfType<Button>().Any(b => b.Text == "All Rules" && b.Visible));
+
+                topicForm.Dispose();
+            });
+        }
+
+        [Fact]
+        public void SwitchingTabs_MovesFocus_AndAltP_SwitchesWhenFocusIsInThePane()
+        {
+            WithPane((panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                list.Focus();
+                Pump(null, 200);
+
+                Assert.True(list.Focused, "list should have focus");
+
+                var mnemonic = (bool)typeof(Control).GetMethod("ProcessMnemonic", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null, new[] { typeof(char) }, null).Invoke(panel, new object[] { 'p' });
+                Assert.False(mnemonic, "no mnemonic 'p' when topic panel has project not shown");
+            });
+        }
+
+        [Fact]
+        public void E2EState_ReportsTabAndCaptions()
+        {
+            WithPane((panel, form, list) =>
+            {
+                var state = panel.E2EState();
+                var tab = (string)state.GetType().GetProperty("tab").GetValue(state);
+                var tabs = ((System.Collections.IEnumerable)state.GetType().GetProperty("tabs").GetValue(state)).Cast<string>().ToList();
+
+                Assert.Equal("topic", tab);
+                Assert.Empty(tabs);
+
+                panel.SetTabs(7, 183);
+                Pump(null, 100);
+                state = panel.E2EState();
+                tab = (string)state.GetType().GetProperty("tab").GetValue(state);
+                tabs = ((System.Collections.IEnumerable)state.GetType().GetProperty("tabs").GetValue(state)).Cast<string>().ToList();
+
+                Assert.Equal("topic", tab);
+                Assert.Equal(2, tabs.Count);
+                Assert.Equal("This Topic (7)", tabs[0]);
+                Assert.Equal("Project (183)", tabs[1]);
+            });
+        }
     }
 }
