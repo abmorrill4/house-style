@@ -50,8 +50,17 @@ namespace FlareAI.Core.Style
         private List<string> Guides(List<string> unreadable)
         {
             var list = new List<string>();
-            foreach (var g in (_roots() ?? new string[0]).Where(g => !string.IsNullOrEmpty(g) && Directory.Exists(g)))
+            foreach (var g in (_roots() ?? new string[0]).Where(g => !string.IsNullOrEmpty(g)))
             {
+                if (!Directory.Exists(g))
+                {
+                    // A configured folder that isn't there (offline sync, VPN down, drive unplugged, folder renamed): with a
+                    // fallback (the plugin sets one) it is unreachable, not silently dropped. Without one (MCP, tools) it's skipped.
+                    if (Fallback == null) continue;
+                    unreadable.Add("Can't reach " + g + ".");
+                    lock (_gate) if (_logged.Add(g + "|missing")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with the fallback guide");
+                    continue;
+                }
                 var why = WhyUnreadable(g);
                 if (why == null) { list.Add(g); continue; }
                 unreadable.Add("Can't read " + g + ": " + why + ".");
@@ -88,7 +97,16 @@ namespace FlareAI.Core.Style
         public string Notice(string project) { return Compose(project).Notice; }
 
         /// <summary>The first line of <see cref="Notice"/>.</summary>
-        public const string UnreadableNotice = "Your team's style guide couldn't be read, so House Style linted with Google's guide only.";
+        public const string UnreadableNotice = "Your team's style guide couldn't be read, so House Style linted with Google's guide, the starter rules and your own changes.";
+
+        /// <summary>The notice for a team guide with no rules House Style can read; " The folder is {folder}." follows it.</summary>
+        public const string EmptyNotice = "Your team's style guide has no rules yet, so House Style linted with Google's guide.";
+
+        /// <summary>
+        /// The writer's own guide (%APPDATA%\FlareAI\StyleGuide, set by the plugin): never reported as an empty team guide.
+        /// Decided by path, not by the marker file inside the folder, because a shared guide could carry the marker.
+        /// </summary>
+        public string PersonalGuide { get; set; }
 
         // ---- composition ---------------------------------------------------------------------------------------
 
@@ -112,9 +130,72 @@ namespace FlareAI.Core.Style
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
             for (var i = 0; i < guides.Count; i++) layers.Add(GuideLayer.Load(guides[i], null, null, "Google", Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
-            var comp = new Composition(layers) { ProjectRoot = root, Notice = notice };
+            var comp = new Composition(layers) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
             return comp;
+        }
+
+        /// <summary>
+        /// <see cref="EmptyNotice"/> and the folder, for a configured team guide (not the bundled guide, not the writer's own)
+        /// that loaded with no rules: no rule bullets, lint rows, override rows, glossary terms or variables. Else null.
+        /// </summary>
+        private string EmptyGuideNotice(List<string> guides, List<GuideLayer> layers)
+        {
+            foreach (var g in guides)
+            {
+                if (_bundled != null && SamePath(g, _bundled)) continue;
+                if (!string.IsNullOrEmpty(PersonalGuide) && SamePath(g, PersonalGuide)) continue;
+                var l = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
+                if (l == null || l.Items.Count > 0 || l.Rules.Count > 0 || l.Overrides.Count > 0 || l.Glossary.Count > 0 || l.Variables.Count > 0) continue;
+                return EmptyNotice + " The folder is " + g + ".";
+            }
+            return null;
+        }
+
+        // ---- where a rule comes from ------------------------------------------------------------------------
+
+        /// <summary>What the Issues pane calls the rules that come with House Style (the bundled guide's Company topics).</summary>
+        public const string StarterRules = "Starter rules";
+
+        /// <summary>
+        /// Where a rule comes from, in the writer's words, for the composition a lint used: <see cref="StarterRules"/> for a
+        /// company rule written in the bundled guide's Company folder, else <see cref="Actions.ReviewSession.SourceName"/> of
+        /// the layer (Google, Our rules, This project, AI). An id that doesn't resolve (generated rules, AI judgment) gets the
+        /// layer's name. Never throws: a label never fails a lint.
+        /// </summary>
+        public string SourceName(Composition comp, string layer, string ruleId)
+        {
+            var plain = Actions.ReviewSession.SourceName(layer);
+            // Only the company layer: Google's rules also sit under the bundled guide when a team guide has no Google folder.
+            if (comp == null || string.IsNullOrEmpty(ruleId) || string.IsNullOrEmpty(_bundled) || !string.Equals(layer, "company", StringComparison.OrdinalIgnoreCase)) return plain;
+            try
+            {
+                var starter = comp.StarterIds;
+                if (starter == null)
+                {
+                    var folder = Path.GetFullPath(Path.Combine(_bundled, @"Content\Resources\StyleGuide\Company")).TrimEnd('\\') + "\\";
+                    var d = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                    // In layer order, so a later layer's rule with the same id (the writer's own copy of a topic) wins. Every
+                    // Avoid/Use row is also a guide rule with the topic's full path (LintRule.File is the file name only).
+                    foreach (var l in comp.Layers)
+                        foreach (var r in l.Items) if (r.Id != null) d[r.Id] = IsUnder(r.Source, folder);
+                    comp.StarterIds = starter = d;
+                }
+                bool yes;
+                return starter.TryGetValue(ruleId, out yes) && yes ? StarterRules : plain;
+            }
+            catch (Exception ex)
+            {
+                lock (_gate) if (_logged.Add("source|" + ex.GetType().Name)) Diagnostics.Log("rule source", ex);
+                return plain;
+            }
+        }
+
+        private static bool IsUnder(string file, string folder)
+        {
+            if (string.IsNullOrEmpty(file)) return false;
+            try { return Path.GetFullPath(file).StartsWith(folder, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception) { return false; }
         }
 
         /// <summary>
@@ -388,6 +469,9 @@ namespace FlareAI.Core.Style
 
         /// <summary>Why this composition isn't the configured guide (a team guide couldn't be read), or null. See <see cref="StyleEngine.Notice"/>.</summary>
         public string Notice { get; internal set; }
+
+        /// <summary>Rule id to "written in the bundled starter topics", built once by <see cref="StyleEngine.SourceName"/>.</summary>
+        internal Dictionary<string, bool> StarterIds { get; set; }
 
         /// <summary>
         /// What the guides and the project say about a rule, the later one winning: "off", "on" (back on at its own level), a

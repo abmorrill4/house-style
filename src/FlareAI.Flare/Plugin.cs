@@ -820,7 +820,8 @@ namespace FlareAI.Flare
                 // A team guide that can't be read: check with the bundled guide plus the writer's own changes, and say so.
                 _style = new StyleEngine(() => settings.GuideRoots(pluginDir), PluginSettings.BundledGuide(pluginDir))
                 {
-                    Fallback = () => new PluginSettings { StyleLayers = "" }.GuideRoots(pluginDir)
+                    Fallback = () => new PluginSettings { StyleLayers = "" }.GuideRoots(pluginDir),
+                    PersonalGuide = PluginSettings.UserGuidePath
                 };
                 _styleKey = key;
             }

@@ -113,7 +113,7 @@ namespace FlareAI.Flare.UI
             tips.SetToolTip(_delete, "Remove this rule from your style guide.");
 
             A11y.Name(_search, "Search rules", "Words from the rule, its examples, its page or its reference. Every word must match.");
-            A11y.Name(_source, "Source", "Show the rules from one source: Google, Company, your team's guide, your own guide or the project.");
+            A11y.Name(_source, "Source", "Show the rules from one source: Google, Starter rules, your team's guide, your own guide or the project.");
             A11y.Name(_state, "State", "Show rules that are enabled, disabled or at a changed level.");
             A11y.Name(_fix, "Issue type", "Show rules whose issues are Auto-fix, or rules whose issues need you.");
             A11y.Name(_content, "Applies to", "Show rules limited to one kind of content, or rules that apply everywhere.");

@@ -46,8 +46,131 @@ namespace FlareAI.Scenarios.Guide
                 x.Save(copied);
             }
             i.Settings.StyleLayers = i.TeamGuide;
-            i.Engine = new StyleEngine(() => i.Settings.GuideRoots(i.PluginDir), i.Bundled);
+            // As the plugin builds it (Plugin.StyleService): the bundled guide and the writer's own changes stand in.
+            var pluginDir = i.PluginDir;
+            i.Engine = new StyleEngine(() => i.Settings.GuideRoots(pluginDir), i.Bundled)
+            {
+                Fallback = () => new PluginSettings { StyleLayers = "" }.GuideRoots(pluginDir),
+                PersonalGuide = PluginSettings.UserGuidePath
+            };
             return i;
+        }
+
+        private const string Utilize = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Help</title></head><body><h1>Help</h1><p>We utilize this page.</p></body></html>";
+
+        /// <summary>Lint Project over one topic that uses a starter word (utilize, from the starter Plain language rules).</summary>
+        private static List<StyleFinding> LintProject(FakeWorkspace ws, Install i, out ActionRunner runner)
+        {
+            ws.WriteFile(Topic, Utilize);
+            runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(i.Engine, ws.PathOf(Topic)), 16000, i.Engine, ws.PathOf(Topic));
+            return runner.LintFiles(new[] { ws.PathOf(Topic) });
+        }
+
+        [Fact]
+        public void ATeamGuideCopiedFromTheStarter_IssuesSayOurRules_AndNoneSayStarterRules()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                ActionRunner runner;
+                var found = LintProject(ws, i, out runner);
+                var team = found.Where(f => f.Layer == "company").ToList();
+                Assert.NotEmpty(team);
+                Assert.All(team, f => Assert.Equal("Our rules", runner.SourceName(f)));
+                Assert.DoesNotContain(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
+                Assert.All(found.Where(f => f.Layer == "google"), f => Assert.Equal("Google", runner.SourceName(f)));
+                Assert.Null(runner.GuideNotice);
+            }
+        }
+
+        [Fact]
+        public void NoTeamGuide_StarterIssuesSayStarterRules()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                i.Settings.StyleLayers = "";
+                ActionRunner runner;
+                var found = LintProject(ws, i, out runner);
+                var starter = found.Where(f => f.Layer == "company").ToList();
+                Assert.NotEmpty(starter);
+                Assert.All(starter, f => Assert.Equal(StyleEngine.StarterRules, runner.SourceName(f)));
+                Assert.Null(runner.GuideNotice);
+            }
+        }
+
+        [Fact]
+        public void ATeamGuideThatGoesMissing_LintsWithTheFallback_SaysSo_AndComesBack()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                var away = i.TeamGuide + "-offline";
+                Directory.Move(i.TeamGuide, away);
+
+                ActionRunner runner;
+                var found = LintProject(ws, i, out runner);
+                var notice = runner.GuideNotice;
+                Assert.NotNull(notice);
+                Assert.StartsWith(StyleEngine.UnreadableNotice, notice);
+                Assert.Contains("Can't reach " + i.TeamGuide + ".", notice);
+                Assert.Contains(found, f => f.Layer == "company" && runner.SourceName(f) == StyleEngine.StarterRules);
+                Assert.DoesNotContain(found, f => f.RuleId == ThisPage);   // the shipped defaults still apply
+                Assert.Contains("can't be reached", File.ReadAllText(ws.DiagLog));
+
+                Directory.Move(away, i.TeamGuide);
+                found = runner.LintFiles(new[] { ws.PathOf(Topic) });
+                Assert.Null(runner.GuideNotice);
+                Assert.Contains(found, f => f.Layer == "company");
+                Assert.DoesNotContain(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
+            }
+        }
+
+        [Fact]
+        public void AnEmptyTeamGuide_SaysSoAfterLint()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                var empty = Path.Combine(ws.Root, @"Share\EmptyGuide");
+                Directory.CreateDirectory(Path.Combine(empty, @"Content\Resources\StyleGuide"));
+                File.WriteAllText(Path.Combine(empty, "Guide.flprj"), "<CatapultProject />");
+                i.Settings.StyleLayers = empty;
+                ActionRunner runner;
+                var found = LintProject(ws, i, out runner);
+                Assert.Equal(StyleEngine.EmptyNotice + " The folder is " + empty + ".", runner.GuideNotice);
+                Assert.DoesNotContain(found, f => f.Layer == "company");
+            }
+        }
+
+        [Fact]
+        public void LintProjectRuleRows_SayStarterRules_ForAStarterRule()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                i.Settings.StyleLayers = "";
+                ActionRunner runner;
+                var found = LintProject(ws, i, out runner);
+                var rows = RuleBacklog.Group(found, runner.RuleFor, ws.PathOf(Topic), runner.SourceName);
+                Assert.Contains(rows, r => r.Title.StartsWith(StyleEngine.StarterRules + " · "));
+                Assert.DoesNotContain(rows, r => r.Title.StartsWith("Our rules"));
+            }
+        }
+
+        [Fact]
+        public void AnAiFindingCitingAStarterRule_SaysAiStarterRules()
+        {
+            using (var ws = FakeWorkspace.Empty())
+            {
+                var i = Installed(ws);
+                i.Settings.StyleLayers = "";
+                ActionRunner runner;
+                var starter = LintProject(ws, i, out runner).First(f => f.Layer == "company" && f.RuleId != null);
+                var ai = new StyleFinding { Source = "ai", Layer = "ai", Rule = "ai", RuleId = starter.RuleId, RuleLayer = "company" };
+                Assert.Equal(StyleEngine.StarterRules, runner.SourceName(ai));
+                Assert.Equal("AI", runner.SourceName(new StyleFinding { Source = "ai", Layer = "ai", Rule = "clarity" }));
+            }
         }
 
         private static void CopyTree(string from, string to, string skipRel)
@@ -123,6 +246,7 @@ namespace FlareAI.Scenarios.Guide
                 var notice = runner.GuideNotice;
                 Assert.NotNull(notice);
                 Assert.StartsWith(StyleEngine.UnreadableNotice, notice);
+                Assert.Contains("Google's guide, the starter rules and your own changes", notice);
                 Assert.Contains(i.TeamGuide, notice);
                 Assert.Contains("permission", notice);
                 Assert.Contains("can't be read", File.ReadAllText(ws.DiagLog));

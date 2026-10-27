@@ -526,14 +526,14 @@ namespace FlareAI.Core.Actions
             {
                 if (FocusRule == null) return null;
                 var f = _findings.Find(x => RuleBacklog.KeyOf(x) == FocusRule);
-                return f == null ? "this rule" : RuleBacklog.Group(new[] { f }, _runner.RuleFor, _doc.SourcePath)[0].Title;
+                return f == null ? "this rule" : RuleBacklog.Group(new[] { f }, _runner.RuleFor, _doc.SourcePath, _runner.SourceName)[0].Title;
             }
         }
 
         /// <summary>Open suggestions grouped under their rule, most frequent first, without the rules skipped for now.</summary>
         public List<BacklogRule> Backlog()
         {
-            return RuleBacklog.Group(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath);
+            return RuleBacklog.Group(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath, _runner.SourceName);
         }
 
         /// <summary>The rule a key names in the backlog now, or null (fixed, turned off or skipped since).</summary>
@@ -866,7 +866,7 @@ namespace FlareAI.Core.Actions
                 foreach (var o in others)
                 {
                     var r = _runner.RuleFor(o.Id);
-                    readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, Name = r != null ? SourceName(r.Layer) + " · " + r.Section + ": " + r.Text : o.Name });
+                    readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
                 }
                 others = readable;
             }
@@ -979,9 +979,9 @@ namespace FlareAI.Core.Actions
             Status = Summary() + "  Request sent to the style guide owners (" + team.OwnerNames + "). The issue stays here until they decide.";
         }
 
-        private static string Describe(StyleFinding f, GuideRule rule)
+        private string Describe(StyleFinding f, GuideRule rule)
         {
-            return rule != null ? SourceName(rule.Layer) + " · " + rule.Section + ": " + rule.Display : "\"" + f.Rule + "\" (" + (f.Layer == "ai" ? "AI judgment" : SourceName(f.Layer)) + ")";
+            return rule != null ? _runner.SourceName(rule.Layer, rule.Id) + " · " + rule.Section + ": " + rule.Display : "\"" + f.Rule + "\" (" + (f.Layer == "ai" ? "AI judgment" : _runner.SourceName(f.Layer, f.RuleId)) + ")";
         }
 
         /// <summary>The guide topic a rule is written in (a local file), or null.</summary>

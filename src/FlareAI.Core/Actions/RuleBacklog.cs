@@ -98,8 +98,10 @@ namespace FlareAI.Core.Actions
         /// <param name="open">Open suggestions (not applied, text still there).</param>
         /// <param name="ruleFor">The guide rule for a reference, or null.</param>
         /// <param name="openTopicPath">The file of suggestions that carry no path of their own.</param>
-        public static List<BacklogRule> Group(IEnumerable<StyleFinding> open, Func<string, GuideRule> ruleFor, string openTopicPath)
+        /// <param name="sourceName">Where a rule comes from (layer, rule id), as the Issues pane says it; null for the layer's name.</param>
+        public static List<BacklogRule> Group(IEnumerable<StyleFinding> open, Func<string, GuideRule> ruleFor, string openTopicPath, Func<string, string, string> sourceName = null)
         {
+            sourceName = sourceName ?? ((layer, id) => ReviewSession.SourceName(layer));
             var rules = new List<BacklogRule>();
             var byKey = new Dictionary<string, BacklogRule>(StringComparer.Ordinal);
             var messages = new Dictionary<BacklogRule, Dictionary<string, int>>();
@@ -110,7 +112,7 @@ namespace FlareAI.Core.Actions
                 if (!byKey.TryGetValue(key, out r))
                 {
                     var rule = ruleFor == null || f.RuleId == null ? null : ruleFor(f.RuleId);
-                    r = new BacklogRule { Key = key, Title = TitleOf(f, rule), Reason = rule != null ? rule.Text : null, Severity = f.Severity };
+                    r = new BacklogRule { Key = key, Title = TitleOf(f, rule, sourceName), Reason = rule != null ? rule.Text : null, Severity = f.Severity };
                     byKey[key] = r;
                     rules.Add(r);
                     messages[r] = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -184,10 +186,10 @@ namespace FlareAI.Core.Actions
             return rest.Length == 0 ? null : rest;
         }
 
-        private static string TitleOf(StyleFinding f, GuideRule rule)
+        private static string TitleOf(StyleFinding f, GuideRule rule, Func<string, string, string> sourceName)
         {
-            if (rule != null) return ReviewSession.SourceName(rule.Layer) + " · " + rule.Section;
-            var source = string.IsNullOrEmpty(f.Layer) || f.Layer == "ai" ? "AI" : ReviewSession.SourceName(f.Layer);
+            if (rule != null) return sourceName(rule.Layer, rule.Id) + " · " + rule.Section;
+            var source = string.IsNullOrEmpty(f.Layer) || f.Layer == "ai" ? "AI" : sourceName(f.Layer, f.RuleId);
             if (!string.IsNullOrEmpty(f.RuleSection)) return source + " · " + f.RuleSection;
             var name = f.Rule ?? "";
             return source + (name.Length == 0 ? "" : " · " + Words(name.Substring(name.IndexOf('.') + 1)));

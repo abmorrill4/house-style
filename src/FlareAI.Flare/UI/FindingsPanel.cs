@@ -1440,21 +1440,18 @@ namespace FlareAI.Flare.UI
             return rule != null ? ReviewSession.Shorten(rule.Display, 80) : FlareAI.Core.Style.RuleWording.FromName(f.Rule);
         }
 
-        private static string LayerLabel(StyleFinding f)
+        private string LayerLabel(StyleFinding f)
         {
             return (f.RequestSent ? "Request sent · " : "") + RuleSource(f);
         }
 
-        private static string RuleSource(StyleFinding f)
+        private string RuleSource(StyleFinding f)
         {
-            if (f.RuleLayer != null) return "AI · " + SourceName(f.RuleLayer) + ": " + f.RuleSection;
+            if (f.RuleLayer != null) return "AI · " + _runner.SourceName(f) + ": " + f.RuleSection;
             if (string.IsNullOrEmpty(f.Layer) || f.Layer == "ai") return "AI";
-            if (!string.IsNullOrEmpty(f.RuleSection)) return SourceName(f.Layer) + " · " + f.RuleSection;
-            return SourceName(f.Layer) + (string.IsNullOrEmpty(f.Rule) ? "" : " · " + f.Rule.Substring(f.Rule.IndexOf('.') + 1));
+            if (!string.IsNullOrEmpty(f.RuleSection)) return _runner.SourceName(f) + " · " + f.RuleSection;
+            return _runner.SourceName(f) + (string.IsNullOrEmpty(f.Rule) ? "" : " · " + f.Rule.Substring(f.Rule.IndexOf('.') + 1));
         }
-
-        /// <summary>Where a rule comes from, in the writer's words: Google, Our rules, This project, AI.</summary>
-        internal static string SourceName(string layer) { return ReviewSession.SourceName(layer); }
 
         private List<StyleFinding> Open() { return _session.Open(); }
 
@@ -1508,7 +1505,7 @@ namespace FlareAI.Flare.UI
             Line(_cardWhy, f.Suggestion, FontStyle.Regular);
             var rule = _runner.RuleFor(f.RuleId);
             // The rule by what it says and where it lives; the id is only a reference for owners (Validate, Tune).
-            if (rule != null) Line(_cardWhy, SourceName(rule.Layer) + " · " + rule.Section + ": " + rule.Display, FontStyle.Italic);
+            if (rule != null) Line(_cardWhy, _runner.SourceName(rule.Layer, rule.Id) + " · " + rule.Section + ": " + rule.Display, FontStyle.Italic);
             var ex = _runner.ExampleFor(f.RuleId);
             if (ex != null)
             {

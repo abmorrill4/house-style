@@ -181,6 +181,7 @@ namespace FlareAI.Core.Actions
         {
             var findings = new List<StyleFinding>();
             if (_style == null) return findings;
+            _comp = null;   // the labels follow the guide this lint uses
             // Lint whole lines (inline markup flattened, variables resolved), then map each hit back to the run it
             // falls in. Hits inside a variable's value belong to the variable set, not this topic: dropped here.
             // Each line carries where it sits (step, cell, note, …) and its inline spans (UI labels, links), so rules fire
@@ -291,10 +292,36 @@ namespace FlareAI.Core.Actions
             }
         }
 
+        private Composition _comp;
+
+        /// <summary>
+        /// Where a rule comes from, in the writer's words (Google, Our rules, Starter rules, This project, AI), for the guide
+        /// the last lint used. Composed once per lint, never per row.
+        /// </summary>
+        public string SourceName(string layer, string ruleId)
+        {
+            var engine = _style as StyleEngine;
+            if (engine == null) return ReviewSession.SourceName(layer);
+            try
+            {
+                var comp = _comp ?? (_comp = engine.Compose(_project));
+                return engine.SourceName(comp, layer, ruleId);
+            }
+            catch (Exception ex) { Diagnostics.Log("rule source", ex); return ReviewSession.SourceName(layer); }
+        }
+
+        /// <summary>The source of a finding's rule; for an AI issue that cites a guide rule, the source of that rule.</summary>
+        public string SourceName(StyleFinding f)
+        {
+            if (f == null) return "";
+            return f.RuleLayer != null ? SourceName(f.RuleLayer, f.RuleId) : SourceName(f.Layer, f.RuleId);
+        }
+
         public List<StyleFinding> LintFiles(IList<string> paths, Action<int, int> progress = null)
         {
             var findings = new List<StyleFinding>();
             if (_style == null) return findings;
+            _comp = null;   // the labels follow the guide this lint uses
             var lines = new List<TextLine>();
             var owners = new List<string>();
             var done = 0;
