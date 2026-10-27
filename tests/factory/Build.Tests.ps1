@@ -153,6 +153,20 @@ Describe 'Plans and paths' {
     }
 }
 
+Describe 'Overnight run fixes (2026-10-27)' {
+    It 'commits the release note itself, also on a resume, and nothing else the notes agent wrote' {
+        $buildScript | Should Match '(?s)\$note = "changes/factory-\$n\.md".{0,200}Git add -- \$note.{0,200}Git reset -q --hard'
+        $buildScript | Should Not Match 'status --porcelain\)\.Count -gt \$before'
+    }
+    It 'keeps a capped try''s work for the retry instead of wiping it' {
+        $buildScript | Should Match '(?s)lastResult -eq "cap"\) \{ \$failure = .{0,300}; continue \}\s*Push-Location \$s\.worktree; try \{ Git checkout'
+    }
+    It 'retries the edit history call and keeps its error' {
+        $buildScript | Should Match '(?s)foreach \(\$wait in 0, 10, 30\).{0,800}editError ='
+        $buildScript | Should Match 'not ready: \$why\$\(if \(\$null -eq \$f\.editors -and \$f\.editError\)'
+    }
+}
+
 Describe 'Agents' {
     It 'climbs the ladder: the chunk model, then sonnet, then the owner' {
         (Get-ChunkAttempt "haiku" 0).model | Should Be "haiku"
