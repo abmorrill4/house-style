@@ -433,6 +433,8 @@ namespace FlareAI.Core.Actions
         public static void ApplyToGuide(Team team, GuideRequest r, RequestDecision d)
         {
             var reason = "Request " + r.Id + ": " + r.Reason + (string.IsNullOrEmpty(d.Note) ? "" : " Owner: " + d.Note);
+            // Every kind but a project exception writes into the team's guide: never into a folder that isn't there.
+            if (r.Kind != RequestKinds.ProjectException) GuideOverrides.RefuseUnreachable(team);
             switch (r.Kind)
             {
                 case RequestKinds.TurnOff:

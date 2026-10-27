@@ -738,6 +738,7 @@ namespace FlareAI.Core.Style
         /// <summary>Saves a topic as it was read: same declaration, same byte-order mark, whitespace untouched.</summary>
         internal static void Save(XmlDocument doc, string path)
         {
+            GuideCopy.RefuseWrite(path);   // a saved copy of a team guide is never written (#246)
             var bom = true;   // a new topic gets a BOM, as Flare writes them
             if (File.Exists(path))
             {

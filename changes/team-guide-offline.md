@@ -1,0 +1,1 @@
+- When your team's style guide folder can't be reached, House Style lints with the copy it saved last and tells you its date.

@@ -47,22 +47,27 @@ namespace FlareAI.Core.Style
         /// The guide projects that exist now, in order. A guide that can't be read is left out, named in
         /// <paramref name="unreadable"/> with the reason, and the <see cref="Fallback"/> guides stand in for it.
         /// </summary>
-        private List<string> Guides(List<string> unreadable)
+        private List<string> Guides(List<string> unreadable, List<string> copied = null, List<string> read = null, Dictionary<string, string> originals = null)
         {
             var list = new List<string>();
             foreach (var g in (_roots() ?? new string[0]).Where(g => !string.IsNullOrEmpty(g)))
             {
                 if (!Directory.Exists(g))
                 {
-                    // A configured folder that isn't there (offline sync, VPN down, drive unplugged, folder renamed): with a
-                    // fallback (the plugin sets one) it is unreachable, not silently dropped. Without one (MCP, tools) it's skipped.
+                    // A configured folder that isn't there (offline sync, VPN down, drive unplugged, folder renamed): its last
+                    // copy stands in, in the same place (#246). With no copy and a fallback (the plugin sets one) it is
+                    // unreachable, not silently dropped. Without either (MCP, tools) it's skipped.
+                    if (UseCopy(g, list, copied, originals)) continue;
                     if (Fallback == null) continue;
                     unreadable.Add("Can't reach " + g + ".");
                     lock (_gate) if (_logged.Add(g + "|missing")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with the fallback guide");
                     continue;
                 }
-                var why = WhyUnreadable(g);
-                if (why == null) { list.Add(g); continue; }
+                bool permission;
+                var why = WhyUnreadable(g, out permission);
+                if (why == null) { list.Add(g); if (read != null && IsTeamGuide(g)) read.Add(g); continue; }
+                // A share that dropped mid-check can use its copy; a writer whose access was removed never does.
+                if (!permission && UseCopy(g, list, copied, originals)) continue;
                 unreadable.Add("Can't read " + g + ": " + why + ".");
                 lock (_gate) if (_logged.Add(g + "|" + why)) Diagnostics.Log("Style guide " + g + " can't be read (" + why + "); checking with the fallback guide");
             }
@@ -73,9 +78,72 @@ namespace FlareAI.Core.Style
             return fallback.Concat(list).ToList();
         }
 
+        /// <summary>
+        /// The last saved copy of a configured team guide (the plugin sets it to <see cref="GuideCopy.Find"/>), or null for
+        /// none. Asked only for a team guide that can't be reached; never for the bundled guide or the writer's own.
+        /// </summary>
+        public Func<string, GuideCopyInfo> CopyOf { get; set; }
+
+        /// <summary>
+        /// Called with each configured team guide (not the bundled guide, not the writer's own) that a fresh composition read,
+        /// so the plugin can refresh its copy. Never called from inside a lock, and a failure never fails the lint.
+        /// </summary>
+        public Action<string> GuideRead { get; set; }
+
+        /// <summary>One sentence of the notice per team guide that used its copy: {0} is the configured folder, {1} the date.</summary>
+        public const string CopyNotice = "House Style couldn't reach {0}, so it linted with the copy it saved on {1}.";
+
+        /// <summary>The copy's date for the notice: the short date in the writer's culture, plus the time when it's today.</summary>
+        public static string CopyDate(DateTime copiedUtc, DateTime now)
+        {
+            var local = copiedUtc.Kind == DateTimeKind.Local ? copiedUtc : DateTime.SpecifyKind(copiedUtc, DateTimeKind.Utc).ToLocalTime();
+            return local.Date == now.Date ? local.ToString("d") + " " + local.ToString("t") : local.ToString("d");
+        }
+
+        /// <summary>
+        /// The layer name a saved copy loads under: the name the guide gives itself (FlareAI\layer.txt, copied), else the
+        /// configured folder's name, as the guide itself would load, so rule ids and changes line up. Null for a guide that isn't a copy.
+        /// </summary>
+        private static string NameOfCopy(string guide, Dictionary<string, string> originals)
+        {
+            string original;
+            if (originals == null || !originals.TryGetValue(guide, out original)) return null;
+            if (File.Exists(Path.Combine(guide, @"FlareAI\layer.txt"))) return null;   // the copy names itself, as the guide does
+            return new DirectoryInfo(original.TrimEnd('\\', '/')).Name;
+        }
+
+        private bool IsTeamGuide(string g)
+        {
+            if (_bundled != null && SamePath(g, _bundled)) return false;
+            if (!string.IsNullOrEmpty(PersonalGuide) && SamePath(g, PersonalGuide)) return false;
+            return !GuideCopy.IsCopy(g);
+        }
+
+        /// <summary>Puts the team guide's saved copy in its place, and names the folder and date for the notice. False when there is none.</summary>
+        private bool UseCopy(string g, List<string> list, List<string> copied, Dictionary<string, string> originals)
+        {
+            if (CopyOf == null || !IsTeamGuide(g)) return false;
+            GuideCopyInfo copy;
+            try { copy = CopyOf(g); }
+            catch (Exception ex) { lock (_gate) if (_logged.Add(g + "|copy")) Diagnostics.Log("style guide copy", ex); return false; }
+            if (copy == null || string.IsNullOrEmpty(copy.Path) || !Directory.Exists(copy.Path)) return false;
+            list.Add(copy.Path);
+            if (copied != null) copied.Add(string.Format(CopyNotice, g, CopyDate(copy.CopiedUtc, DateTime.Now)));
+            lock (_gate) if (_logged.Add(g + "|copy-used")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with its saved copy");
+            return true;
+        }
+
         /// <summary>Null when the guide's project file, StyleGuide and FlareAI folders can be listed; else why not, in plain words.</summary>
         internal static string WhyUnreadable(string guide)
         {
+            bool permission;
+            return WhyUnreadable(guide, out permission);
+        }
+
+        /// <param name="permission">True when the reason is a permission failure (the writer's access was removed).</param>
+        internal static string WhyUnreadable(string guide, out bool permission)
+        {
+            permission = false;
             try
             {
                 Directory.GetFiles(guide, "*.flprj");
@@ -85,8 +153,8 @@ namespace FlareAI.Core.Style
                 if (Directory.Exists(flareAi)) Directory.GetFiles(flareAi);
                 return null;
             }
-            catch (UnauthorizedAccessException) { return "you don't have permission to read it"; }
-            catch (System.Security.SecurityException) { return "you don't have permission to read it"; }
+            catch (UnauthorizedAccessException) { permission = true; return "you don't have permission to read it"; }
+            catch (System.Security.SecurityException) { permission = true; return "you don't have permission to read it"; }
             catch (IOException ex) { return ex.Message.TrimEnd('.', ' ', '\r', '\n'); }
         }
 
@@ -113,10 +181,16 @@ namespace FlareAI.Core.Style
         public Composition Compose(string project)
         {
             var unreadable = new List<string>();
-            var guides = Guides(unreadable);
+            var copied = new List<string>();
+            var read = new List<string>();
+            var originals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var guides = Guides(unreadable, copied, read, originals);
             var root = FlareProjectRoot(project);
             if (root != null && guides.Any(g => SamePath(g, root))) root = null;   // the guide is already a layer
-            var notice = unreadable.Count == 0 ? null : UnreadableNotice + " " + string.Join(" ", unreadable.ToArray());
+            // One part per guide that couldn't be read: the guides that used their copy first, then the ones that fell back.
+            var parts = new List<string>(copied);
+            if (unreadable.Count > 0) parts.Add(UnreadableNotice + " " + string.Join(" ", unreadable.ToArray()));
+            var notice = parts.Count == 0 ? null : string.Join(" ", parts.ToArray());
             var key = (root ?? "") + "|" + string.Join("|", guides.ToArray()) + "|" + notice;
             // Any change to a guide or project file (a rule turned off, a row added) changes the stamp: the next use reloads.
             var defaults = Defaults(guides);
@@ -128,10 +202,15 @@ namespace FlareAI.Core.Style
             }
             var layers = new List<GuideLayer> { GuideLayer.Load(GoogleRoot(guides), "google", "Google") };
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
-            for (var i = 0; i < guides.Count; i++) layers.Add(GuideLayer.Load(guides[i], null, null, "Google", Shadowed(guides[i], guides.Skip(i + 1))));
+            for (var i = 0; i < guides.Count; i++) layers.Add(GuideLayer.Load(guides[i], NameOfCopy(guides[i], originals), null, "Google", Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
             var comp = new Composition(layers) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
+            var onRead = GuideRead;
+            if (onRead != null)
+                foreach (var g in read)
+                    try { onRead(g); }
+                    catch (Exception ex) { lock (_gate) if (_logged.Add("guide-read|" + ex.GetType().Name)) Diagnostics.Log("style guide copy", ex); }
             return comp;
         }
 
@@ -145,6 +224,7 @@ namespace FlareAI.Core.Style
             {
                 if (_bundled != null && SamePath(g, _bundled)) continue;
                 if (!string.IsNullOrEmpty(PersonalGuide) && SamePath(g, PersonalGuide)) continue;
+                if (GuideCopy.IsCopy(g)) continue;   // a copy never stands for an empty guide: the unreachable notice says it
                 var l = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
                 if (l == null || l.Items.Count > 0 || l.Rules.Count > 0 || l.Overrides.Count > 0 || l.Glossary.Count > 0 || l.Variables.Count > 0) continue;
                 return EmptyNotice + " The folder is " + g + ".";
