@@ -116,6 +116,29 @@ namespace FlareAI.Scenarios.Rules
             }
         }
 
+        [Fact]
+        public void DisableRule_WhileTheTeamFolderIsMissing_ChangesNothing_AndDoesNotRecreateTheFolder()
+        {
+            // #235: the team's folder went offline after the check. Writing would leave a near-empty guide in its place.
+            using (var t = Team_.Legacy(topic: WorkOrderTopic))
+            {
+                t.Fx.Check();
+                t.Choose(EMail);
+                var away = t.Guide + "-offline";
+                Directory.Move(t.Guide, away);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.False(Directory.Exists(t.Guide));
+                Assert.Contains(t.Fx.Host.Errors, e => e.StartsWith("House Style can't reach your team's style guide.") && e.Contains(t.Guide));
+                Assert.Contains("not changed", t.Fx.Session.Status);
+                Assert.Contains(t.Fx.Session.Findings, x => x.RuleId == EMail);
+                Directory.Move(away, t.Guide);
+                Assert.Empty(GuideOverrides.Read(t.Guide).Where(o => o.RuleId == EMail));
+            }
+        }
+
         // ---- 17 · TEST-PLAN D6, #54 -------------------------------------------------------------------------------
 
         [Theory]

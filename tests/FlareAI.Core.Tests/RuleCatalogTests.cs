@@ -89,7 +89,7 @@ namespace FlareAI.Core.Tests
             Assert.Equal(ids.Count + generated.Count, cat.Rules.Count);
             foreach (var id in ids) Assert.NotNull(cat.Find(id));
             foreach (var l in comp.Rules) Assert.True(cat.Find(l.Id ?? l.Name) != null, (l.Id ?? l.Name) + " is missing");
-            Assert.Equal(new[] { "Google", "Company", "Team style guide (TeamGuide)", "My style guide", "Project Docs" }, cat.Sources.ToArray());
+            Assert.Equal(new[] { "Google", "Starter rules", "Team style guide (TeamGuide)", "My style guide", "Project Docs" }, cat.Sources.ToArray());
             foreach (var s in cat.Sources) Assert.Contains(cat.Rules, r => r.Source == s);
 
             var k1 = cat.Find(Team1);
@@ -117,7 +117,7 @@ namespace FlareAI.Core.Tests
             Assert.Equal("Project Docs", variables.Source);
             Assert.Equal("Project.Variables", variables.Key);
             Assert.Equal("Google", cat.Find(Quotes).Source);
-            Assert.Equal("Company", cat.Find(Please).Source);
+            Assert.Equal("Starter rules", cat.Find(Please).Source);
             Assert.True(cat.Rules.All(r => !string.IsNullOrEmpty(r.Page)), "every rule has a page");
         }
 

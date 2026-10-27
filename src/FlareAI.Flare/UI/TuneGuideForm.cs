@@ -366,6 +366,15 @@ namespace FlareAI.Flare.UI
             }
         }
 
+        /// <summary>Where a rule comes from, as the Issues pane says it (Our rules, Starter rules, Google).</summary>
+        private string SourceOf(GuideRule rule)
+        {
+            var engine = _style as StyleEngine;
+            if (engine == null) return ReviewSession.SourceName(rule.Layer);
+            try { return engine.SourceName(engine.Compose(_project), rule.Layer, rule.Id); }
+            catch (Exception ex) { Diagnostics.Log("tune: rule source", ex); return ReviewSession.SourceName(rule.Layer); }
+        }
+
         /// <summary>A writer (or an owner who can't write to the guide) asks the owners to change the selected rule.</summary>
         private void RequestRuleChange()
         {
@@ -374,7 +383,7 @@ namespace FlareAI.Flare.UI
             if (id == null || !_rules.TryGetValue(id, out rule)) return;
             var choice = RequestForm.Ask(this, new RequestQuestion
             {
-                RuleText = ReviewSession.SourceName(rule.Layer) + " · " + rule.Section + ": " + rule.Display,
+                RuleText = SourceOf(rule) + " · " + rule.Section + ": " + rule.Display,
                 Notice = "This goes to the style guide owners (" + _team.OwnerNames + "). You see their answer the next time you lint." +
                          (_team.AccessNotice == null ? "" : Environment.NewLine + _team.AccessNotice),
                 CanAskTeam = true, CanAskProject = false, Wording = rule.Layer != "google" ? rule.Text : null

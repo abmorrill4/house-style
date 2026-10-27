@@ -1,0 +1,1 @@
+- Issues from the rules that come with House Style now show Starter rules, so you can see when your team's style guide is in use. House Style also tells you when your team's guide has no rules or can't be reached.

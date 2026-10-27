@@ -298,7 +298,7 @@ namespace FlareAI.Core.Style
             if (project) return "Project " + folder;
             if (layer.OverridesOnly) return RuleOverrides.DefaultScope;
             if (GuideSeed.IsPersonal(layer.Path)) return "My style guide";
-            if (isDefault != null && isDefault(layer.Path)) return string.Equals(layer.Name, "company", StringComparison.OrdinalIgnoreCase) ? "Company" : Cap(layer.Name);
+            if (isDefault != null && isDefault(layer.Path)) return string.Equals(layer.Name, "company", StringComparison.OrdinalIgnoreCase) ? StyleEngine.StarterRules : Cap(layer.Name);
             return "Team style guide (" + folder + ")";
         }
 
