@@ -907,7 +907,16 @@ namespace FlareAI.Flare.UI
         /// One column of wrapped rows when the list is narrow, two one-line columns when it is wide; the row height follows
         /// (a ListView's rows take their height from its small image list).
         /// </summary>
+        private bool _fitting;   // setting a column width can resize the list again
+
         private void FitColumns()
+        {
+            if (_fitting) return;
+            _fitting = true;
+            try { FitColumnsCore(); } finally { _fitting = false; }
+        }
+
+        private void FitColumnsCore()
         {
             var lines = PaneRows.TextLines(_list.Width, Dpi);
             if (lines != _rowLines)

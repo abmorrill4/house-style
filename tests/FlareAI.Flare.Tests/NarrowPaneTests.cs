@@ -1138,6 +1138,7 @@ namespace FlareAI.Flare.Tests
         public void Switching_InFloatingMode_ReusesOneForm_AndUpdatesItsTitle()
         {
             PanelHost.ForceFloating = true;
+            PanelHost.ResetForTests();
             try
             {
                 Sta(() =>
@@ -1145,26 +1146,49 @@ namespace FlareAI.Flare.Tests
                     var doc = FlareSimDocument.FromXml(Topic);
                     var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(OneReword(r))(r)), new PromptBuilder(null), 1024);
                     var topicPanel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
-                    var dummyOwner = new Form { ShowInTaskbar = false, Visible = false };
+                    var projectPanel = FindingsPanel.ForProject(runner, doc, () => runner, p => null, new List<string> { "a.htm" }, "Project");
 
-                    PanelHost.Show(topicPanel, dummyOwner);
-                    var formCount1 = Application.OpenForms.OfType<Form>().Where(f => f != dummyOwner).Count();
-                    Assert.Equal(1, formCount1);
+                    PanelHost.Show(topicPanel, null);
+                    var form = topicPanel.FindForm();
+                    Assert.NotNull(form);
+                    PanelHost.Show(projectPanel, null);
+                    Assert.Same(form, projectPanel.FindForm());
+                    Assert.Same(projectPanel, PanelHost.Current);
+                    Assert.Equal(projectPanel.Title, form.Text);
+                    Assert.Equal(projectPanel.Title, form.AccessibleName);
 
-                    // Topic switch without showing (front: false) should leave Topic shown
-                    var newTopicPanel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
-                    PanelHost.Show(newTopicPanel, dummyOwner, false);
-                    Assert.Equal(topicPanel, PanelHost.Current);
-                    Assert.NotEqual(topicPanel, PanelHost.TopicPanel);
+                    // The Topic tab on the project panel shows the topic panel in the same form.
+                    var radio = All(projectPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("This &Topic", StringComparison.Ordinal));
+                    radio.PerformClick();
+                    Assert.Same(topicPanel, PanelHost.Current);
+                    Assert.Equal(topicPanel.Title, form.Text);
+                    Assert.Equal(topicPanel.Title, form.AccessibleName);
+                    Assert.Same(form, topicPanel.FindForm());
 
-                    // Close and reopen
-                    PanelHost.BeginClose();
+                    // A topic switch while Project is shown replaces only the Topic slot.
+                    All(topicPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("&Project", StringComparison.Ordinal)).PerformClick();
+                    Assert.Same(projectPanel, PanelHost.Current);
+                    var newTopic = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
+                    PanelHost.Show(newTopic, null, false);
+                    Assert.Same(projectPanel, PanelHost.Current);
+                    Assert.Same(newTopic, PanelHost.TopicPanel);
+                    Assert.True(topicPanel.IsDisposed);
+                    Assert.False(projectPanel.IsDisposed);
+
+                    // Close keeps both panels alive and unparented, and Reopen brings back the shown tab.
+                    form.Close();
                     Assert.Null(PanelHost.Current);
-                    var ok = PanelHost.Reopen(dummyOwner);
-                    Assert.True(ok);
-                    Assert.NotNull(PanelHost.Current);
-
-                    dummyOwner.Dispose();
+                    Assert.Null(projectPanel.Parent);
+                    Assert.Null(newTopic.Parent);
+                    Assert.False(projectPanel.IsDisposed);
+                    Assert.False(newTopic.IsDisposed);
+                    Assert.True(PanelHost.Reopen(null));
+                    Assert.Same(projectPanel, PanelHost.Current);
+                    var again = projectPanel.FindForm();
+                    Assert.NotSame(form, again);
+                    again.Close();
+                    newTopic.Dispose();
+                    projectPanel.Dispose();
                 });
             }
             finally
