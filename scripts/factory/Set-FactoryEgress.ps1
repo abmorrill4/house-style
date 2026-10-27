@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS Limits where the factory VM can connect: the Anthropic API, GitHub and NuGet, and nothing else.
+.SYNOPSIS Limits where the factory VM can connect: the Anthropic API, GitHub, NuGet and the Bifrost gateway, and nothing else.
 .DESCRIPTION An owner step, run elevated inside the factory VM (for example over PowerShell Direct), never by the
 factory. It sets Windows Firewall's default outbound action to Block on every profile and adds allow rules, each
 named "House Style egress ...":
@@ -16,7 +16,8 @@ Update, time sync) stays blocked; the nightly reset puts the VM back on its base
 param(
     [string]$User = "factory",
     [string[]]$Hosts = @("api.anthropic.com", "console.anthropic.com", "claude.ai", "statsig.anthropic.com",
-                         "api.nuget.org", "globalcdn.nuget.org", "www.nuget.org", "dotnetcli.azureedge.net", "builds.dotnet.microsoft.com"),
+                         "api.nuget.org", "globalcdn.nuget.org", "www.nuget.org", "dotnetcli.azureedge.net", "builds.dotnet.microsoft.com",
+                         "aigw.praeviderant.com"),   # the owner's Bifrost gateway, for the e2e AI scenarios
     [switch]$DryRun,
     [switch]$Remove
 )
