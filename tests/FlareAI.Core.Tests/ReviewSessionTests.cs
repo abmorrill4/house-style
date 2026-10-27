@@ -146,6 +146,93 @@ namespace FlareAI.Core.Tests
             Assert.False(second.IsFixed);
         }
 
+        [Fact]
+        public void MarkFixed_RecordsNoDismissalOrFeedback()
+        {
+            var s = Session();
+            var f = Find(_topic, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.MarkFixed();
+            Assert.True(f.IsFixed && f.MarkedFixed);
+            Assert.Empty(_feedback);
+            Assert.Empty(_projectWrites);
+            Assert.False(File.Exists(Path.Combine(_root, "dismissed.json")));
+            Assert.Empty(Directory.GetFiles(_root, "*feedback*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(_root, "requests", SearchOption.AllDirectories));
+            Assert.EndsWith("Marked as fixed.", s.Status);
+        }
+
+        [Fact]
+        public void RecheckEdited_NeverReopensAMarkedRow()
+        {
+            var s = Session();
+            var f = Find(_topic, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.MarkFixed();
+            var original = FirstRun(_topic, 0).Value;
+            FirstRun(_topic, 0).Value = original.Replace("utilize", "use");
+            s.RecheckEdited();
+            FirstRun(_topic, 0).Value = original;
+            s.RecheckEdited();
+            FirstRun(_topic, 0).Value = original.Replace("utilize", "use");
+            s.RecheckEdited();
+            FirstRun(_topic, 0).Value = original;
+            s.RecheckEdited();
+            Assert.True(f.MarkedFixed);
+            Assert.True(f.IsFixed);
+        }
+
+        [Fact]
+        public void WritingEvent_CountsPendingHandFixesFirst_AndDoesNotSortUntilWrote()
+        {
+            var s = Session();
+            var a = Find(_topic, "utilize", "use");
+            var b = Find(_topic, "utilize", "use", occurrence: 1);
+            s.Add(new[] { a, b });
+            var changes = 0;
+            s.ListChanged += () => changes++;
+            var atWriting = -1; var aFixedAtWriting = false;
+            Action<string> probe = path => { atWriting = changes; aFixedAtWriting = a.FixedByEdit; };
+            s.WatchWrites(true);
+            ActionRunner.Writing += probe;
+            try
+            {
+                FirstRun(_topic, 0).Value = "Please use the tool. The user can see it.";
+                var before = changes;
+                s.Select(b);
+                s.Accept();
+                Assert.True(aFixedAtWriting);
+                Assert.Equal(before, atWriting);
+                Assert.True(a.FixedByEdit);
+                Assert.True(changes > before);
+            }
+            finally { ActionRunner.Writing -= probe; s.WatchWrites(false); }
+        }
+
+        [Fact]
+        public void ReplacedSession_GetsNoWritingCall()
+        {
+            var s1 = Session();
+            var a = Find(_topic, "utilize", "use");
+            s1.Add(new[] { a });
+            s1.WatchWrites(true);
+            s1.WatchWrites(false);
+            var s2 = Session();
+            var c = Find(_topic, "utilize", "use", occurrence: 1);
+            s2.Add(new[] { c });
+            s2.WatchWrites(true);
+            try
+            {
+                FirstRun(_topic, 0).Value = "Please use the tool. The user can see it.";
+                s2.Select(c);
+                Assert.Equal(AcceptOutcome.Applied, s2.Accept());
+                Assert.False(a.IsFixed);
+            }
+            finally { s2.WatchWrites(false); }
+        }
+
         // ---- Apply -------------------------------------------------------------------------------
 
         [Fact]

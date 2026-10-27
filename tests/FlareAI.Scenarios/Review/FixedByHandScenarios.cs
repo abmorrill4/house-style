@@ -299,6 +299,220 @@ namespace FlareAI.Scenarios.Review
             Assert.False(f.FixedByEdit);
         }
 
+        // ---- Mark as Fixed, the write events ------------------------------------------------------
+
+        private static void Watching(ReviewSession s, Action body)
+        {
+            s.WatchWrites(true);
+            try { body(); }
+            finally { s.WatchWrites(false); }
+        }
+
+        [Fact]
+        public void ChangeOnAWordInsideAnAiExcerpt_DoesNotMarkTheAiIssueFixed()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool. Other words."));
+            var s = Session(doc);
+            var ai = Find(doc, "Please utilize the tool", null);
+            ai.Source = "ai"; ai.Layer = "ai"; ai.Replacement = null;
+            var rule = Find(doc, "utilize", "use");
+            s.Add(new[] { ai, rule });
+            Watching(s, () =>
+            {
+                s.Select(rule);
+                Assert.Equal(AcceptOutcome.Applied, s.Accept());
+                s.AfterEdit(null);
+            });
+            Assert.False(ai.IsFixed);
+            Assert.True(ai.IsStale);
+            Assert.DoesNotContain("You fixed", s.Status);
+        }
+
+        [Fact]
+        public void AltTextAssist_DoesNotMarkOtherIssuesInTheParagraphFixed()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize it <img src=\"a.png\" alt=\"\" />"));
+            var s = Session(doc);
+            var f = Find(doc, "utilize", "use");
+            s.Add(new[] { f });
+            Watching(s, () =>
+            {
+                var block = BlockSelector.FindBody(doc.Document).SelectNodes("p")[0];
+                AltText.Apply(doc, block, "a.png", "A chart");
+                s.AfterEdit(null);
+            });
+            Assert.False(f.IsFixed);
+        }
+
+        [Fact]
+        public void TypedFixThenChangeBeforeThePause_CountsTheTypedFixAsTheWriters()
+        {
+            var doc = FlareSimDocument.FromXml(Topic(TwoWords));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1);
+            s.Add(new[] { a, b });
+            Watching(s, () =>
+            {
+                RunOf(doc, 0).Value = "Please use the tool. Then utilize the menu.";
+                s.Select(b);
+                s.Accept();
+            });
+            Assert.True(a.FixedByEdit);
+            Assert.False(b.FixedByEdit);
+            Assert.True(b.IsFixed);
+        }
+
+        [Fact]
+        public void TypedFixThenChangeOnTheSameIssue_SkipsTheWrite_AndShowsFixed()
+        {
+            var doc = FlareSimDocument.FromXml(Topic(TwoWords));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1);
+            s.Add(new[] { a, b });
+            AcceptOutcome outcome = AcceptOutcome.Applied;
+            Watching(s, () =>
+            {
+                RunOf(doc, 0).Value = "Please use the tool. Then utilize the menu.";
+                var undo = doc.UndoCount;
+                s.Select(a);
+                outcome = s.Accept();
+                Assert.Equal(undo, doc.UndoCount);
+            });
+            Assert.Equal(AcceptOutcome.None, outcome);
+            Assert.True(a.FixedByEdit);
+            Assert.EndsWith("You fixed 1 issue.", s.Status);
+        }
+
+        [Fact]
+        public void ChangeAll_WithATypedFixPending_ChangesTheRest_AndDoesNotThrow()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Alpha utilize one.", "Beta utilize two. Gamma utilize three."));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1); var c = Find(doc, "utilize", "use", 2);
+            s.Add(new[] { a, b, c });
+            Watching(s, () =>
+            {
+                RunOf(doc, 0).Value = "Alpha use one.";
+                s.Select(b);
+                s.ChangeAll();
+            });
+            Assert.True(b.Written);
+            Assert.True(c.Written);
+            Assert.False(a.Written);
+            Assert.True(a.FixedByEdit);
+            Assert.DoesNotContain("Skipped", s.Status);
+        }
+
+        [Fact]
+        public void MarkAsFixed_MarksAnyIssue_RecordsNothing_AndSelectsTheNext()
+        {
+            var doc = FlareSimDocument.FromXml(Topic(TwoWords));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1);
+            s.Add(new[] { a, b });
+            s.Select(a);
+            s.MarkFixed();
+            Assert.True(a.IsFixed && a.MarkedFixed);
+            Assert.Same(b, s.Current);
+            Assert.EndsWith("Marked as fixed.", s.Status);
+        }
+
+        [Fact]
+        public void MarkAsFixed_OnATextChangedRow_StrikesItThrough()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool."));
+            var s = Session(doc);
+            var f = Find(doc, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.Accept();
+            doc.Undo();
+            var run = TextRuns.Of(new List<XmlNode> { f.Block }).First(r => r.Value.Contains("utilize"));
+            run.Value = run.Value.Replace("Please", "Kindly").Replace("the tool", "a tool");
+            Assert.Equal(1, s.RecheckApplied());
+            Assert.True(f.IsStale);
+            s.Select(f);
+            s.MarkFixed();
+            Assert.True(f.IsFixed);
+            Assert.False(f.IsStale);
+        }
+
+        [Fact]
+        public void MarkAsFixed_ThenEditAnotherParagraph_StaysFixed()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool.", "Second paragraph."));
+            var s = Session(doc);
+            var f = Find(doc, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.MarkFixed();
+            RunOf(doc, 1).Value = "Second paragraph, edited.";
+            s.AfterEdit(null);
+            Assert.True(f.IsFixed);
+            Assert.True(f.MarkedFixed);
+        }
+
+        [Fact]
+        public void MarkAsFixed_WithLiveCheckOn_ThenTypeRightBeforeIt_StaysFixed_AndNoSecondRow()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Remember to always carefully utilize the tool."));
+            var s = Session(doc);
+            s.Add(Lint(doc));
+            var f = s.Findings.Single(x => x.Excerpt == "utilize");
+            s.Select(f);
+            s.MarkFixed();
+            RunOf(doc, 0).Value = "Oh. Remember to always carefully utilize the tool.";
+            s.AfterEdit(Lint(doc));
+            Assert.Single(s.Findings, x => x.Excerpt == "utilize");
+            Assert.True(s.Findings.Single(x => x.Excerpt == "utilize").MarkedFixed);
+        }
+
+        [Fact]
+        public void MarkAsFixed_OnAnIssueWithoutAnExcerpt_DoesNotHideALaterHitOfThatRule()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool."));
+            var s = Session(doc);
+            var structure = Find(doc, "utilize", "use");
+            structure.Excerpt = ""; structure.RuleId = "x";
+            s.Add(new[] { structure });
+            s.Select(structure);
+            s.MarkFixed();
+            var later = Find(doc, "utilize", "use");
+            later.RuleId = "x";
+            s.Add(new[] { later });
+            Assert.Contains(later, s.Findings);
+        }
+
+        [Fact]
+        public void MarkAsFixed_LintAgainBringsItBack_WhenTheTextStillHasIt()
+        {
+            var doc = FlareSimDocument.FromXml(Topic("Please utilize the tool."));
+            var s = Session(doc);
+            var f = Find(doc, "utilize", "use");
+            s.Add(new[] { f });
+            s.Select(f);
+            s.MarkFixed();
+            s.Clear();
+            var fresh = Find(doc, "utilize", "use");
+            s.Add(new[] { fresh });
+            Assert.Contains(fresh, s.Findings);
+            Assert.False(fresh.IsFixed);
+        }
+
+        [Fact]
+        public void SelectedIssueFixedByEdit_StaysSelected_WithChangeDisabled()
+        {
+            var doc = FlareSimDocument.FromXml(Topic(TwoWords));
+            var s = Session(doc);
+            var a = Find(doc, "utilize", "use"); var b = Find(doc, "utilize", "use", 1);
+            s.Add(new[] { a, b });
+            s.Select(a);
+            RunOf(doc, 0).Value = "Please use the tool. Then utilize the menu.";
+            s.AfterEdit(null);
+            Assert.Same(a, s.Current);
+            Assert.False(a.CanFix);
+        }
+
         private sealed class ScenarioHost : IReviewHost
         {
             public bool Confirm(string message, string action) { return true; }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Xml;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Style;
@@ -60,6 +61,8 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
+        private bool _watching, _offThreadLogged;
+        private int _uiThread, _pendingMarked, _pendingReopened;
 
         /// <param name="topic">The checked topic (in a project report: the topic that was active).</param>
         /// <param name="dismissed">Where rejected suggestions are remembered.</param>
@@ -102,6 +105,8 @@ namespace FlareAI.Core.Actions
         /// between messages, with progress and Stop.
         /// </summary>
         public Action<BatchRun> RunBatch { get; set; } = run => run.RunToEnd();
+        /// <summary>True while the pane showing this session is the one on screen. Null means always (tests).</summary>
+        public Func<bool> IsShown { get; set; }
 
         // ---- state the view reads ---------------------------------------------------------------
 
@@ -174,6 +179,8 @@ namespace FlareAI.Core.Actions
                     if (cited != null) f.RuleText = cited.Text;
                 }
                 if (_requested.Contains(f.RuleId ?? f.Rule ?? "")) f.RequestSent = true;   // still visible while the owners decide
+                if (!string.IsNullOrEmpty(f.Excerpt) && _findings.Exists(m => m.MarkedFixed && !string.IsNullOrEmpty(m.Excerpt) &&
+                        m.RuleId == f.RuleId && m.DocumentPath == f.DocumentPath && HandFixes.ContextKey(m) == HandFixes.ContextKey(f))) continue;
                 _findings.Add(f);
                 added.Add(f);
             }
@@ -520,6 +527,100 @@ namespace FlareAI.Core.Actions
             return marked.Count;
         }
 
+        /// <summary>Mark as Fixed: the selected issue shows as fixed. Nothing is recorded or hidden, and only Lint Again brings it back.</summary>
+        public void MarkFixed()
+        {
+            var f = Current;
+            if (f == null || f.IsFixed) return;
+            f.IsFixed = true; f.MarkedFixed = true; f.FixedByEdit = false; f.IsStale = false; f.ContextChanged = false;
+            Sort();
+            Next();
+            Status = Summary() + "  Marked as fixed.";
+        }
+
+        /// <summary>Starts or stops telling House Style's own writes from the writer's edits.</summary>
+        public void WatchWrites(bool on)
+        {
+            ActionRunner.Writing -= OnWriting;
+            ActionRunner.Wrote -= OnWrote;
+            if (on)
+            {
+                ActionRunner.Writing += OnWriting;
+                ActionRunner.Wrote += OnWrote;
+                _watching = true;
+                _uiThread = Thread.CurrentThread.ManagedThreadId;
+            }
+            else _watching = false;
+        }
+
+        private bool WriteGuard()
+        {
+            if (!_watching) return false;
+            if (IsShown != null && !IsShown()) return false;
+            if (Thread.CurrentThread.ManagedThreadId != _uiThread)
+            {
+                if (!_offThreadLogged) { _offThreadLogged = true; Diagnostics.Log("write event off the UI thread"); }
+                return false;
+            }
+            return true;
+        }
+
+        private void OnWriting(string path)
+        {
+            if (!WriteGuard()) return;
+            try
+            {
+                var marked = new List<StyleFinding>(); int reopened;
+                CheckEdits(path, null, marked, out reopened);
+                _pendingMarked += marked.Count; _pendingReopened += reopened;
+            }
+            catch (Exception ex) { Diagnostics.Log("recheck before write: " + path + " " + ex.GetType().Name); }
+        }
+
+        private void OnWrote(string path)
+        {
+            if (!WriteGuard()) return;
+            try
+            {
+                var doms = new Dictionary<string, XmlDocument>(StringComparer.OrdinalIgnoreCase);
+                var texts = new Dictionary<XmlNode, string>();
+                foreach (var f in _findings)
+                {
+                    if (string.IsNullOrEmpty(f.Excerpt)) continue;
+                    if (path != null && !HandFixes.SamePath(FilePathOf(f), path)) continue;
+                    var dom = DomOf(f, doms);
+                    if (dom == null) continue;
+                    if (f.DocumentPath == null && !f.IsFixed && f.Block != null && !HandFixes.IsAttached(f))
+                    {
+                        XmlText run; int start;
+                        f.Block = FindingLocator.TryLocate(dom, f, out run, out start) ? TextRuns.BlockOf(run) : null;
+                    }
+                    Record(f, dom, texts);
+                }
+                if (_pendingMarked + _pendingReopened > 0) Sort();
+            }
+            catch (Exception ex) { Diagnostics.Log("record after write: " + path + " " + ex.GetType().Name); }
+            finally { _pendingMarked = 0; _pendingReopened = 0; }
+        }
+
+        /// <summary>True when the report has issues in this file.</summary>
+        public bool Covers(string path)
+        {
+            return path != null && _findings.Exists(f => f.DocumentPath != null && HandFixes.SamePath(f.DocumentPath, path));
+        }
+
+        /// <summary>A file in a project report was saved: issues the writer fixed in it show as fixed. Returns how many.</summary>
+        public int RecheckSaved(string path, XmlDocument dom)
+        {
+            if (!_project || dom == null || SelfSaves.IsOwn(path) || !Covers(path)) return 0;
+            var marked = new List<StyleFinding>(); int reopened;
+            CheckEdits(path, dom, marked, out reopened);
+            if (marked.Count + reopened == 0) return 0;
+            Sort();
+            Status = marked.Count > 0 ? Summary() + "  You fixed " + Plural.Of(marked.Count, "issue") + "." : UndoneBack;
+            return marked.Count;
+        }
+
         /// <summary>A moment after typing stops: undone changes come back, hand fixes show as fixed, then Live check's lint (or null).</summary>
         public void AfterEdit(List<StyleFinding> lint)
         {
@@ -616,6 +717,12 @@ namespace FlareAI.Core.Actions
                 Next();
                 return AcceptOutcome.Applied;
             }
+            if (f.FixedByEdit)
+            {
+                Status = Summary() + "  You fixed 1 issue.";
+                Next();
+                return AcceptOutcome.None;
+            }
             return AcceptOutcome.NotApplied;
         }
 
@@ -664,7 +771,7 @@ namespace FlareAI.Core.Actions
             var run = BeginBatch(chosen, chosen.Count == 1 ? "House Style: " + chosen[0].Rule : "House Style: " + chosen.Count + " changes", plan);
             run.Finished += result =>
             {
-                foreach (var f in chosen) if (f.IsFixed) RecordFeedback(f, _doc.SourcePath, "accepted", null);
+                foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
                 var inSnippets = _findings.FindAll(f => f.CanFix && f.DocumentPath != null && !_project).Count;
                 if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
@@ -794,7 +901,7 @@ namespace FlareAI.Core.Actions
             if (!_host.Confirm("Make " + Plural.Of(todo.Count, "change") + " in the topic as tracked changes?\n\n" +
                     "You can accept them on the Review tab. One Ctrl+Z undoes them all.", "Change All Issues")) return;
             var n = Apply(todo, "House Style: " + Plural.Of(todo.Count, "change"));
-            foreach (var f in todo) if (f.IsFixed) RecordFeedback(f, _doc.SourcePath, "proposed", "bulk");
+            foreach (var f in todo) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "proposed", "bulk");
             Status = Summary() + "  Made " + Plural.Of(n, "tracked change") + ". Accept them on the Review tab. Issues that need you are still listed.";
             Next();
         }
@@ -847,7 +954,8 @@ namespace FlareAI.Core.Actions
                 // A file left open keeps its undo history: remember it, so a Ctrl+Z there brings the suggestion back.
                 if (doc != _doc) { if (saved) _writtenIn.Remove(path); else if (n > 0) _writtenIn[path] = doc; }
                 if (n > 0) { result.AddChanged(path, n, saved); Raise(ReviewEvent.Changed); }
-                if (n < group.Count) result.AddSkipped(path, group.Count - n, "text changed");
+                var handFixed = group.FindAll(x => x.FixedByEdit).Count;
+                if (n + handFixed < group.Count) result.AddSkipped(path, group.Count - n - handFixed, "text changed");
             }
             catch (Exception ex)
             {
