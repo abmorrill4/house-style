@@ -1133,5 +1133,44 @@ namespace FlareAI.Flare.Tests
                 Assert.Equal("Project (183)", tabs[1]);
             });
         }
+
+        [Fact]
+        public void Switching_InFloatingMode_ReusesOneForm_AndUpdatesItsTitle()
+        {
+            PanelHost.ForceFloating = true;
+            try
+            {
+                Sta(() =>
+                {
+                    var doc = FlareSimDocument.FromXml(Topic);
+                    var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(OneReword(r))(r)), new PromptBuilder(null), 1024);
+                    var topicPanel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
+                    var dummyOwner = new Form { ShowInTaskbar = false, Visible = false };
+
+                    PanelHost.Show(topicPanel, dummyOwner);
+                    var formCount1 = Application.OpenForms.OfType<Form>().Where(f => f != dummyOwner).Count();
+                    Assert.Equal(1, formCount1);
+
+                    // Topic switch without showing (front: false) should leave Topic shown
+                    var newTopicPanel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
+                    PanelHost.Show(newTopicPanel, dummyOwner, false);
+                    Assert.Equal(topicPanel, PanelHost.Current);
+                    Assert.NotEqual(topicPanel, PanelHost.TopicPanel);
+
+                    // Close and reopen
+                    PanelHost.BeginClose();
+                    Assert.Null(PanelHost.Current);
+                    var ok = PanelHost.Reopen(dummyOwner);
+                    Assert.True(ok);
+                    Assert.NotNull(PanelHost.Current);
+
+                    dummyOwner.Dispose();
+                });
+            }
+            finally
+            {
+                PanelHost.ForceFloating = false;
+            }
+        }
     }
 }

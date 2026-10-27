@@ -900,9 +900,9 @@ namespace FlareAI.Flare
 
         private static readonly ReviewCache Reviews = new ReviewCache(300, Path.Combine(PluginSettings.SettingsDirectory, "reviews.json"));
 
-        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart, bool rulesOnly)
+        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart, bool rulesOnly, bool front = true)
         {
-            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings, RulesOnly = rulesOnly }, _nav.GetParentForm());
+            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings, RulesOnly = rulesOnly }, _nav.GetParentForm(), front);
         }
 
         /// <summary>
@@ -937,8 +937,8 @@ namespace FlareAI.Flare
             try { if (_editor != null) _editor.AttachAll(); var a = ActiveAdapter(); if (a != null) _lastTopic = a.SourcePath; } catch (Exception ex) { Diagnostics.Log("editor", ex); }
             try
             {
-                var current = PanelHost.Current;
-                if (current == null || current.IsProjectReport) return;
+                var current = PanelHost.TopicPanel;
+                if (current == null) return;
                 var adapter = ActiveAdapter();
                 if (adapter == null || !adapter.IsEditableTopic) return;
                 var path = adapter.SourcePath ?? "";
@@ -947,7 +947,7 @@ namespace FlareAI.Flare
                 // Style-guide topics list the very words they ban; following into one (e.g. via Guide ↗) would flood the panel.
                 if (path.IndexOf(@"\Resources\StyleGuide\", StringComparison.OrdinalIgnoreCase) >= 0) return;
                 var runner = NewRunner(adapter, true, true);
-                if (runner != null) ShowFindings(adapter, runner, false, LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks));
+                if (runner != null) ShowFindings(adapter, runner, false, LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks), front: false);
             }
             catch (Exception ex) { Diagnostics.Log("DocumentSwitched", ex); ErrorReporter.Background(OwnerForm, "House Style couldn't lint the topic you opened.", ex); }
         }
