@@ -55,7 +55,8 @@ namespace FlareAI.Flare.UI
         // project check: by rule / by file, the rule card's actions, and batches with progress
         private readonly FlowLayoutPanel _viewBar, _actions, _ruleActions;
         private readonly RadioButton _byRule, _byFile;
-        private readonly Button _excluded;
+        private readonly Button _excluded, _export;
+        private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
         private string _lastRule;   // the rule row to come back to after Review one by one
@@ -101,6 +102,7 @@ namespace FlareAI.Flare.UI
                                                Func<string, IDocumentAdapter> open, IList<string> files, string projectName)
         {
             var panel = new FindingsPanel(runner, activeDoc, newRunner, open, null, false, files);
+            panel._projectName = projectName;
             panel.Title = PaneTitle + " · " + projectName + " (" + Plural.Of(files.Count, "file") + ")";
             return panel;
         }
@@ -188,6 +190,7 @@ namespace FlareAI.Flare.UI
             _showSkipped = Btn(_viewBar, "Show Skipped Rules", (s, e) => _session.ShowSkippedRules());
             _showAllRules = Btn(_viewBar, "Show All Rules", (s, e) => ShowAllRules());
             _excluded = Btn(_viewBar, "Excluded Files", (s, e) => ShowExcluded());
+            _export = Btn(_viewBar, "Export Issues…", (s, e) => ExportIssues());
             _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
 
             // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
@@ -301,6 +304,7 @@ namespace FlareAI.Flare.UI
             tips.SetToolTip(_turnOffRule, "Stop linting for this rule.");
             tips.SetToolTip(_skipRule, "Hide this rule until you lint again.");
             tips.SetToolTip(_showAllRules, "List every rule.");
+            tips.SetToolTip(_export, "Save the issues to a file you can open in Excel.");
             tips.SetToolTip(_recheck, "Lint this topic again.");
             tips.SetToolTip(_legend, "Show what the symbols and buttons mean.");
             _ignoreTip = tips;
@@ -537,7 +541,8 @@ namespace FlareAI.Flare.UI
             var top = new Control[] { _tourStrip, _widthTip, _status, _notice, _acceptAll.Parent, _viewBar, _progress, _list.Parent.Parent, _cost, _recheck.Parent };
             for (var i = 0; i < top.Length; i++) top[i].TabIndex = i;
             A11y.Name(_acceptAll.Parent, "Actions for all issues"); A11y.Name(_recheck.Parent, "Pane actions"); A11y.Name(_accept.Parent, "Decision for the selected issue");
-            A11y.Name(_viewBar, "View", "List the project's issues by rule or by file.");
+            A11y.Name(_viewBar, "Project report", "List the project's issues by rule or by file, or save them to a file.");
+            A11y.Name(_export, "Export Issues", "Save the issues to a file you can open in Excel. Opens a dialog.");
             A11y.Name(_ruleActions, "Actions for the selected rule");
             A11y.Name(_fixRule, "Change All", "Replace every instance of this issue in every file. Opens a preview.");
             A11y.Name(_reviewRule, "Review One by One", "Go through this rule's issues one at a time.");
@@ -1572,6 +1577,26 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>Writes the rows to path through a temp file in the same folder; never logs row text. False (and the error) when it couldn't.</summary>
+        /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A scenario's saveAs path skips the dialog.</summary>
+        private void ExportIssues()
+        {
+            var rows = RowsFrom(new List<StyleFinding>(_session.Findings));   // a snapshot before any dialog
+            if (rows.Count == 0) { _status.Text = FlareAI.Core.Output.IssueExport.NothingToExport; return; }
+            var path = E2EHook.TakeSavePath() ?? AskExportPath();
+            if (path == null) return;
+            Exception error;
+            if (!ExportTo(path, rows, out error)) Notify.Failed(FindForm(), "export the issues to " + System.IO.Path.GetFileName(path), error, "Export Issues");
+        }
+
+        private string AskExportPath()
+        {
+            using (var d = new SaveFileDialog { Title = "Export Issues", Filter = "CSV files (*.csv)|*.csv", DefaultExt = "csv", AddExtension = true,
+                                                OverwritePrompt = true, RestoreDirectory = true,
+                                                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                                FileName = FlareAI.Core.Output.IssueExport.SuggestedName(_projectName, DateTime.Today) })
+                return d.ShowDialog(FindForm()) == DialogResult.OK ? d.FileName : null;
+        }
+
         internal bool ExportTo(string path, IList<FlareAI.Core.Output.IssueExport.Row> rows, out Exception error)
         {
             error = null;

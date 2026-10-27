@@ -256,6 +256,81 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        /// <summary>A project report over the given topics (written under _root), done linting; runs <paramref name="body"/>.</summary>
+        private void WithProject(string[] topicsXml, int width, int height, Action<FindingsPanel, Form> body)
+        {
+            var proj = System.IO.Path.Combine(_root, "proj");
+            var content = System.IO.Path.Combine(proj, "Content", "billpay");
+            System.IO.Directory.CreateDirectory(content);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(proj, "Billpay.flprj"), "");
+            var files = new List<string>();
+            for (var i = 0; i < topicsXml.Length; i++)
+            {
+                var f = System.IO.Path.Combine(content, "t" + i + ".htm");
+                System.IO.File.WriteAllText(f, topicsXml[i]);
+                files.Add(f);
+            }
+            Sta(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r)), new PromptBuilder(null), 1024, new LongRuleGuide());
+                var panel = FindingsPanel.ForProject(runner, FlareSimDocument.FromXml(Topic), () => runner, p => null, files, "Billpay");
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(width, height), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    Pump(() => All(panel).OfType<Label>().Any(l => (l.Text ?? "").Contains("Linted ")) && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
+                         30000, () => string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
+                    body(panel, form);
+                }
+            });
+        }
+
+        [Theory]
+        [InlineData(150, 640)]
+        [InlineData(180, 800)]
+        [InlineData(260, 1000)]
+        public void ExportButton_IsOnlyInAProjectReport_AndTheBarIsNamedProjectReport(int width, int height)
+        {
+            WithProject(new[] { Topic }, width, height, (panel, form) =>
+            {
+                var b = All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…");
+                Assert.True(b.Visible);
+                Assert.True(b.Enabled);
+                Assert.True(b.Right <= b.Parent.ClientSize.Width, "right " + b.Right + " of " + b.Parent.ClientSize.Width);
+                Assert.Equal("Project report", b.Parent.AccessibleName);
+                Assert.EndsWith("Opens a dialog.", b.AccessibleDescription);
+            });
+            WithPane((panel, form, list) =>
+            {
+                var b = All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…");
+                Assert.False(b.Visible);
+            });
+        }
+
+        [Fact]
+        public void ExportIssues_WithNoIssues_SaysSo_AndOpensNoDialog()
+        {
+            var old = Environment.GetEnvironmentVariable("HOUSESTYLE_E2E_DIR");
+            Environment.SetEnvironmentVariable("HOUSESTYLE_E2E_DIR", null);
+            try
+            {
+                WithProject(new[] { "<html><body><p>The fee is waived.</p></body></html>" }, 260, 800, (panel, form) =>
+                {
+                    var forms = Application.OpenForms.Count;
+                    All(panel).OfType<Button>().Single(x => x.Text == "Export Issues…").PerformClick();
+                    Pump(null, 200);
+                    Assert.Contains("There are no issues to export.", All(panel).OfType<Label>().Select(l => l.Text));
+                    Assert.Equal(forms, Application.OpenForms.Count);
+                });
+                Assert.Empty(System.IO.Directory.GetFiles(_root, "*.csv", System.IO.SearchOption.AllDirectories));
+            }
+            finally { Environment.SetEnvironmentVariable("HOUSESTYLE_E2E_DIR", old); }
+        }
+
         // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
 
         /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>
