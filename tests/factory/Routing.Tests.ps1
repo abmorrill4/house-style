@@ -1,4 +1,4 @@
-﻿# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
+# Pester 3 tests for the factory's routing (work/report-pipeline spec section 2):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $here '..\..\scripts\factory\Triage.psm1') -Force
@@ -212,12 +212,12 @@ Describe 'Get-WaitingReason' {
         Get-WaitingReason (Get-Route (New-Input @{ fix = (New-Fix @{ lines = 999 }) }) $rules) "live" | Should Be "merge"
         Get-WaitingReason (Get-Route (New-Input @{ kind = "feature" }) $rules) "live" | Should BeNullOrEmpty
     }
-    It 'shadow mode leaves every decision to the owner, except the pile' {
-        Get-WaitingReason (Get-Route (New-Input @{ kind = "feature" }) $rules) "shadow" | Should Be "decide"
-        Get-WaitingReason (Get-Route (New-Input @{ kind = "noise" }) $rules) "shadow" | Should BeNullOrEmpty
+    It 'triage leaves every decision to the owner, except the pile' {
+        Get-WaitingReason (Get-Route (New-Input @{ kind = "feature" }) $rules) "on" | Should Be "decide"
+        Get-WaitingReason (Get-Route (New-Input @{ kind = "noise" }) $rules) "on" | Should BeNullOrEmpty
     }
     It 'a hold is security in both modes' {
-        Get-WaitingReason (Get-Route (New-Input @{ security = $true }) $rules) "shadow" | Should Be "security"
+        Get-WaitingReason (Get-Route (New-Input @{ security = $true }) $rules) "on" | Should Be "security"
         Get-WaitingReason (Get-Route (New-Input @{ security = $true }) $rules) "live" | Should Be "security"
     }
 }
@@ -511,11 +511,11 @@ Describe 'Public text and the route comment' {
     }
     It 'carries a routing record that parses back to the input' {
         $in = New-Input
-        $c = Format-RouteComment (Get-Route $in $rules) $in "shadow" "Next."
+        $c = Format-RouteComment (Get-Route $in $rules) $in "on" "Next."
         $c | Should Match "Triage only"
         $json = [regex]::Match($c, '(?s)```json\r?\n(.+?)\r?\n```').Groups[1].Value
         $rec = $json | ConvertFrom-Json
-        $rec.route | Should Be "auto-fix"; $rec.input.repro_test | Should Be $in.repro_test; $rec.mode | Should Be "shadow"
+        $rec.route | Should Be "auto-fix"; $rec.input.repro_test | Should Be $in.repro_test; $rec.mode | Should Be "on"
     }
 }
 
