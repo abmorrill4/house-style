@@ -108,7 +108,7 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   verification plan, spec review, build, verify, build review, ship. The reviews run the `work-loop-review` workflow.
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the
   last tag, it tags the next patch version on `main` and starts `build.yml` on it, which signs and publishes.
-  - **To stop releases,** disable the workflow (`gh workflow disable nightly`). `FACTORY_MODE` (`off` or `shadow`)
+  - **To stop releases,** disable the workflow (`gh workflow disable nightly`). `FACTORY_MODE` (`on` or `off`)
     only turns the factory's report triage on and off (`scripts/factory/README.md`).
   - **Notes:** every PR writers would notice adds `changes/<name>.md` (see `changes/README.md`); CI fails one that
     doesn't, unless it has the `no-notes` label. A hand-written `docs/release-notes/x.y.z.md` goes first when present.

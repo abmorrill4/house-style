@@ -1,10 +1,10 @@
-﻿<#
+<#
 .SYNOPSIS The factory's triage: takes one new tester report, triages it into a brief and routes it by a fixed decision
 matrix (Get-Route in Triage.psm1). It builds no fixes (owner decision 2026-10-26): the owner approves roadmap issues
 and Claude builds them through the work loop. The fix path below no longer runs and is kept until it's removed.
 .DESCRIPTION Runs on the factory VM's runner. FACTORY_MODE is the kill switch: off (also unset or anything unreadable)
-stops before anything else, shadow posts the computed route on the private report and pushes, merges and posts nothing
-public for it, and live acts on the routes.
+stops before anything else, and on posts the computed route on the private report and pushes, merges and posts
+nothing public for it.
 Run controls: each agent has a wall-clock limit and at most 200 turns, every agent run is recorded on the "Factory
 ledger" issue in the private reports repo (numbers only), at most limits.agentRunsPerDay agent runs a UTC day counted
 from that ledger, and no new fix starts while limits.openFactoryPrs factory PRs are open (rules/routing.json).
@@ -40,7 +40,7 @@ $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "Controls.psm1") -Force
 # The kill switch comes first: off, unset or unreadable stops the factory before it reads or writes anything.
 $factoryMode = Get-FactoryMode $env:FACTORY_MODE
-if ($factoryMode -eq "off") { Write-Host "FACTORY_MODE is off or unset, so the factory does nothing. Set it to shadow to turn the factory on."; exit 0 }
+if ($factoryMode -eq "off") { Write-Host "FACTORY_MODE is off or unset, so the factory does nothing. Set it to on to turn the factory on."; exit 0 }
 $repo = "abmorrill4/house-style"
 $reports = "abmorrill4/house-style-reports"
 $owner = "abmorrill4"
@@ -48,8 +48,8 @@ $tmp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath(
 $here = Split-Path (Split-Path $PSScriptRoot)   # repo root
 $allowed = '^(src|tests|styleguide/Company|docs/user-guide|changes)/'
 $denied = '\.csproj$|\.csproj\.user$|Directory\.Build\.|Directory\.Packages\.props$|nuget\.config$|packages\.lock\.json$|^tests/e2e/(Run-FlareE2E\.ps1|FlareE2E\.psm1)$|^tests/e2e/flaui/'
-# Routes act on the public repo only in live mode, and never in a dry run.
-$routeMode = $factoryMode   # shadow or live from here on
+# Routes act on the public repo only in the retired live mode, and never in a dry run.
+$routeMode = $factoryMode   # on from here on
 $live = $routeMode -eq "live" -and -not $DryRun
 $token = $env:GH_TOKEN
 $secrets = "GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"
@@ -295,7 +295,7 @@ function Assert-GitConfig($who) {
     if ($bad) { throw "$who left git settings the factory doesn't allow: $(($bad | ForEach-Object { ($_ -split '=')[0] }) -join ', ')" }
 }
 
-# Auto-merged fixes left today (UTC). Shadow mode merges nothing, so its cap is always open. A count that fails reads
+# Auto-merged fixes left today (UTC). Triage merges nothing, so its cap is always open. A count that fails reads
 # as a full day.
 function Get-CapLeft($rules) {
     if (-not $live) { return [int]$rules.autoFix.dailyCap }
@@ -714,7 +714,7 @@ try {
     $draft = ($routed -and $routed.route -eq "fix-for-review") -or $tamperDraft
     if ($DryRun) { Write-Host "Dry run: would push $branch, open a $(if ($draft) { 'draft ' })PR$(if (-not $draft) { ' and merge it' })."; return }
     if ($routed -and -not $live) {
-        # Shadow: the route and its checks are posted privately; the branch stays on the factory VM.
+        # Triage only: the route and its checks are posted privately; the branch stays on the factory VM.
         $would = if ($routed.route -eq "auto-fix") { "merge on its own once CI passed" } else { "open a draft PR for you to merge" }
         Say $n (Format-RouteComment $routed $routeIn $routeMode "The fix is built and passed the tests and review. In live mode it would $would. Decide as before; the branch stays on the factory VM.")
         Label $n @("triage:ready", "route:$($routed.route)", "waiting:decide") $stale

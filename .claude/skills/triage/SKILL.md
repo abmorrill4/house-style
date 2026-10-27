@@ -86,13 +86,12 @@ Plain words, no issue numbers without their titles. Security first, then merge, 
 - **Impact on writers.**
 - **Lines up with:** the issue and its product area, and whether it's already planned.
 - **Options** with effort, and the **recommendation** with why.
-- Then one question: the call. Buttons, recommendation first. In shadow mode, also ask whether the route was right
-  when the owner's call differs from it.
+- Then one question: the call. Buttons, recommendation first. Also ask whether the route was right when the owner's
+  call differs from it.
 
 Show noise as one batch to confirm. Show triage failures with their reason and offer a retry: comment
 `**Retry triage**` on the report, remove `triage:failed`, `factory:stuck` and `waiting:stuck`, then
-`gh workflow run factory -R abmorrill4/house-style -f issue=<n>`. A retry also routes the report again, which is how a
-report triaged in shadow mode gets a live route.
+`gh workflow run factory -R abmorrill4/house-style -f issue=<n>`. A retry also routes the report again.
 
 **Security (hold).** Nothing went public and any branch stays on the factory VM. If the owner agrees it's a
 vulnerability, draft a private advisory with them (`gh api repos/abmorrill4/house-style/security-advisories`, CLAUDE.md
@@ -132,7 +131,7 @@ Every owner call on a report that has a route comment, agreeing with the route o
 reads, so log every call, merges and security looks included.
 
 ```json
-{"id": "r12-20261024T1830", "date": "2026-10-24", "report": 12, "mode": "shadow", "route": "fix-for-review", "row": 5,
+{"id": "r12-20261024T1830", "date": "2026-10-24", "report": 12, "mode": "on", "route": "fix-for-review", "row": 5,
  "reasons": ["the fix changes 212 lines, over 150"], "call": "merge", "agreed": true,
  "owner_reason": "Big but mechanical, fine to merge.", "input": { ...the record's "input" object, unchanged... },
  "superseded_by": null}
@@ -161,7 +160,7 @@ Every change, widening or narrowing, is the owner's call. An accepted change upd
 ## 7. Live mode (retired)
 
 There's no live mode (owner decision 2026-10-26). The factory only triages. The owner approves roadmap issues, and
-Claude builds them through the work loop. `FACTORY_MODE=live` reads as off.
+Claude builds them through the work loop. `FACTORY_MODE` is `on` or `off`, and `live` (or the old `shadow`) reads as off.
 
 ## 8. After
 

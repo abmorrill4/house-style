@@ -122,9 +122,9 @@ It takes one open report per run: triage, then a route, then a fix when the rout
 
 ### The routing matrix
 
-The last column is what the retired live mode did. Today every route is only a proposal for the owner.
+The last column is what the retired live mode did, kept as history. Today every route is only a proposal for the owner.
 
-| # | Route | When | Live mode |
+| # | Route | When | Retired live mode |
 |---|---|---|---|
 | 1 | hold | `security: true`, the fix touches owner-only code, or the our-words check fails | Nothing public; any branch stays on the VM. `waiting:security` |
 | 2 | evidence | every ask is covered (`full` or `partial`) by an **open** public issue labeled `from:*` and written by the owner or the factory, apart from questions the docs answer riding along, and none is a bug; or `kind: duplicate` and `same` as another open report | A comment on each covering issue in our words, naming the ask and, for `partial`, what the issue lacks, with its evidence count. The report closed. Checked again right before posting |
@@ -196,12 +196,12 @@ approves issues, and Claude builds those through the work loop. The fix path in 
 
 One repository variable, read by `factory.yml` and `Invoke-Factory.ps1`:
 
-- **`off`**, unset, or anything it can't read, `live` included: `factory.yml` doesn't start the job, and
-  `Invoke-Factory.ps1` checks again and stops before it reads or writes anything.
-- **`shadow`**: the factory triages and routes, and posts only on the private report.
+- **`off`**, unset, or anything it can't read, the retired `live` and `shadow` included: `factory.yml` doesn't start
+  the job, and `Invoke-Factory.ps1` checks again and stops before it reads or writes anything.
+- **`on`**: the factory triages and routes, and posts only on the private report.
 
 It doesn't touch releases. To stop those, `gh workflow disable nightly`. Turning triage on is
-`gh variable set FACTORY_MODE -R abmorrill4/house-style --body shadow`, and `--body off` stops it.
+`gh variable set FACTORY_MODE -R abmorrill4/house-style --body on`, and `--body off` stops it.
 
 ### Run controls
 

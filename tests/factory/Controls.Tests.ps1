@@ -1,4 +1,4 @@
-﻿# Pester 3 tests for the factory's run controls (command center spec section 4):
+# Pester 3 tests for the factory's run controls (command center spec section 4):
 #   powershell.exe -NoProfile -Command "Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests\factory"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Resolve-Path (Join-Path $here '..\..')
@@ -15,12 +15,12 @@ Describe 'FACTORY_MODE (the kill switch)' {
     It 'is off when unset, empty or unreadable' {
         Get-FactoryMode $null | Should Be "off"
         Get-FactoryMode "" | Should Be "off"
-        Get-FactoryMode "on" | Should Be "off"
-        Get-FactoryMode " shadow" | Should Be "off"
+        Get-FactoryMode " on" | Should Be "off"
+        Get-FactoryMode "shadow" | Should Be "off"
         Get-FactoryMode "OFF" | Should Be "off"
     }
-    It 'reads shadow in any case, and the retired live mode as off' {
-        Get-FactoryMode "Shadow" | Should Be "shadow"
+    It 'reads on in any case, and the retired live mode as off' {
+        Get-FactoryMode "On" | Should Be "on"
         Get-FactoryMode "Live" | Should Be "off"
     }
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -33,14 +33,14 @@ Describe 'FACTORY_MODE (the kill switch)' {
         finally { foreach ($v in $saved.Keys) { [Environment]::SetEnvironmentVariable($v, $saved[$v]) } }
     }
     It 'Invoke-Factory.ps1 stops at once, successfully, when off, unset or unreadable' {
-        foreach ($m in $null, "off", "garbage", "live") {
+        foreach ($m in $null, "off", "garbage", "live", "shadow") {
             $r = Invoke-WithMode $m
             $r.code | Should Be 0
             $r.out | Should Match 'FACTORY_MODE is off or unset'
         }
     }
-    It 'Invoke-Factory.ps1 goes past the switch in shadow (here it then stops for want of a sign-in)' {
-        foreach ($m in "shadow") {
+    It 'Invoke-Factory.ps1 goes past the switch when on (here it then stops for want of a sign-in)' {
+        foreach ($m in "on") {
             $r = Invoke-WithMode $m
             $r.out | Should Not Match 'FACTORY_MODE is off'
             $r.out | Should Match 'No CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY'
@@ -51,9 +51,9 @@ Describe 'FACTORY_MODE (the kill switch)' {
         $switch | Should BeGreaterThan 0
         foreach ($first in 'Gh issue', 'gh.exe label', 'Invoke-AgentProcess $claude', 'Get-LedgerIssue', 'New-Item') { $factoryScript.IndexOf($first) | Should BeGreaterThan $switch }
     }
-    It 'factory.yml starts the job only in shadow and passes FACTORY_MODE' {
+    It 'factory.yml starts the job only when on and passes FACTORY_MODE' {
         $y = Get-Content (Join-Path $root '.github\workflows\factory.yml') -Raw
-        $y | Should Match "if: github\.repository == 'abmorrill4/house-style' && vars\.FACTORY_MODE == 'shadow'"
+        $y | Should Match "if: github\.repository == 'abmorrill4/house-style' && vars\.FACTORY_MODE == 'on'"
         $y | Should Match 'FACTORY_MODE: \$\{\{ vars\.FACTORY_MODE \}\}'
     }
     It 'nightly.yml releases whatever FACTORY_MODE says (owner decision 2026-10-26)' {
@@ -223,8 +223,8 @@ Describe 'The run ledger' {
         $o.turns | Should BeNullOrEmpty; $o.input_tokens | Should BeNullOrEmpty
     }
     It 'records dollars only when an API key paid' {
-        (New-LedgerEntry "fix" 12 $proc $out $false "shadow" $false $null).cost_usd | Should BeNullOrEmpty
-        (New-LedgerEntry "fix" 12 $proc $out $true "shadow" $false $null).cost_usd | Should Be 1.2345
+        (New-LedgerEntry "fix" 12 $proc $out $false "on" $false $null).cost_usd | Should BeNullOrEmpty
+        (New-LedgerEntry "fix" 12 $proc $out $true "on" $false $null).cost_usd | Should Be 1.2345
     }
     It 'holds numbers only, never the agent text' {
         $e = New-LedgerEntry "triage" 12 $proc $out $true "live" $false $null
@@ -233,7 +233,7 @@ Describe 'The run ledger' {
         @($e.Keys) -join ',' | Should Be 'at,step,report,mode,dry_run,exit,seconds,stopped,turns,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd'
     }
     It 'parses back from its comment, and ignores other comments' {
-        $e = New-LedgerEntry "review" 7 ([pscustomobject]@{ exit = -1; timedOut = $true; seconds = 2700 }) $out $false "shadow" $true "stopped"
+        $e = New-LedgerEntry "review" 7 ([pscustomobject]@{ exit = -1; timedOut = $true; seconds = 2700 }) $out $false "on" $true "stopped"
         $back = ConvertFrom-LedgerComment (Format-LedgerComment $e)
         $back.step | Should Be "review"; $back.report | Should Be 7; $back.stopped | Should Be "wall-clock"; $back.dry_run | Should Be $true; $back.turns | Should Be 37
         ConvertFrom-LedgerComment "**Factory:** something else" | Should BeNullOrEmpty

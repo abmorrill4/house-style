@@ -1,4 +1,4 @@
-﻿# Helpers for the factory's triage step: check the triage agent's brief, turn it into the comment on the private
+# Helpers for the factory's triage step: check the triage agent's brief, turn it into the comment on the private
 # report, and check who approved a fix. Kept out of Invoke-Factory.ps1 so tests/factory can test them without a VM.
 
 $Kinds = "bug", "friction", "feature", "question", "duplicate", "noise"
@@ -510,7 +510,7 @@ function Get-RouteRow($in, $rules) {
 # The triage label follows the route, not the brief's kind: the pile is triage:noise, everything else triage:ready.
 function Get-TriageLabel($route) { if ($route.route -eq "pile") { "triage:noise" } else { "triage:ready" } }
 
-# The waiting reason to label. In shadow mode the owner still decides every report the old way, except the pile.
+# The waiting reason to label. Triage only (any mode but the retired live), so the owner decides every report except the pile.
 function Get-WaitingReason($route, [string]$mode) {
     if ($route.route -eq "hold") { return "security" }
     if ($mode -ne "live") { if ($route.route -eq "pile") { return $null } else { return "decide" } }
