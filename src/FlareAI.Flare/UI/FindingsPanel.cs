@@ -1571,6 +1571,28 @@ namespace FlareAI.Flare.UI
             return rows;
         }
 
+        /// <summary>Writes the rows to path through a temp file in the same folder; never logs row text. False (and the error) when it couldn't.</summary>
+        internal bool ExportTo(string path, IList<FlareAI.Core.Output.IssueExport.Row> rows, out Exception error)
+        {
+            error = null;
+            var temp = path + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
+            {
+                System.IO.File.WriteAllText(temp, FlareAI.Core.Output.IssueExport.ToCsv(rows), new System.Text.UTF8Encoding(true));
+                if (System.IO.File.Exists(path)) System.IO.File.Replace(temp, path, null); else System.IO.File.Move(temp, path);
+                _status.Text = FlareAI.Core.Output.IssueExport.Saved(rows.Count, path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+                try { if (System.IO.File.Exists(temp)) System.IO.File.Delete(temp); } catch (Exception) { }
+                Diagnostics.Log("Export issues", ex);
+                _status.Text = "House Style couldn't export the issues to " + System.IO.Path.GetFileName(path) + ".";
+                return false;
+            }
+        }
+
         // ---- the card ----------------------------------------------------------------------------
 
         private StyleFinding Current()

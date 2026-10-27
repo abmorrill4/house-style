@@ -183,6 +183,79 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        private static FlareAI.Core.Output.IssueExport.Row ExportRow()
+        {
+            return new FlareAI.Core.Output.IssueExport.Row
+            {
+                Topic = @"billpay\faq.htm", Level = "Warning", Issue = "Change \"utilize\" to \"use\"", Rule = "Use use",
+                Source = "Our rules", Text = "ZQX-excerpt", SuggestedText = "use", Status = "Open",
+                Path = @"C:\Proj\Content\billpay\faq.htm"
+            };
+        }
+
+        [Fact]
+        public void ExportTo_WritesUtf8WithBom_AndTheRow()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-bom");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            WithPane((panel, form, list) =>
+            {
+                Exception error;
+                Assert.True(panel.ExportTo(path, new[] { ExportRow() }, out error));
+                Assert.Null(error);
+                var bytes = System.IO.File.ReadAllBytes(path);
+                Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3).ToArray());
+                var lines = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                Assert.StartsWith(@"billpay\faq.htm,Warning,", lines[1]);
+                Assert.EndsWith(",Open,\"=HYPERLINK(\"\"file:///C:/Proj/Content/billpay/faq.htm\"\",\"\"Open file\"\")\"", lines[1]);
+                Assert.Contains(FlareAI.Core.Output.IssueExport.Saved(1, path), All(panel).OfType<Label>().Select(l => l.Text));
+            });
+        }
+
+        [Fact]
+        public void ExportTo_OverAnExistingFile_ReplacesIt()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-replace");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            System.IO.File.WriteAllText(path, "old");
+            WithPane((panel, form, list) =>
+            {
+                Exception error;
+                Assert.True(panel.ExportTo(path, new[] { ExportRow() }, out error));
+                Assert.Null(error);
+                var bytes = System.IO.File.ReadAllBytes(path);
+                Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes.Take(3).ToArray());
+                Assert.NotEqual("old", System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+                Assert.StartsWith("\uFEFFTopic,", System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8));
+                Assert.Single(System.IO.Directory.GetFiles(dir));
+            });
+        }
+
+        [Fact]
+        public void ExportTo_OverALockedFile_FailsAndLeavesItAsItWas()
+        {
+            var dir = System.IO.Path.Combine(_root, "export-locked");
+            System.IO.Directory.CreateDirectory(dir);
+            var path = System.IO.Path.Combine(dir, "issues.csv");
+            System.IO.File.WriteAllText(path, "old");
+            WithPane((panel, form, list) =>
+            {
+                bool ok;
+                Exception error;
+                using (new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.None))
+                    ok = panel.ExportTo(path, new[] { ExportRow() }, out error);
+                Assert.False(ok);
+                Assert.IsType<System.IO.IOException>(error);
+                Assert.Equal("old", System.IO.File.ReadAllText(path));
+                Assert.Equal(new[] { path }, System.IO.Directory.GetFiles(dir));
+                Assert.Contains("House Style couldn't export the issues to issues.csv.", All(panel).OfType<Label>().Select(l => l.Text));
+                if (System.IO.File.Exists(FlareAI.Core.Diagnostics.LogPath))
+                    Assert.DoesNotContain("ZQX-excerpt", System.IO.File.ReadAllText(FlareAI.Core.Diagnostics.LogPath));
+            });
+        }
+
         // ---- the e2e hook's helpers (#257) -------------------------------------------------------------------------
 
         /// <summary>A pane with the two-reword topic, done checking, on an off-screen form; runs <paramref name="body"/> with it.</summary>
