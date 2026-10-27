@@ -176,36 +176,56 @@ namespace FlareAI.Flare
             {
                 IRibbonGroup group;
                 if (!groups.TryGetValue(c.Group, out group)) groups[c.Group] = group = tab.AddNewRibbonGroup(c.Group);
-                if (c == Commands.Help && AddHelpMenu(group)) continue;
-                var button = group.AddRibbonButton(Button(c));
-                try { if (button != null) button.ToolTip = c.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + c.Id, ex); }
+                IList<CommandInfo> items;
+                object split = null;
+                if (Commands.SplitMenus.TryGetValue(c, out items)) split = AddSplitMenu(group, c, items);
+                object control = split;
+                if (control == null)
+                {
+                    var button = group.AddRibbonButton(Button(c));
+                    try { if (button != null) button.ToolTip = c.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + c.Id, ex); }
+                    control = button;
+                    // No split button: Lint Topic's checks become buttons of their own, so the choice stays on the ribbon.
+                    if (c == Commands.LintTopic && items != null)
+                        foreach (var m in items)
+                        {
+                            var b = group.AddRibbonButton(Button(m));
+                            try { if (b != null) b.ToolTip = m.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + m.Id, ex); }
+                        }
+                }
+                if (c == Commands.LintTopic) _lintTopicControl = control;
             }
+            try { ShowLintChoice(LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks)); }
+            catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
 
+        private object _lintTopicControl;
+
         /// <summary>
-        /// Help as a split button: the button opens the user guide; its menu has What's New and Start the Tour Again.
-        /// Called by reflection (IRibbonGroup.AddRibbonSplitMenuButton and IRibbonMenu.AddMenuItem are in Flare's API but
-        /// not in the compile-only stubs). False when Flare can't make it; then Help is a plain button.
+        /// A command as a split button: the button runs the command; its menu has the items. Called by reflection
+        /// (IRibbonGroup.AddRibbonSplitMenuButton and IRibbonMenu.AddMenuItem are in Flare's API but not in the compile-only
+        /// stubs). Returns the split button, or null when Flare can't make one; nothing has been added then, so the caller
+        /// adds a plain button. Covers Lint Topic's checks and Help's menu.
         /// </summary>
-        private bool AddHelpMenu(IRibbonGroup group)
+        private object AddSplitMenu(IRibbonGroup group, CommandInfo command, IList<CommandInfo> items)
         {
             try
             {
-                var c = Commands.Help;
                 var add = typeof(IRibbonGroup).GetMethod("AddRibbonSplitMenuButton", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string), typeof(RibbonIconSize), typeof(string), typeof(string), typeof(string) });
-                if (add == null) return false;
-                var menu = add.Invoke(group, new object[] { c.Label, new DelegateCommand(HandlerFor(c)), null, IconPath(c.Icon + ".png"), RibbonIconSize.Large, c.Label, c.Tooltip, c.KeyTip });
-                if (menu == null) return false;
                 System.Reflection.MethodInfo item = null;
-                foreach (var i in menu.GetType().GetInterfaces())
-                    if (i.Name == "IRibbonMenu") item = i.GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
-                if (item == null) item = menu.GetType().GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
-                if (item == null) { Diagnostics.Log("Help menu: no AddMenuItem"); return true; }
-                foreach (var m in Commands.HelpMenu)
-                    item.Invoke(menu, new object[] { m.Label, new DelegateCommand(HandlerFor(m)), null, IconPath(m.Icon + "-16.png") });
-                return true;
+                if (add != null)
+                    item = add.ReturnType.GetMethod("AddMenuItem", new[] { typeof(string), typeof(System.Windows.Input.ICommand), typeof(object), typeof(string) });
+                if (add == null || item == null) { Diagnostics.Log("split button " + command.Id + ": not available"); return null; }
+                var menu = add.Invoke(group, new object[] { command.Label, new DelegateCommand(HandlerFor(command)), null, IconPath(command.Icon + ".png"), RibbonIconSize.Large, command.Label, command.Tooltip, command.KeyTip });
+                if (menu == null) return null;
+                // The split button is on the ribbon now: a failed item is logged, never answered with null, or the caller
+                // would add a second, plain button beside it.
+                foreach (var m in items)
+                    try { item.Invoke(menu, new object[] { m.Label, new DelegateCommand(HandlerFor(m)), null, IconPath(m.Icon + "-16.png") }); }
+                    catch (Exception ex) { Diagnostics.Log("split button item " + m.Id, ex); }
+                return menu;
             }
-            catch (Exception ex) { Diagnostics.Log("Help menu", ex); return false; }
+            catch (Exception ex) { Diagnostics.Log("split button " + command.Id, ex); return null; }
         }
 
         /// <summary>
@@ -251,6 +271,8 @@ namespace FlareAI.Flare
         private Action RawHandlerFor(CommandInfo c)
         {
             if (c == Commands.LintTopic) return OnLintTopic;
+            if (c == Commands.LintRulesOnly) return () => OnChooseChecks(true);
+            if (c == Commands.LintRulesAndAi) return () => OnChooseChecks(false);
             if (c == Commands.Rewrite) return OnRewrite;
             if (c == Commands.Ask) return OnAsk;
             if (c == Commands.LintProject) return OnLintProject;
@@ -306,7 +328,49 @@ namespace FlareAI.Flare
 
         // ---- actions -----------------------------------------------------------------
 
-        private void OnLintTopic() { RunAction(Commands.LintTopic.Label, ActionKind.CheckStyle, null); }
+        /// <summary>Lint Topic with the remembered checks (the ribbon button, right-click, Reopen Issues with no pane).</summary>
+        private void OnLintTopic() { LintTopicWith(LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks)); }
+
+        /// <summary>Rules Only or Rules and AI Review from Lint Topic's menu: remembered, then linted that way. The choice
+        /// goes straight into the lint, so a failed save can't change which checks run.</summary>
+        private void OnChooseChecks(bool rulesOnly)
+        {
+            LintChecksChoice.TrySave(rulesOnly ? LintChecksChoice.Rules : LintChecksChoice.RulesAndAi, v =>
+            {
+                var s = PluginSettings.Load(); s.LintChecks = v; s.Save();
+            });
+            ShowLintChoice(rulesOnly);   // order 6 fills this in; add it now as an empty private method
+            LintTopicWith(rulesOnly);
+        }
+
+        private void LintTopicWith(bool rulesOnly) { RunAction(Commands.LintTopic.Label, ActionKind.CheckStyle, null, rulesOnly); }
+        /// <summary>Lint Topic's tooltip: the approved one, plus a sentence while Rules Only is the remembered choice.</summary>
+        private void ShowLintChoice(bool rulesOnly)
+        {
+            // Only a tooltip: nothing here may stop the lint the writer chose.
+            try
+            {
+                var text = rulesOnly ? Commands.LintTopic.Tooltip + " " + Commands.RulesOnlyNote : Commands.LintTopic.Tooltip;
+                var element = _lintTopicControl as System.Windows.FrameworkElement;
+                // The split button comes back as Flare's own wrapper (PluginRibbonMenu), not the WPF control. Its private
+                // mMenuButton field holds the control (a RibbonMenuButton): by name first, then by type if it's renamed.
+                if (element == null && _lintTopicControl != null)
+                {
+                    const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+                    var named = _lintTopicControl.GetType().GetField("mMenuButton", all);
+                    element = named?.GetValue(_lintTopicControl) as System.Windows.FrameworkElement;
+                    if (element == null)
+                        foreach (var field in _lintTopicControl.GetType().GetFields(all))
+                            if (typeof(System.Windows.Controls.Primitives.ButtonBase).IsAssignableFrom(field.FieldType) || field.FieldType.Name.EndsWith("MenuButton"))
+                            { element = field.GetValue(_lintTopicControl) as System.Windows.FrameworkElement; if (element != null) break; }
+                }
+                if (element == null) { Diagnostics.Log("lint choice tooltip: no control"); return; }
+                element.ToolTip = text;
+                Diagnostics.Log("lint choice tooltip set on " + element.GetType().Name + ": " + (rulesOnly ? "Rules Only" : "default"));
+            }
+            catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
+        }
+
         private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
 
         private void OnAsk()
@@ -733,7 +797,7 @@ namespace FlareAI.Flare
             }
         }
 
-        private void RunAction(string title, ActionKind kind, string instruction)
+        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false)
         {
             try
             {
@@ -748,7 +812,7 @@ namespace FlareAI.Flare
                 if (kind == ActionKind.CheckStyle)
                 {
                     // Docked (or floating) and modeless: the author works through the list while editing.
-                    ShowFindings(adapter, runner, true);
+                    ShowFindings(adapter, runner, true, rulesOnly);
                     return;
                 }
                 using (var f = new ResultForm(title, runner, adapter, kind, instruction))
@@ -836,9 +900,9 @@ namespace FlareAI.Flare
 
         private static readonly ReviewCache Reviews = new ReviewCache(300, Path.Combine(PluginSettings.SettingsDirectory, "reviews.json"));
 
-        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart)
+        private void ShowFindings(FlareDocumentAdapter adapter, ActionRunner runner, bool aiOnStart, bool rulesOnly)
         {
-            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings }, _nav.GetParentForm());
+            PanelHost.Show(new FindingsPanel(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, Reviews, aiOnStart) { FindOpen = FindOpenAdapter, OpenSettings = OnSettings, RulesOnly = rulesOnly }, _nav.GetParentForm());
         }
 
         /// <summary>
@@ -883,7 +947,7 @@ namespace FlareAI.Flare
                 // Style-guide topics list the very words they ban; following into one (e.g. via Guide ↗) would flood the panel.
                 if (path.IndexOf(@"\Resources\StyleGuide\", StringComparison.OrdinalIgnoreCase) >= 0) return;
                 var runner = NewRunner(adapter, true, true);
-                if (runner != null) ShowFindings(adapter, runner, false);
+                if (runner != null) ShowFindings(adapter, runner, false, LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks));
             }
             catch (Exception ex) { Diagnostics.Log("DocumentSwitched", ex); ErrorReporter.Background(OwnerForm, "House Style couldn't lint the topic you opened.", ex); }
         }

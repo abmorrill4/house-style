@@ -31,6 +31,18 @@ namespace FlareAI.Flare
             Id = "project", Label = "Lint Project", KeyTip = "P", Icon = "project", Group = GroupLint,
             Tooltip = "Lint every topic and snippet in this project."
         };
+        public static readonly CommandInfo LintRulesOnly = new CommandInfo
+        {
+            Id = "rulesonly", Label = "Rules Only", KeyTip = "N", Icon = "check", Group = GroupLint,
+            Tooltip = "Lint this topic against your style guide rules only. No AI is used."
+        };
+        public static readonly CommandInfo LintRulesAndAi = new CommandInfo
+        {
+            Id = "rulesai", Label = "Rules and AI Review", KeyTip = "V", Icon = "check", Group = GroupLint,
+            Tooltip = "Lint this topic against your style guide rules and the AI review."
+        };
+        /// <summary>Added to Lint Topic's tooltip, after a space, while Rules Only is the remembered choice.</summary>
+        public const string RulesOnlyNote = "Rules Only is on. Select the arrow to add the AI review.";
         public static readonly CommandInfo ShowIssues = new CommandInfo
         {
             Id = "issues", Label = "Reopen Issues", KeyTip = "E", Icon = "check", Group = GroupLint,
@@ -119,7 +131,7 @@ namespace FlareAI.Flare
         /// <summary>Every command, in ribbon order.</summary>
         public static readonly IList<CommandInfo> All = new List<CommandInfo>
         {
-            LintTopic, LintProject, ShowIssues, Rules,
+            LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules,
             Rewrite, Ask, TopicMetadata,
             RuleDecisions, ImportRules, TestRules,
             Settings, Help,
@@ -131,6 +143,15 @@ namespace FlareAI.Flare
 
         /// <summary>The items of the Help menu (Help itself opens the user guide). Report a Problem is also in Settings.</summary>
         public static readonly IList<CommandInfo> HelpMenu = new List<CommandInfo> { WhatsNew, Tour, ReportProblem };
+
+        /// <summary>The items of Lint Topic's menu: the checks Lint Topic runs.</summary>
+        public static readonly IList<CommandInfo> LintMenu = new List<CommandInfo> { LintRulesOnly, LintRulesAndAi };
+
+        /// <summary>The ribbon's split buttons and their menu items. The button runs its own command.</summary>
+        public static readonly IDictionary<CommandInfo, IList<CommandInfo>> SplitMenus = new Dictionary<CommandInfo, IList<CommandInfo>>
+        {
+            { LintTopic, LintMenu }, { Help, HelpMenu }
+        };
 
         /// <summary>
         /// The ribbon for a role, in order; groups appear in the order of their first command. A writer gets Lint Topic,
@@ -155,7 +176,7 @@ namespace FlareAI.Flare
         /// <summary>The Tool Strip menu for a role, in order; null is a separator.</summary>
         public static IList<CommandInfo> Menu(UserRole role, bool teamGuide = false)
         {
-            var list = new List<CommandInfo> { LintTopic, LintProject, ShowIssues, Rules };
+            var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
             list.AddRange(new CommandInfo[] { Rewrite, Ask, TopicMetadata, null });
             if (role == UserRole.Owner) { list.AddRange(OwnerOnly); list.Add(null); }

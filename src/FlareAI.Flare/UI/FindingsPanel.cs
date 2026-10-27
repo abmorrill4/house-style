@@ -85,6 +85,22 @@ namespace FlareAI.Flare.UI
 
         /// <summary>Opens House Style Settings (the AI-off note's link).</summary>
         public Action OpenSettings { get; set; }
+
+        private bool _rulesOnly;
+
+        /// <summary>Lint Topic's Rules Only: no AI review, no cached AI issues, and no AI from the pane's buttons.
+        /// Separate from No AI in Settings (_aiOff). Set when the pane is made; Lint Again keeps it.</summary>
+        public bool RulesOnly
+        {
+            get { return _rulesOnly; }
+            set
+            {
+                _rulesOnly = value;
+                _ignoreTip.SetToolTip(_reanalyze, value ? LintChecksChoice.LintParagraphTip : "Lint this paragraph again.");
+                _ignoreTip.SetToolTip(_refine, value ? LintChecksChoice.RewriteTip : "Ask the AI for a different suggestion.");
+            }
+        }
+
         private volatile string _requestNote;
         private List<StyleFinding> _lint;
 
@@ -992,7 +1008,7 @@ namespace FlareAI.Flare.UI
                 rows.Add(new { text = i.Text, source = i.SubItems.Count > 1 ? i.SubItems[1].Text : "", file = f == null ? null : f.DocumentPath, rule = f == null ? null : f.Rule, excerpt = f == null ? null : f.Excerpt, layer = f == null ? null : f.Layer });
             }
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rows, card = E2ECard() };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard() };
         }
 
         /// <summary>
@@ -1126,6 +1142,7 @@ namespace FlareAI.Flare.UI
             if (_files != null) { StartProject(); return; }
             var cachedAny = false;
             var fresh = _fresh && !_aiOff; _fresh = false;
+            var rulesOnly = _rulesOnly;
             _worker.DoWork += (s, e) =>
             {
                 _requestNote = _session.CheckRequests();   // outcomes of the writer's requests to the owners
@@ -1140,7 +1157,7 @@ namespace FlareAI.Flare.UI
                 _session.PrimeSnippetUses(lint);
                 // The AI review is split into small units (one block each, by default) reviewed several at a time, so the
                 // first cards arrive in seconds and each model call has one focused job. Prompts read the DOM: build them here.
-                var units = _runner.PrepareReview(blocks, lint);
+                var units = rulesOnly ? new List<ReviewUnit>() : _runner.PrepareReview(blocks, lint);
                 _lint = lint;
                 _worker.ReportProgress(0, new object[] { lint, null, 0, units.Count });  // from here the author may edit while we wait
                 var done = 0;
@@ -1199,13 +1216,15 @@ namespace FlareAI.Flare.UI
                         ? "AI review is off. Turn it on in Settings."   // the writer chose No AI: not a failure
                         : "AI review failed. " + e.Error.Message);
                 }
+                else if (_rulesOnly)
+                    _status.Text = Open().Count == 0 ? Summary() : Summary() + "  " + LintChecksChoice.StatusEnding;
                 else if (_aiOff)
                     _status.Text = Open().Count == 0 ? Summary() : Summary() + "  These issues come from the rules only. No AI was used.";
                 else if (!_aiOnStart && !cachedAny)
                     _status.Text = Summary() + "  These issues come from the rules only. Lint Again" + (_unitCount > 0 ? " reviews " + Plural.Of(_unitCount, "paragraph") + " with AI." : " adds the AI wording review.");
                 else _status.Text = Summary();
                 if (_lintNote != null) _status.Text += "  " + _lintNote;
-                _aiOffNote.Visible = _aiOff && _aiHidden;
+                _aiOffNote.Visible = _aiOff && _aiHidden && !_rulesOnly;
                 var guide = _runner.GuideNotice;
                 if (guide != null) _status.Text += "  " + guide;
                 ShowRequestNote();
@@ -1737,7 +1756,13 @@ namespace FlareAI.Flare.UI
         private void Accept()
         {
             var f = Current();
-            switch (_session.Accept())
+            var outcome = _session.Accept();
+            if ((outcome == AcceptOutcome.Rewrite || outcome == AcceptOutcome.AltText) && _rulesOnly)
+            {
+                _status.Text = LintChecksChoice.ChangeNeedsAi;   // nothing goes to the model
+                return;
+            }
+            switch (outcome)
             {
                 case AcceptOutcome.Rewrite: RewriteParagraph(f); break;
                 case AcceptOutcome.AltText: SuggestAltText(f); break;
@@ -1795,6 +1820,7 @@ namespace FlareAI.Flare.UI
 
         private void Refine()
         {
+            if (_rulesOnly) return;
             var f = Current();
             if (f == null || f.IsFixed || f.IsStale) return;
             var instruction = TextPrompt.Ask(this, "Rewrite", "What should the AI change in this suggestion? For example, keep the term SSO, or make it shorter.", "", true);
@@ -1828,6 +1854,7 @@ namespace FlareAI.Flare.UI
         /// <summary>Lints the selected issue's paragraph again (rules and AI) and replaces its issues.</summary>
         private void Reanalyze()
         {
+            if (_rulesOnly) return;
             var f = Current();
             var block = _session.ReanalyzeTarget(f);
             if (block == null) return;
@@ -1967,8 +1994,8 @@ namespace FlareAI.Flare.UI
             _changeAll.Text = sameRule > 1 ? "Change All (" + sameRule + ")" : "Change All";
             _reject.Enabled = f != null && !f.IsFixed;
             _edit.Enabled = open && f.Kind != "variable" && f.Kind != "manual";
-            _refine.Enabled = open && !_reviewing;
-            _reanalyze.Enabled = f != null && f.DocumentPath == null && !_reviewing && _files == null;
+            _refine.Enabled = open && !_reviewing && !_rulesOnly;
+            _reanalyze.Enabled = f != null && f.DocumentPath == null && !_reviewing && _files == null && !_rulesOnly;
             _rule.Enabled = f != null && !string.IsNullOrEmpty(f.Link);
             var busy = _batch != null;
             if (_files != null)

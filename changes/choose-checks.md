@@ -1,0 +1,1 @@
+- The Lint Topic menu has Rules Only and Rules and AI Review. Lint Topic remembers which you chose.

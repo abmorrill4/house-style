@@ -61,6 +61,12 @@ IRibbonComboBox combo = group.AddRibbonCombobox(new RibbonMenuData { ... });
 - Ribbon tab is only visible in Ribbon UI mode (not Tool Strip mode).
 - Also available: `ICustomToolBar`, `IToolStripMenuItem` for toolbar/menu items.
 
+### Split buttons (#253)
+- `IRibbonGroup.AddRibbonSplitMenuButton` and `IRibbonMenu.AddMenuItem` are called by reflection (not in the `ref/` stubs). Menu items take no key tip or tooltip.
+- Lint Topic and Help use them (`Commands.SplitMenus`). If Flare has no split button, Lint Topic stays a plain button and its two items become plain buttons.
+- `AddRibbonSplitMenuButton` returns Flare's wrapper `B3.PluginEngineKit.PluginRibbonMenu`, not a WPF control. It has no public members, and one private field, `mMenuButton`, a `Microsoft.Windows.Controls.Ribbon.RibbonMenuButton`. Lint Topic's tooltip is set through `FrameworkElement.ToolTip` on that field's value, found by type.
+- In UI Automation the menu items are `MenuItem` controls with no Invoke pattern, so the e2e harness clicks them (`Invoke-RibbonMenu`). The split button's menu opens through the expand pattern or its drop-down child button.
+
 ## Flare topic XML shape (what the validator assumes)
 ```xml
 <?xml version="1.0" encoding="utf-8"?>

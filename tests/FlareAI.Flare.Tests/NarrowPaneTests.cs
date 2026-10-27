@@ -809,6 +809,188 @@ namespace FlareAI.Flare.Tests
             Assert.True(split.Panel2.Top >= list.Parent.Bottom, where + "the card starts above the list's bottom");
         }
 
+        // ---- Choose checks (#253) ----------------------------------------------------------------------------------
+
+        /// <summary>A pane over TwoParagraphs with LongRuleGuide (one rule issue in paragraph 1) and the client given, done
+        /// linting, on an off-screen form.</summary>
+        private static void WithChecks(bool rulesOnly, bool aiOnStart, ReviewCache cache, ScriptedLlmClient client,
+                                       Action<FindingsPanel, Form, ListView> body)
+        {
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(TwoParagraphs);
+                var runner = new ActionRunner(client, new PromptBuilder(null), 1024, new LongRuleGuide());
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, cache, aiOnStart) { RulesOnly = rulesOnly };
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count > 0 && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
+                         15000, () => string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
+                    body(panel, form, list);
+                }
+            });
+        }
+
+        /// <summary>The status line as the pane shows it, read through the e2e state.</summary>
+        private static string Status(FindingsPanel p)
+        {
+            var state = p.E2EState();
+            return (string)state.GetType().GetProperty("status").GetValue(state);
+        }
+
+        /// <summary>Every cell of every row, as one string per row.</summary>
+        private static IList<string> RowTexts(ListView list)
+        {
+            return list.Items.Cast<ListViewItem>()
+                .Select(i => string.Join(" ", i.SubItems.Cast<ListViewItem.ListViewSubItem>().Select(s => s.Text)))
+                .ToList();
+        }
+
+        private static ScriptedLlmClient RewordClient()
+        {
+            return new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(Rewords(r))(r));
+        }
+
+        [Fact]
+        public void RulesAndAi_RunsTheReview_AsToday()
+        {
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                Assert.True(client.Calls >= 1, "the AI review should call the model");
+                Assert.True(RowTexts(list).Any(t => t.Contains("In order to")), "the AI reword should be a row");
+                Assert.DoesNotContain(LintChecksChoice.StatusEnding, Status(panel));
+            });
+        }
+
+        [Fact]
+        public void RulesOnly_MakesNoAiCall_AndShowsNoCachedAiIssue()
+        {
+            var cache = new ReviewCache(300, null);
+            var client1 = RewordClient();
+            WithChecks(false, true, cache, client1, (panel, form, list) => Assert.True(client1.Calls >= 1));
+
+            // The cache now holds both paragraphs' AI rewords. Rules Only must not show them, or call the model.
+            var client2 = RewordClient();
+            WithChecks(true, false, cache, client2, (panel, form, list) =>
+            {
+                Assert.Equal(0, client2.Calls);
+                Assert.False(RowTexts(list).Any(t => t.Contains("In order to")), "a cached AI reword is shown under Rules Only");
+                Assert.True(list.Items.Count >= 1, "the rule issue should still be listed");
+                Assert.EndsWith(LintChecksChoice.StatusEnding, Status(panel));
+                Assert.False(All(panel).OfType<LinkLabel>().Any(l => l.Text.StartsWith(ReviewCache.AiOffNote) && l.Visible));
+            });
+        }
+
+        [Fact]
+        public void RulesOnly_LintAgain_StaysRulesOnly()
+        {
+            var client = RewordClient();
+            WithChecks(true, true, null, client, (panel, form, list) =>
+            {
+                // The click runs on the pane's own thread, as Flare's does, so the worker reports back in order.
+                var again = All(panel).OfType<Button>().Single(b => b.Text == "Lint Again");
+                panel.BeginInvoke((Action)again.PerformClick);
+                Pump(null, 300);   // the click runs, the check starts and its worker runs
+                Pump(() => All(panel).OfType<ProgressBar>().All(p => !p.Visible), 15000);
+                Pump(null, 300);   // let the list finish laying out before the form is disposed
+                Assert.Equal(0, client.Calls);
+                Assert.False(RowTexts(list).Any(t => t.Contains("In order to")));
+                Assert.True(Status(panel).EndsWith(LintChecksChoice.StatusEnding), "status: " + Status(panel));
+            });
+        }
+
+        [Fact]
+        public void RulesOnly_WithNoOpenIssues_ShowsOnlyTheSummary()
+        {
+            const string clean = "<html><body><h1>Fees</h1><p>The fee is waived.</p></body></html>";
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(clean);
+                var client = new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r));
+                var runner = new ActionRunner(client, new PromptBuilder(null), 1024, new LongRuleGuide());
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true) { RulesOnly = true };
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    // The status starts as "Linting…", so waiting for it to change also waits for the check to start and finish.
+                    Pump(() => All(panel).OfType<ProgressBar>().All(p => !p.Visible) && !Status(panel).Contains("Linting"), 15000);
+                    Assert.False(Status(panel).Contains(LintChecksChoice.StatusEnding));
+                }
+            });
+        }
+
+        private static Button ButtonNamed(FindingsPanel panel, string text)
+        {
+            return All(panel).OfType<Button>().Single(b => b.Text == text);
+        }
+
+        [Fact]
+        public void RulesOnly_LintParagraphAndRewrite_AreDisabled_AndMakeNoCall()
+        {
+            var client = RewordClient();
+            WithChecks(true, true, null, client, (panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.False(ButtonNamed(panel, "Lint Paragraph").Enabled);
+                Assert.False(ButtonNamed(panel, "Rewrite…").Enabled);
+                Assert.Equal(0, client.Calls);
+            });
+        }
+
+        [Fact]
+        public void RulesAndAi_LintParagraph_IsEnabled()
+        {
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.True(ButtonNamed(panel, "Lint Paragraph").Enabled);
+            });
+        }
+
+        [Fact]
+        public void RulesOnly_ChangeOnAltText_ShowsTheMessage_AndMakesNoCall()
+        {
+            const string logo = "<html><body><h1>Logo</h1><p>Our logo is below.</p><p><img src=\"logo.png\" /></p></body></html>";
+            var client = new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r));
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(logo);
+                var runner = new ActionRunner(client, new PromptBuilder(null), 1024);
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true) { RulesOnly = true };
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(500, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count > 0 && All(panel).OfType<ProgressBar>().All(p => !p.Visible), 15000);
+                    var row = list.Items.Cast<ListViewItem>()
+                        .Single(i => i.Tag is StyleFinding f && f.Rule == "Structure.AltText");
+                    row.Selected = true;
+                    Pump(null, 200);
+                    ButtonNamed(panel, "Add Alt Text…").PerformClick();
+                    Pump(null, 200);
+                    Assert.Equal(LintChecksChoice.ChangeNeedsAi, Status(panel));
+                    Assert.Equal(0, client.Calls);
+                }
+            });
+        }
+
         private static IEnumerable<Control> All(Control c)
         {
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
