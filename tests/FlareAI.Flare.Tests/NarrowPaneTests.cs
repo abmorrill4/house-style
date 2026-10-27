@@ -278,6 +278,212 @@ namespace FlareAI.Flare.Tests
             public string VariableValue(string qualifiedName) { return _inner.VariableValue(qualifiedName); }
         }
 
+        // ---- #247: the whole rule in the card ---------------------------------------------------------------
+
+        private const string LongRuleId = "company:test/long-rule";
+
+        /// <summary>
+        /// A guide with one long rule: 8+ lines of text at 150 px, an italic rule line, a ✗/✓ example and one long unbroken
+        /// path. The linter flags "Please note that" with it.
+        /// </summary>
+        private sealed class LongRuleGuide : FlareAI.Core.Style.IStyleService
+        {
+            public static readonly FlareAI.Core.Style.GuideRule Rule = new FlareAI.Core.Style.GuideRule
+            {
+                Id = LongRuleId, Layer = "company", Section = "Word list",
+                Text = "Don't start a sentence with throat-clearing phrases such as please note, note that, it is important to note, " +
+                       "keep in mind or be aware that. Say the fact directly so the reader gets it first, and put a real warning in a " +
+                       "Note or Caution block instead, which the reader can scan for. This also applies to snippets in " +
+                       "Content/Resources/Snippets/Shared/VeryLongSnippetFolderName/AnotherLongFolder/Disclaimers.flsnp and to " +
+                       "every topic that uses them, so check those too before you change the wording.",
+            };
+
+            public IList<FlareAI.Core.Style.LintHit> Lint(IList<string> texts, IList<int> headings, string project)
+            {
+                var hits = new List<FlareAI.Core.Style.LintHit>();
+                for (var i = 0; i < texts.Count; i++)
+                {
+                    var at = texts[i].IndexOf("Please note that", StringComparison.Ordinal);
+                    if (at >= 0)
+                        hits.Add(new FlareAI.Core.Style.LintHit { Index = i, Start = at, Length = 16, Match = "Please note that", Rule = "throat-clearing", RuleId = LongRuleId,
+                                                                  Severity = "warning", Layer = "company", Message = "Say the fact directly, without a lead-in phrase." });
+                }
+                return hits;
+            }
+            public IList<FlareAI.Core.Style.LintHit> Lint(IList<FlareAI.Core.Style.LintLine> lines, string project) { return Lint(lines.Select(l => l.Text).ToList(), new List<int>(), project); }
+            public string Guide(string project) { return ""; }
+            public string[] GuideFor(string project, FlareAI.Core.Style.GuideScope scope) { return new[] { "", "" }; }
+            public IList<string> RuleIdsFor(string project, FlareAI.Core.Style.GuideScope scope) { return new List<string> { LongRuleId }; }
+            public IList<FlareAI.Core.Style.GuideRule> Rules(string project) { return new List<FlareAI.Core.Style.GuideRule> { Rule }; }
+            public bool IsOff(string project, string ruleId) { return false; }
+            public FlareAI.Core.Style.GuideReport Validate(string project) { return new FlareAI.Core.Style.GuideReport(); }
+            public IList<FlareAI.Core.Style.GuideExample> Examples(string project)
+            {
+                return new List<FlareAI.Core.Style.GuideExample> { new FlareAI.Core.Style.GuideExample { Id = LongRuleId, Layer = "company",
+                    Bad = "Please note that the fee is waived for members who move money between their own accounts.",
+                    Good = "The fee is waived for members who move money between their own accounts." } };
+            }
+        }
+
+        /// <summary>Opens a pane w×h on the long-rule topic, lints it (no AI) and selects the issue; then runs <paramref name="body"/>.</summary>
+        private static void WithLongRuleCard(int width, int height, Action<Form, FindingsPanel, Panel, CardTextBox, RichTextBox, FlowLayoutPanel> body)
+        {
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(Topic);
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r)), new PromptBuilder(null), 1024, new LongRuleGuide());
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, false);
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(width, height), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count > 0 && All(panel).OfType<ProgressBar>().All(p => !p.Visible),
+                         15000, () => string.Join(" | ", All(panel).OfType<Label>().Select(l => l.Text).Where(t => !string.IsNullOrEmpty(t))));
+                    list.Focus();
+                    list.Items[0].Selected = true;
+                    list.Items[0].Focused = true;
+                    Pump(null, 300);
+                    var why = All(panel).OfType<CardTextBox>().Single();
+                    var card = (Panel)why.Parent;
+                    var diff = card.Controls.OfType<RichTextBox>().Single(b => !(b is CardTextBox));
+                    var decision = card.Controls.OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Decision for the selected issue");
+                    Assert.Contains(LongRuleGuide.Rule.Display, why.Text);
+                    body(form, panel, card, why, diff, decision);
+                }
+            });
+        }
+
+        /// <summary>The why box shows all its text: no scroll bar of its own, and its last line inside the box.</summary>
+        private static void AssertWhole(string where, Panel card, CardTextBox why, RichTextBox diff, FlowLayoutPanel decision)
+        {
+            var content = why.ContentHeight();   // raises ContentsResized: the box's own answer
+            var lastBottom = why.GetPositionFromCharIndex(why.TextLength - 1).Y + why.Font.Height;
+            where += "(card " + card.ClientSize + ", why " + why.Bounds + ", contents " + why.RequestedHeight + ", last line bottom " + lastBottom + ") ";
+            Assert.True(why.RequestedHeight > 0, where + "ContentsResized didn't report a height");
+            Assert.True(why.RequestedHeight <= why.ClientSize.Height, where + "the why text is taller than its box");
+            Assert.True(lastBottom <= why.ClientSize.Height, where + "the last line is cut off");
+            Assert.True(content <= why.ClientSize.Height, where + "the measured height is more than the box");
+            Assert.Equal(RichTextBoxScrollBars.None, why.ScrollBars);
+            Assert.False(why.DetectUrls);
+            Assert.True(diff.Bottom <= decision.Top && decision.Top - diff.Bottom <= 8, where + "the buttons aren't right under what changes");
+            Assert.True(decision.Bottom <= why.Top, where + "the buttons overlap why");
+            Assert.True(why.Bottom <= card.ClientSize.Height || card.VerticalScroll.Visible, where + "the card neither fits nor scrolls");
+        }
+
+        [Theory]
+        [InlineData(150, 500)]
+        [InlineData(180, 640)]
+        [InlineData(260, 1000)]
+        public void LongRule_TheWhyTextIsNeverClipped_AndTheCardScrollsInstead(int width, int height)
+        {
+            WithLongRuleCard(width, height, (form, panel, card, why, diff, decision) =>
+            {
+                AssertWhole(width + "x" + height + ": ", card, why, diff, decision);
+                if (width == 150 && height == 500) Assert.True(card.VerticalScroll.Visible, "a long rule in a 150x500 pane scrolls the card");
+            });
+        }
+
+        [Fact]
+        public void LongRule_IsMeasuredAtTheWidthItIsDrawnAt_AsThePaneCrossesTheScrollBarThreshold()
+        {
+            // Wider and wider panes at one height (CI screens are small, so not taller): somewhere the card stops needing its
+            // scroll bar, and its text gets wider.
+            WithLongRuleCard(150, 700, (form, panel, card, why, diff, decision) =>
+            {
+                bool sawScroll = false, sawFit = false;
+                for (var w = 150; w <= 700; w += 10)
+                {
+                    form.ClientSize = new Size(w, 700); Pump(null, 120);
+                    AssertWhole(w + "x700: ", card, why, diff, decision);
+                    if (card.VerticalScroll.Visible) sawScroll = true; else sawFit = true;
+                }
+                Assert.True(sawScroll, "the card never scrolled");
+                Assert.True(sawFit, "the card never fit");
+            });
+        }
+
+        private const int WM_MOUSEWHEEL = 0x020A, WM_KEYDOWN = 0x0100, VK_NEXT = 0x22, EM_GETFIRSTVISIBLELINE = 0xCE;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [Fact]
+        public void WheelOverWhyText_ScrollsTheCard_AndTheBoxKeepsItsFirstVisibleCharacter()
+        {
+            WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
+            {
+                Assert.True(card.VerticalScroll.Visible);
+                var before = card.AutoScrollPosition.Y;
+                var at = why.PointToScreen(new Point(10, 10));
+                SendMessage(why.Handle, WM_MOUSEWHEEL, (IntPtr)((-120) << 16), (IntPtr)((at.Y << 16) | (at.X & 0xFFFF)));
+                Pump(null, 100);
+                Assert.True(card.AutoScrollPosition.Y < before, "the wheel didn't scroll the card (" + before + " → " + card.AutoScrollPosition.Y + ")");
+                Assert.Equal(0, why.GetCharIndexFromPosition(new Point(1, 1)));
+                Assert.Equal(IntPtr.Zero, SendMessage(why.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero));
+            });
+        }
+
+        [Fact]
+        public void PageDownInWhyText_KeepsTheCaretInView()
+        {
+            WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
+            {
+                form.Activate();
+                why.Focus();
+                Pump(null, 50);
+                Assert.True(why.Focused, "the why text didn't take focus");
+                why.Select(0, 0);
+                for (var i = 0; i < 6; i++) { SendMessage(why.Handle, WM_KEYDOWN, (IntPtr)VK_NEXT, (IntPtr)1); Pump(null, 30); }
+                Assert.True(why.SelectionStart > 0, "Page Down didn't move the caret");
+                var caretTop = why.Top + why.GetPositionFromCharIndex(why.SelectionStart).Y;
+                Assert.True(caretTop >= 0 && caretTop + why.Font.Height <= card.ClientSize.Height,
+                            "the caret's line is out of view (line top " + caretTop + ", card " + card.ClientSize.Height + ", scroll " + card.AutoScrollPosition.Y + ")");
+                Assert.Equal(IntPtr.Zero, SendMessage(why.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero));   // the card scrolled, not the box
+            });
+        }
+
+        [Fact]
+        public void TabbingIntoAWhyBoxBelowTheFold_BringsItsTopIntoView()
+        {
+            WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
+            {
+                form.Activate();
+                Assert.True(card.VerticalScroll.Visible);
+                diff.Focus();
+                card.AutoScrollPosition = new Point(0, 0);
+                Pump(null, 50);
+                Assert.True(why.Top >= card.ClientSize.Height, "the why box should start below the fold (top " + why.Top + ", card " + card.ClientSize.Height + ")");
+                why.Select();   // what Tab does when it reaches the box (Select, then the card scrolls it into view)
+                Pump(null, 50);
+                Assert.True(why.Focused, "Tab didn't reach the why text");
+                Assert.True(why.Top >= 0 && why.Top < card.ClientSize.Height,
+                            "the focused why text is off screen (top " + why.Top + ", card " + card.ClientSize.Height + ")");
+            });
+        }
+
+        [Fact]
+        public void ClickingIntoATallWhyBox_DoesNotMoveTheCard()
+        {
+            WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
+            {
+                form.Activate();
+                Assert.True(card.VerticalScroll.Visible);
+                // Scrolled so the why text starts halfway down the card: part of it is on screen.
+                card.AutoScrollPosition = new Point(0, Math.Max(10, why.Top - card.AutoScrollPosition.Y - card.ClientSize.Height / 2));
+                Pump(null, 50);
+                var before = card.AutoScrollPosition.Y;
+                Assert.True(before < 0);
+                why.Select();   // as a click or Tab gives it focus
+                Pump(null, 50);
+                Assert.True(why.Focused);
+                Assert.Equal(before, card.AutoScrollPosition.Y);
+            });
+        }
+
         /// <summary>The card's parts stack without overlapping, nothing is cut off, and what doesn't fit scrolls.</summary>
         private static void Check(string where, int height, ListView list, Panel card, Label head, RichTextBox diff, RichTextBox why, FlowLayoutPanel decision, SplitContainer split)
         {

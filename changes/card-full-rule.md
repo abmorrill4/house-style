@@ -1,0 +1,1 @@
+- The issue card now shows the whole rule and its examples. In a short pane, scroll the card to read it.

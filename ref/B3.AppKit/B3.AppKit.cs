@@ -39,6 +39,7 @@ namespace B3.AppKit
         void InstallPane(global::B3.AppKit.Pane @pane, global::B3.AppKit.Pane @parentPane, global::B3.AppKit.InstallPaneAction @action);
         global::System.Collections.Generic.IList<global::B3.AppKit.Pane> Panes { get; }
         void UninstallPane(global::B3.AppKit.Pane @pane);
+        void FloatPane(global::B3.AppKit.Pane @pane);
     }
     public partial interface IPaneView : global::B3.AppKit.IKeyRouter
     {
@@ -55,6 +56,10 @@ namespace B3.AppKit
         public void BringPaneToFront(global::B3.AppKit.Pane @pane, bool @focus) { throw null; }
         public void BringPaneToFront(bool @focus = true) { throw null; }
         public bool PerformClose() { throw null; }
+        public bool IsFloating { get { throw null; } }
+        public void PerformFloating() { throw null; }
+        public global::B3.AppKit.IPaneDock PaneDock { get { throw null; } set { } }
+        public global::System.Drawing.Size UndockedSize { get { throw null; } set { } }
         public string Title { get { throw null; } set { } }
         public global::B3.AppKit.IPaneView View { get { throw null; } set { } }
     }

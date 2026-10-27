@@ -100,6 +100,19 @@ namespace FlareAI.Flare.UI
             return true;
         }
 
+        /// <summary>
+        /// For the e2e hook: floats the docked pane as Flare's Float command does, at <paramref name="width"/> x
+        /// <paramref name="height"/> when given. True when the pane is a window afterwards (or never was docked).
+        /// </summary>
+        public static bool Float(int width, int height)
+        {
+            if (_pane == null || _pane.IsDisposed) return true;   // shown in House Style's own window, not docked
+            if (width > 0 && height > 0) _pane.UndockedSize = new Size(width, height);
+            if (!_pane.IsFloating && _pane.PaneDock != null) _pane.PaneDock.FloatPane(_pane);
+            if (!_pane.IsFloating) _pane.PerformFloating();   // the pane's own Float command
+            return _pane.IsFloating;
+        }
+
         private static void Hide(B3.AppKit.IPaneDock dock)
         {
             try
