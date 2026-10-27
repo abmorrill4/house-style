@@ -218,8 +218,11 @@ namespace FlareAI.Flare
                 if (add == null || item == null) { Diagnostics.Log("split button " + command.Id + ": not available"); return null; }
                 var menu = add.Invoke(group, new object[] { command.Label, new DelegateCommand(HandlerFor(command)), null, IconPath(command.Icon + ".png"), RibbonIconSize.Large, command.Label, command.Tooltip, command.KeyTip });
                 if (menu == null) return null;
+                // The split button is on the ribbon now: a failed item is logged, never answered with null, or the caller
+                // would add a second, plain button beside it.
                 foreach (var m in items)
-                    item.Invoke(menu, new object[] { m.Label, new DelegateCommand(HandlerFor(m)), null, IconPath(m.Icon + "-16.png") });
+                    try { item.Invoke(menu, new object[] { m.Label, new DelegateCommand(HandlerFor(m)), null, IconPath(m.Icon + "-16.png") }); }
+                    catch (Exception ex) { Diagnostics.Log("split button item " + m.Id, ex); }
                 return menu;
             }
             catch (Exception ex) { Diagnostics.Log("split button " + command.Id, ex); return null; }
@@ -344,15 +347,27 @@ namespace FlareAI.Flare
         /// <summary>Lint Topic's tooltip: the approved one, plus a sentence while Rules Only is the remembered choice.</summary>
         private void ShowLintChoice(bool rulesOnly)
         {
-            var text = rulesOnly ? Commands.LintTopic.Tooltip + " " + Commands.RulesOnlyNote : Commands.LintTopic.Tooltip;
-            var element = _lintTopicControl as System.Windows.FrameworkElement;
-            // The split button comes back as Flare's own wrapper (PluginRibbonMenu), not the WPF control. Its private
-            // mMenuButton field holds the control (a RibbonMenuButton), found by type so a renamed field still works.
-            if (element == null && _lintTopicControl != null)
-                foreach (var field in _lintTopicControl.GetType().GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public))
-                    if (typeof(System.Windows.FrameworkElement).IsAssignableFrom(field.FieldType)) { element = field.GetValue(_lintTopicControl) as System.Windows.FrameworkElement; if (element != null) break; }
-            if (element == null) { Diagnostics.Log("lint choice tooltip: no control"); return; }
-            try { element.ToolTip = text; Diagnostics.Log("lint choice tooltip set on " + element.GetType().Name + ": " + (rulesOnly ? "Rules Only" : "default")); }
+            // Only a tooltip: nothing here may stop the lint the writer chose.
+            try
+            {
+                var text = rulesOnly ? Commands.LintTopic.Tooltip + " " + Commands.RulesOnlyNote : Commands.LintTopic.Tooltip;
+                var element = _lintTopicControl as System.Windows.FrameworkElement;
+                // The split button comes back as Flare's own wrapper (PluginRibbonMenu), not the WPF control. Its private
+                // mMenuButton field holds the control (a RibbonMenuButton): by name first, then by type if it's renamed.
+                if (element == null && _lintTopicControl != null)
+                {
+                    const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+                    var named = _lintTopicControl.GetType().GetField("mMenuButton", all);
+                    element = named?.GetValue(_lintTopicControl) as System.Windows.FrameworkElement;
+                    if (element == null)
+                        foreach (var field in _lintTopicControl.GetType().GetFields(all))
+                            if (typeof(System.Windows.Controls.Primitives.ButtonBase).IsAssignableFrom(field.FieldType) || field.FieldType.Name.EndsWith("MenuButton"))
+                            { element = field.GetValue(_lintTopicControl) as System.Windows.FrameworkElement; if (element != null) break; }
+                }
+                if (element == null) { Diagnostics.Log("lint choice tooltip: no control"); return; }
+                element.ToolTip = text;
+                Diagnostics.Log("lint choice tooltip set on " + element.GetType().Name + ": " + (rulesOnly ? "Rules Only" : "default"));
+            }
             catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
 
