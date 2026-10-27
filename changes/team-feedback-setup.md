@@ -1,0 +1,1 @@
+- Setup asks for your team feedback folder when you choose your team's style guide, and Settings shows it on the Style guide tab with where your requests go.

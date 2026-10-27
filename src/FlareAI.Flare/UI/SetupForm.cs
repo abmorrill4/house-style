@@ -42,10 +42,10 @@ namespace FlareAI.Flare.UI
         // Step 2: style guide
         private readonly StackLayout _guideLayout;
         private readonly RadioButton[] _guideChoices;
-        private readonly StackLayout.Block _folderBlock, _googleNoteBlock;
-        private readonly TextBox _folder;
-        private readonly Button _browse;
-        private readonly Label _folderStatus;
+        private readonly StackLayout.Block _folderBlock, _googleNoteBlock, _feedbackBlock;
+        private readonly TextBox _folder, _feedback;
+        private readonly Button _browse, _browseFeedback;
+        private readonly Label _folderStatus, _feedbackStatus;
 
         // Step 3: done
         private readonly StackLayout _doneLayout;
@@ -121,6 +121,16 @@ namespace FlareAI.Flare.UI
             _folderStatus = g.Status(1);
             _folderStatus.TextChanged += (s, e) => { _guideLayout.FitHeight(_folderStatus); FitToStep(); };
             g.Note("Ask your style guide owner where the team's guide is. It's a Flare project folder, often on OneDrive, SharePoint, Google Drive or a network drive.");
+            // The team feedback folder, asked for only with the team's guide and only when none is set yet.
+            _feedbackBlock = g.Begin();
+            _feedback = g.Row("Team feedback folder", new TextBox(), g.FieldWidth - g.S(92));
+            _browseFeedback = g.Add(new Button { Text = "Browse…", Left = g.FieldLeft + g.FieldWidth - g.S(86), Top = _feedback.Top - 1, Width = g.S(86), Height = Math.Max(g.S(26), _feedback.Height + 2) });
+            _browseFeedback.Click += (s, e) => BrowseFeedback();
+            _feedback.Leave += (s, e) => CheckFeedback();
+            g.Y = Math.Max(g.Y, _browseFeedback.Bottom + g.S(4));
+            _feedbackStatus = g.Status(1);
+            _feedbackStatus.TextChanged += (s, e) => { _guideLayout.FitHeight(_feedbackStatus); FitToStep(); };
+            g.Note("Your requests to your style guide owners go here. They also see each issue you change or ignore, its rule and the text. Ask them which folder to use. You can leave it empty.");
 
             // ---- 4. Done -------------------------------------------------------------------------------------------
             var d = _doneLayout = new StackLayout(_steps[(int)SetupStep.Done], scale);
@@ -160,6 +170,9 @@ namespace FlareAI.Flare.UI
             A11y.Name(_folder, "Team style guide folder");
             A11y.Name(_browse, "Browse for the team style guide folder");
             A11y.Name(_folderStatus, "Style guide folder status");
+            A11y.Name(_feedback, "Team feedback folder", "Shared folder where review decisions are pooled. Empty keeps them personal.");
+            A11y.Name(_browseFeedback, "Browse for the team feedback folder");
+            A11y.Name(_feedbackStatus, "Team feedback folder status");
             A11y.Name(_summary, "What was set up");
             A11y.Name(guideLink, "Open the getting started guide", "Opens the page in your browser.");
             A11y.Name(_skipStep, "Skip this step", "Keeps your current choice for this step and goes on.");
@@ -173,6 +186,9 @@ namespace FlareAI.Flare.UI
             OnRoleChoice();
             if (_settings.HasStoredKey) _keyStatus.Text = "A key is stored. Leave the box blank to keep it.";
             A11y.Apply(this);
+            // Hidden blocks share a top, so reading order can't tell the guide rows apart: set it.
+            var guideOrder = new Control[] { _guideChoices[0].Parent, _folder, _browse, _feedback, _browseFeedback };
+            for (var i = 0; i < guideOrder.Length; i++) guideOrder[i].TabIndex = i;
             Go(SetupStep.Role);
             FormClosing += OnClosing;
             KeyPreview = true;   // Esc closes, which skips setup
@@ -249,6 +265,9 @@ namespace FlareAI.Flare.UI
                     else if (!_checkedOk) problem = _folderStatus.Text;
                 }
                 if (problem != null) { _folderStatus.Text = problem; _folder.Focus(); return; }
+                var feedbackProblem = _answers.FeedbackProblem();
+                if (feedbackProblem != null) { ShowFeedbackProblem(feedbackProblem); return; }
+                if (AsksForFeedback && _feedback.Text.Trim() != (_feedbackChecked ?? "")) CheckFeedback();   // optional: Next doesn't wait for it
                 Go(SetupStep.Done);
             }
             else Finish();
@@ -268,6 +287,7 @@ namespace FlareAI.Flare.UI
             _answers.Key = _key.Text.Trim();
             _answers.UseTeamGuide = _guideChoices[1].Checked;
             _answers.TeamGuideFolder = _folder.Text.Trim();
+            if (!_answers.HadFeedbackFolder) _answers.FeedbackFolder = _feedback.Text.Trim();   // a folder already set is kept
         }
 
         private void Finish()
@@ -279,7 +299,9 @@ namespace FlareAI.Flare.UI
                 if (!FirstRun.Finish(_settings, _answers, out error))
                 {
                     Go(_answers.AiProblem(_settings) != null ? SetupStep.Ai : SetupStep.Guide);
-                    if (_step == SetupStep.Ai) _aiError.Text = error; else _folderStatus.Text = error;
+                    if (_step == SetupStep.Ai) _aiError.Text = error;
+                    else if (error == _answers.FeedbackProblem()) ShowFeedbackProblem(error);
+                    else _folderStatus.Text = error;
                     return;
                 }
             }
@@ -391,6 +413,7 @@ namespace FlareAI.Flare.UI
             _folderBlock.Visible = _guideChoices[1].Checked;
             _googleNoteBlock.Visible = !_folderBlock.Visible;
             _ownerNoteBlock.Visible = _folderBlock.Visible && _roleChoices != null && _roleChoices[(int)UserRole.Owner].Checked;
+            _feedbackBlock.Visible = AsksForFeedback;
             _guideLayout.Reflow();
             FitToStep();
             if (_folderBlock.Visible && _folder.Text.Trim().Length == 0) _folderStatus.Text = "Choose the folder that holds your team's style guide.";
@@ -405,6 +428,55 @@ namespace FlareAI.Flare.UI
                 _folder.Text = dlg.SelectedPath;
             }
             CheckFolder();
+        }
+
+        /// <summary>The feedback row shows with the team's guide, and only when no feedback folder is set yet.</summary>
+        private bool AsksForFeedback { get { return _guideChoices[1].Checked && !_answers.HadFeedbackFolder; } }
+
+        private void BrowseFeedback()
+        {
+            using (var dlg = new FolderBrowserDialog { Description = "Choose the shared team feedback folder", SelectedPath = _feedback.Text.Trim() })
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                _feedback.Text = dlg.SelectedPath;
+            }
+            CheckFeedback();
+        }
+
+        private void ShowFeedbackProblem(string problem)
+        {
+            _feedbackSeq++;
+            _feedbackChecked = null;
+            _feedbackStatus.ForeColor = Color.FromArgb(160, 0, 0);
+            _feedbackStatus.Text = problem;
+            _feedback.Focus();
+        }
+
+        private int _feedbackSeq;
+        private string _feedbackChecked;
+
+        /// <summary>Checks in the background that files can be written in the feedback folder, as Settings does.</summary>
+        private void CheckFeedback()
+        {
+            var path = _feedback.Text.Trim();
+            var seq = ++_feedbackSeq;
+            _feedbackChecked = path;
+            _answers.FeedbackWritable = true;
+            if (path.Length == 0) { _feedbackStatus.Text = ""; return; }
+            _feedbackStatus.ForeColor = SystemColors.GrayText;
+            _feedbackStatus.Text = "Checking…";
+            var w = new BackgroundWorker();
+            w.DoWork += (s, e) => e.Result = FolderAccess.CanWrite(path);
+            w.RunWorkerCompleted += (s, e) =>
+            {
+                if (_closed || seq != _feedbackSeq) return;
+                var ok = e.Error == null && (bool)e.Result;
+                _answers.FeedbackWritable = ok;
+                _feedbackStatus.ForeColor = ok ? SystemColors.ControlText : Color.FromArgb(160, 0, 0);
+                _feedbackStatus.Text = ok ? "✓ Shared with your team" : "Can't write to this folder";
+                if (_step == SetupStep.Done) _summary.Text = PreviewSummary();
+            };
+            w.RunWorkerAsync();
         }
 
         private int _folderSeq;

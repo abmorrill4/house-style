@@ -10,7 +10,7 @@ using FlareAI.Core.Settings;
 namespace FlareAI.Flare.UI
 {
     /// <summary>
-    /// Settings in four tabs: AI, Style guide, Linting, Advanced. The key is DPAPI-protected on save and never shown back.
+    /// Settings in four tabs: AI, Style guide (with the team feedback folder), Linting, Advanced. The key is DPAPI-protected on save and never shown back.
     /// Which AI fields show for each choice comes from <see cref="AiChoices"/> (Core), shared with first-run setup.
     /// </summary>
     public sealed class SettingsForm : Form
@@ -129,17 +129,26 @@ namespace FlareAI.Flare.UI
                     return;
                 }
                 _layers.Items.Add(f);
-                CheckGuides();
+                CheckGuides(); CheckFeedback();
             };
-            _removeGuide.Click += (s, e) => { if (_layers.SelectedIndex >= 0) { _layers.Items.RemoveAt(_layers.SelectedIndex); CheckGuides(); } };
+            _removeGuide.Click += (s, e) => { if (_layers.SelectedIndex >= 0) { _layers.Items.RemoveAt(_layers.SelectedIndex); CheckGuides(); CheckFeedback(); } };
             g.Y = Math.Max(g.Y, _removeGuide.Bottom + g.S(6));
             _guideStatus = g.Status(1);   // grows with its text (FitHeight): no gap under a one-line status
             g.Note("Leave the list empty to use Google's developer documentation style guide plus your own changes. " +
                    "A team guide is a Flare project folder your style guide owner shares (on OneDrive, SharePoint, Google Drive or a network drive). If you add more than one, the later one wins.");
             _projectLayer = g.Check("Also use this project's variables, glossary and StyleGuide folder", _settings.UseProjectLayer);
             g.Note("House Style also lints with the open project's variables, glossary terms and any rules in its Resources\\StyleGuide folder.");
+            // The team feedback folder sits with the team's guide: where decisions and requests to its owners go.
+            _feedback = g.Row("Team feedback folder", new TextBox { Text = _settings.FeedbackFolder ?? "" }, g.FieldWidth - g.S(92));
+            _browseFeedback = g.Add(new Button { Text = "Browse…", Left = g.FieldLeft + g.FieldWidth - g.S(86), Top = _feedback.Top - 1, Width = g.S(86), Height = Math.Max(g.S(26), _feedback.Height + 2) });
+            _browseFeedback.Click += (s, e) => { var f = PickFolder("Choose the shared team feedback folder"); if (f != null) { _feedback.Text = f; CheckFeedback(); } };
+            _feedback.Leave += (s, e) => CheckFeedback();
+            g.Y = Math.Max(g.Y, _browseFeedback.Bottom + g.S(4));
+            _feedbackStatus = g.Status(2);   // room for the requests sentence; FitHeight sizes it to its text
+            g.Note("A shared folder where your team's decisions are collected. Leave it empty to keep them on this computer. Owners see each decision, its rule and the text, and names only if the style guide is set to show them.");
             g.Reflow();
             _guideStatus.TextChanged += (s, e) => _guide.FitHeight(_guideStatus);
+            _feedbackStatus.TextChanged += (s, e) => _guide.FitHeight(_feedbackStatus);
 
             // ---- Checking -----------------------------------------------------------------------------------------
             var c = new StackLayout(checkPage, scale);
@@ -165,13 +174,6 @@ namespace FlareAI.Flare.UI
             a.Begin();
             _models = new ModelInfo[0];
             _timeout = a.Row("Timeout (s)", new TextBox { Text = _settings.TimeoutSeconds.ToString() }, a.S(60));
-            _feedback = a.Row("Team feedback folder", new TextBox { Text = _settings.FeedbackFolder ?? "" }, a.FieldWidth - a.S(92));
-            _browseFeedback = a.Add(new Button { Text = "Browse…", Left = a.FieldLeft + a.FieldWidth - a.S(86), Top = _feedback.Top - 1, Width = a.S(86), Height = Math.Max(a.S(26), _feedback.Height + 2) });
-            _browseFeedback.Click += (s, e) => { var f = PickFolder("Choose the shared team feedback folder"); if (f != null) { _feedback.Text = f; CheckFeedback(); } };
-            _feedback.Leave += (s, e) => CheckFeedback();
-            a.Y = Math.Max(a.Y, _browseFeedback.Bottom + a.S(4));
-            _feedbackStatus = a.Status(1);
-            a.Note("A shared folder where your team's decisions are collected. Leave it empty to keep them on this computer. Owners see each decision, its rule and the text, and names only if the style guide is set to show them.");
             _diag = a.Check("Write a diagnostics log (for support)", _settings.WriteDiagnostics);
             _autoReports = a.Check("Send error reports automatically", _settings.SendErrorReportsAutomatically);
             a.Note("House Style sends a report only when you choose Send, or by itself when this box is checked. Reports never include your topic text unless you type it in.");
@@ -193,7 +195,8 @@ namespace FlareAI.Flare.UI
             a.Y += tools.PreferredSize.Height + a.S(8);
 
             // ---- size: the tallest page, every AI block shown ----------------------------------------------------
-            var pageH = new[] { ai.FullHeight(), g.Y, c.Y, a.Y }.Max() + ai.S(8);
+            // The Style guide page leaves a line of room for statuses that grow (FitHeight).
+            var pageH = new[] { ai.FullHeight(), g.Y + Font.Height + 1, c.Y, a.Y }.Max() + ai.S(8);
             var pageW = ai.Width;
             _tabs.Size = new Size(pageW + ai.S(20), pageH + ai.S(40));
             var h = _tabs.Handle;   // the real tab header size needs the window
@@ -495,10 +498,22 @@ namespace FlareAI.Flare.UI
             w.RunWorkerAsync();
         }
 
+        /// <summary>A team guide is in the list: an entry that isn't the plugin's own guide (the test <see cref="SetupAnswers.From"/> uses).</summary>
+        private bool HasTeamGuide
+        {
+            get { return _layers.Items.Cast<string>().Any(p => p.Trim().Length > 0 && !p.Contains("{PluginDir}")); }
+        }
+
+        /// <summary>Whether the feedback folder can be written, and with a team guide, where requests to its owners go.</summary>
         private void CheckFeedback()
         {
             var path = _feedback.Text.Trim();
-            if (path.Length == 0) { _feedbackSeq++; _feedbackStatus.Text = "Personal only"; return; }
+            if (path.Length == 0)
+            {
+                _feedbackSeq++;
+                _feedbackStatus.Text = HasTeamGuide ? "Personal only. Requests to your style guide owners stay on this computer until you choose a folder." : "Personal only";
+                return;
+            }
             var seq = ++_feedbackSeq;
             _feedbackStatus.Text = "Checking…";
             var w = new BackgroundWorker();
@@ -506,7 +521,10 @@ namespace FlareAI.Flare.UI
             w.RunWorkerCompleted += (s, e) =>
             {
                 if (_closed || seq != _feedbackSeq) return;
-                _feedbackStatus.Text = e.Error == null && (bool)e.Result ? "✓ Shared with your team" : "Can't write to this folder";
+                var ok = e.Error == null && (bool)e.Result;
+                var team = HasTeamGuide;
+                if (ok) _feedbackStatus.Text = team ? "✓ Shared with your team. Your requests to your style guide owners go here too." : "✓ Shared with your team";
+                else _feedbackStatus.Text = team ? "Can't write to this folder. Requests to your style guide owners wait on this computer until it can be reached." : "Can't write to this folder";
             };
             w.RunWorkerAsync();
         }
