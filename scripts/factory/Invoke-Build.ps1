@@ -84,7 +84,7 @@ function Invoke-BuildAgent($s, [string]$stage, [string]$agent, [string]$model, [
     if (-not $DryRun -and -not (Test-SwitchOn)) { Suspend-Run "FACTORY_BUILD is off" }
     $cur = Gh issue view $s.issue -R $repo --json "title,body" | ConvertFrom-Json
     if ((Get-BodyHash ($cur.title + "`n" + $cur.body)) -ne $s.bodyHash) { Stop-Issue "unverified-ready" }
-    $spent = [double](@(Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue } | ForEach-Object { [double]$_.cost_usd }) | Measure-Object -Sum).Sum
+    $spent = [double](@(Get-AttemptCalls $s | ForEach-Object { [double]$_.cost_usd }) | Measure-Object -Sum).Sum
     if ($spent -ge $s.budget) { Stop-Issue "budget" }
     $prompt = (Get-AgentBody (Get-Content (Join-Path $s.tools ".claude\agents\$agent.md") -Raw)) + "`n`n## Your task`n`n" + $card
     $scratch = Join-Path $factoryDir "scratch\$($s.issue)"; New-Item -ItemType Directory -Force $scratch | Out-Null
@@ -118,6 +118,14 @@ function Invoke-AgentTwice($s, $stage, $agent, $model, $card, $tools, $turnsKey)
     $r
 }
 
+# This attempt's calls only: a re-readied issue starts fresh, so an earlier attempt's spending doesn't count against it.
+function Get-AttemptCalls($s) {
+    # A state with no readable start counts every call. Ledger times are whole seconds, so the start is too.
+    $inv = [Globalization.CultureInfo]::InvariantCulture; $utc = [Globalization.DateTimeStyles]::AdjustToUniversal
+    $since = try { [datetime]::Parse($s.started, $inv, $utc) } catch { [datetime]::MinValue }
+    $since = $since.AddTicks(-($since.Ticks % [TimeSpan]::TicksPerSecond))
+    Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue -and $(try { [datetime]::Parse($_.at, $inv, $utc) -ge $since } catch { $true }) }
+}
 function Save-State($s) { $s | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $notesDir "$($s.issue)\state.json") -Encoding UTF8 }
 function Add-Note($s, [string]$text) { Add-Content (Join-Path $notesDir "$($s.issue)\notes.md") "$(Get-Date -Format o) $text" -Encoding UTF8 }
 
@@ -389,7 +397,7 @@ function Invoke-Issue([int]$n, $facts, $state) {
 # ---- the run --------------------------------------------------------------------------------------------------------
 function Write-IssueSummary($s, [string]$outcome) {
     if (-not $s) { return }
-    $calls = @(Read-Ledger | Where-Object { $_.kind -eq "call" -and $_.issue -eq $s.issue })
+    $calls = @(Get-AttemptCalls $s)
     $mins = [int](((Get-Date).ToUniversalTime() - [datetime]::Parse($s.started).ToUniversalTime()).TotalMinutes)
     Write-LedgerLine ([ordered]@{ kind = "issue"; at = (Get-Date).ToUniversalTime().ToString("o"); issue = $s.issue; size = $s.size; chunks = @($s.plan.chunks).Count
         tries = ($calls.Count); cost_usd = [Math]::Round([double](($calls | ForEach-Object { [double]$_.cost_usd }) | Measure-Object -Sum).Sum, 4); minutes = $mins; outcome = $outcome })
@@ -450,7 +458,7 @@ try {
             Add-Content (Join-Path $notesDir "$($pick.n)\notes.md") "$(Get-Date -Format o) stopped: $code. $m" -ErrorAction SilentlyContinue
             if (-not $DryRun) {
                 Pub issue edit $pick.n -R $repo --add-label "factory:stuck" --remove-label "factory:working" | Out-Null
-                Pub issue comment $pick.n -R $repo --body-file (New-BodyFile (Format-StuckComment "build" $(if ($s) { @(Read-Ledger | Where-Object { $_.kind -eq 'call' -and $_.issue -eq $pick.n }).Count } else { 0 }) $code)) | Out-Null
+                Pub issue comment $pick.n -R $repo --body-file (New-BodyFile (Format-StuckComment "build" $(if ($s) { @(Get-AttemptCalls $s).Count } else { 0 }) $code)) | Out-Null
             }
             if (-not $DryRun) { Write-IssueSummary $s $code }   # a dry run's stop isn't an outcome the budget should learn from
             Write-Host "#$($pick.n) went back to the owner: $code"

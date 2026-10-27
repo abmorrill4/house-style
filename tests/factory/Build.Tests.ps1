@@ -167,6 +167,14 @@ Describe 'Overnight run fixes (2026-10-27)' {
     }
 }
 
+Describe 'Budget per attempt' {
+    It 'counts only calls since this attempt started, for the budget and the summary' {
+        $buildScript | Should Match '(?s)function Get-AttemptCalls.{0,300}catch \{ \[datetime\]::MinValue \}.{0,300}Parse\(\$_\.at, \$inv, \$utc\) -ge \$since'
+        $buildScript | Should Match '\$spent = .{0,20}Get-AttemptCalls \$s'
+        $buildScript | Should Match '\$calls = @\(Get-AttemptCalls \$s\)'
+    }
+}
+
 Describe 'Agents' {
     It 'climbs the ladder: the chunk model, then sonnet, then the owner' {
         (Get-ChunkAttempt "haiku" 0).model | Should Be "haiku"
