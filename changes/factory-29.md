@@ -1,0 +1,2 @@
+- Exempt This Text stops one rule from flagging that text in that topic, for everyone on your project.
+- Exemptions lists each exemption with its reason, who added it and when, and Remove Exemption brings the issue back.
