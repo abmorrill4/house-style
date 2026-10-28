@@ -20,7 +20,7 @@ namespace FlareAI.Flare.UI
     /// section by section. While getting started, a hint strip at the top carries the guided first lint and the empty
     /// list shows the getting-started checklist.
     /// </summary>
-    public sealed class FindingsPanel : UserControl, IReviewHost
+    public sealed class FindingsPanel : UserControl, IReviewHost, IRequiredTextHost
     {
         private readonly ActionRunner _runner;
         private readonly IDocumentAdapter _doc;
@@ -318,16 +318,27 @@ namespace FlareAI.Flare.UI
             _rule = Btn(actions, "Open Guide", (s, e) => { var f = Current(); if (f != null && !string.IsNullOrEmpty(f.Link)) OpenLink(f.Link); });
             // Ignore asks why (recorded for Rule Decisions): the stored reasons stay "wrong", "fine here", "rule doesn't apply".
             _rejectMenu = new ContextMenuStrip();
-            _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
-            _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
-            _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            var reasons = new[]
+            {
+                _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong"))),
+                _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here"))),
+                _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")))
+            };
+            foreach (var reason in reasons) reason.ToolTipText = IgnoreTip;
+            var exempt = _rejectMenu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt", _session.ExemptSelected));
+            exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
             _rejectMenu.Items.Add(new ToolStripSeparator());
             _rejectMenu.Items.Add("Skip for Now", null, (s, e) => Safe.Run("Skip", _session.Skip));
             _rejectMenu.Items.Add(new ToolStripSeparator());
             var markFixed = _rejectMenu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
             markFixed.AccessibleName = "Mark as Fixed";
             _rejectMenu.Items.Add(new ToolStripSeparator());
-            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; };
+            _rejectMenu.Opening += (s, e) =>
+            {
+                var f = Current();
+                markFixed.Enabled = f != null && !f.IsFixed;
+                exempt.Visible = _session.CanExempt(f);
+            };
             _rejectMenu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
             card.Controls.Add(actions);   // in tab order: the decision first, then the text
             card.Controls.Add(_ruleActions);
@@ -1021,6 +1032,8 @@ namespace FlareAI.Flare.UI
             var exFolder = menu.Items.Add("Exclude Folder from Lint Project", null, (s, e) => Safe.Run("Exclude folder", () => Exclude(true)));
             menu.Items.Add(new ToolStripSeparator());
             var report = menu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
+            var exempt = menu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt", _session.ExemptSelected));
+            exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
             menu.Opening += (s, e) =>
             {
                 var p = _list.PointToClient(Cursor.Position);
@@ -1033,6 +1046,7 @@ namespace FlareAI.Flare.UI
                 markFixed.Enabled = !f.IsFixed;
                 open.Enabled = _session.FilePathOf(f) != null;
                 report.Enabled = !string.IsNullOrEmpty(f.Excerpt);
+                exempt.Visible = _session.CanExempt(f);
                 var folder = _files != null && f.DocumentPath != null ? LintExclusions.EntryFor(f.DocumentPath, true) : null;
                 exSep.Visible = exFile.Visible = _files != null && f.DocumentPath != null;
                 exFolder.Visible = folder != null;
@@ -1176,6 +1190,9 @@ namespace FlareAI.Flare.UI
         }
 
         public const string ReportFalsePositiveLabel = "Report False Positive…";
+        private const string ExemptLabel = "Exempt This Text…";
+        private const string ExemptTip = "Hides this issue for everyone on this project.";
+        private const string IgnoreTip = "Hides this issue for you only.";
 
         /// <summary>
         /// Report False Positive (issue #124): the rule, the flagged words and the writer's reason go to the House Style
@@ -2139,6 +2156,8 @@ namespace FlareAI.Flare.UI
 
         string IReviewHost.AskText(string title, string label, string initial, bool multiline) { return TextPrompt.Ask(this, title, label, initial, multiline); }
 
+        string IRequiredTextHost.AskRequiredText(string title, string label, string initial, bool multiline) { return TextPrompt.Ask(this, title, label, initial, multiline, required: true); }
+
         IDocumentAdapter IReviewHost.OpenDocument(string path) { return _open == null ? null : _open(path); }
 
         bool IReviewHost.PreviewBatch(BatchPlan plan)
@@ -2164,23 +2183,33 @@ namespace FlareAI.Flare.UI
         protected override void OnEnter(EventArgs e) { }
     }
 
-    /// <summary>A one-field text prompt (Edit / Refine).</summary>
+    /// <summary>A one-field text prompt (Edit / Refine, Exempt). Required: OK stays off until the box has text.</summary>
     internal static class TextPrompt
     {
-        public static string Ask(IWin32Window owner, string title, string label, string initial, bool multiline)
+        public static string Ask(IWin32Window owner, string title, string label, string initial, bool multiline, bool required = false)
         {
-            using (var form = new Form { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font })
+            using (var form = Build(title, label, initial, multiline, required))
+                return form.ShowDialog(owner) == DialogResult.OK ? form.Controls.OfType<TextBox>().Single().Text : null;
+        }
+
+        /// <summary>The prompt, not shown. The one text box is the only TextBox on it.</summary>
+        internal static Form Build(string title, string label, string initial, bool multiline, bool required)
+        {
+            var form = new Form { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font };
+            var text = new Label { Text = label, Left = 12, Top = 12, Width = 496, Height = 34 };
+            var box = new TextBox { Left = 12, Top = 50, Width = 496, Height = multiline ? 84 : 24, Multiline = multiline, AcceptsReturn = false, Text = initial ?? "", ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None };
+            var ok = new Button { Text = "OK", Left = 352, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", Left = 433, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.Cancel };
+            if (required)
             {
-                var text = new Label { Text = label, Left = 12, Top = 12, Width = 496, Height = 34 };
-                var box = new TextBox { Left = 12, Top = 50, Width = 496, Height = multiline ? 84 : 24, Multiline = multiline, AcceptsReturn = false, Text = initial ?? "", ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None };
-                var ok = new Button { Text = "OK", Left = 352, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.OK };
-                var cancel = new Button { Text = "Cancel", Left = 433, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.Cancel };
-                form.Controls.AddRange(new Control[] { text, box, ok, cancel });
-                A11y.Name(box, label);
-                A11y.Apply(form);
-                form.AcceptButton = ok; form.CancelButton = cancel;
-                return form.ShowDialog(owner) == DialogResult.OK ? box.Text : null;
+                ok.Enabled = !string.IsNullOrWhiteSpace(box.Text);
+                box.TextChanged += (s, e) => ok.Enabled = !string.IsNullOrWhiteSpace(box.Text);
             }
+            form.Controls.AddRange(new Control[] { text, box, ok, cancel });
+            A11y.Name(box, label);
+            A11y.Apply(form);
+            form.AcceptButton = ok; form.CancelButton = cancel;
+            return form;
         }
     }
 }

@@ -106,4 +106,41 @@ namespace FlareAI.Flare.Tests
             if (error != null) throw new Exception(error.Message, error);
         }
     }
+
+    /// <summary>The Exempt prompt: OK waits for a reason, so a blank exemption can't be saved.</summary>
+    [Collection("Panes")]
+    public class TextPromptTests
+    {
+        [Fact]
+        public void OkIsOffUntilThereIsAReason()
+        {
+            Sta(() =>
+            {
+                using (var form = TextPrompt.Build("Exempt This Text", "Why is this text exempt?", "", false, true))
+                {
+                    var box = form.Controls.OfType<TextBox>().Single();
+                    var ok = form.Controls.OfType<Button>().Single(b => b.Text == "OK");
+
+                    Assert.False(ok.Enabled);
+                    box.Text = "";
+                    Assert.False(ok.Enabled);
+                    box.Text = "   ";
+                    Assert.False(ok.Enabled);
+                    box.Text = "Quoting the spec";
+                    Assert.True(ok.Enabled);
+                }
+            });
+        }
+
+        private static void Sta(Action body)
+        {
+            Exception error = null;
+            var t = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            if (error != null) throw new Exception(error.Message, error);
+        }
+    }
 }
