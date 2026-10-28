@@ -1054,6 +1054,51 @@ namespace FlareAI.Core.Actions
             Status = Summary() + "  Ignored. It stays hidden for this text.";
         }
 
+        /// <summary>
+        /// Offered only where the rule has a stable key (its id, or a structure rule): an AI finding's text changes between
+        /// reviews, so it can't be exempted by text.
+        /// </summary>
+        public bool CanExempt(StyleFinding f)
+        {
+            if (f == null || string.IsNullOrEmpty(f.Excerpt)) return false;
+            if (Exemptions.TopicKey(f.DocumentPath ?? _doc.SourcePath) == null) return false;
+            return !string.IsNullOrEmpty(f.RuleId) || (f.Rule ?? "").StartsWith("Structure.", StringComparison.Ordinal);
+        }
+
+        /// <summary>Exempt this place: asks for the reason (required). A blank answer cancels and writes nothing.</summary>
+        public string Exempt(StyleFinding f)
+        {
+            if (!CanExempt(f)) return null;
+            var reason = _host.AskText("Exempt This Text", "Why is this text exempt?", "", false, required: true);
+            if (string.IsNullOrWhiteSpace(reason)) return null;
+            return Exempt(f, reason);
+        }
+
+        /// <summary>
+        /// Exempt with a reason: the text stops being flagged by this rule in this topic (the rule stays on everywhere else).
+        /// Returns the message to show when it couldn't be written (the finding stays), or null on success.
+        /// </summary>
+        public string Exempt(StyleFinding f, string reason)
+        {
+            if (!CanExempt(f)) return "This issue can't be exempted.";
+            if (string.IsNullOrWhiteSpace(reason)) return "Add a reason to exempt this text.";
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            if (root == null) return "This topic isn't in a Flare project.";
+            var team = CurrentTeam();
+            var who = team == null ? Team.AnonymousId() : team.FeedbackWriter;
+            var topic = Exemptions.TopicKey(f.DocumentPath ?? _doc.SourcePath);
+            var key = string.IsNullOrEmpty(f.RuleId) ? f.Rule : f.RuleId;
+            var error = Exemptions.Add(root, new ExemptionEntry(topic, key, f.Excerpt, f.Before ?? "", reason.Trim(), who, DateTime.Now.ToString("yyyy-MM-dd")));
+            if (error != null) return error;
+            var next = NextAfter(f);
+            _findings.Remove(f);
+            _exemptHidden.Add(Tuple.Create(topic.ToLowerInvariant(), key ?? "", f.Excerpt, f.Before ?? ""));
+            Sort();
+            Select(next);
+            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
+            return null;
+        }
+
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>
         public void Skip() { Next(); }
 

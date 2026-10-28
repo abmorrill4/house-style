@@ -221,5 +221,67 @@ namespace FlareAI.Scenarios.Rules
                 Assert.Equal(1, s.ExemptHidden);
             }
         }
+
+        [Fact]
+        public void AnAiFindingWithNoRuleId_DoesNotOfferExempt()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                var s = fx.NewSession();
+                var ai = new StyleFinding { Source = "ai", Layer = "ai", Rule = "Plain words", Severity = "suggestion", Excerpt = "utilize", Before = "Please ", Replacement = "use" };
+                var structure = new StyleFinding { Source = "structure", Layer = "structure", Rule = "Structure.HeadingLevel", Severity = "warning", Excerpt = "Help", Before = "" };
+                Assert.False(s.CanExempt(ai));
+                Assert.True(s.CanExempt(Utilize("Please ")));
+                Assert.True(s.CanExempt(structure));
+            }
+        }
+
+        [Fact]
+        public void ExemptALintFinding_RemovesItWritesTheLineAndCountsIt()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                var s = fx.NewSession();
+                s.Add(Lint());
+                var please = s.Findings.First(f => f.Before == "Please ");
+
+                Assert.Null(s.Exempt(please, "Product name spelling."));
+
+                Assert.Equal(new[] { "Then " }, s.Findings.Select(f => f.Before).ToArray());
+                Assert.Equal(1, s.ExemptHidden);
+                Assert.EndsWith("  Exempted. It stays hidden for this text for everyone on this project.", s.Status);
+                var entry = Exemptions.Load(Root(fx)).Entries.Single();
+                Assert.Equal(KeyOf(fx), entry.Topic);
+                Assert.Equal(Rule, entry.Rule);
+                Assert.Equal("Please ", entry.Before);
+                Assert.Equal("Product name spelling.", entry.Reason);
+            }
+        }
+
+        [Fact]
+        public void ExemptWhenTheProjectCannotBeWritten_ReturnsTheErrorAndKeepsTheFinding()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                var file = Exemptions.FileFor(Root(fx));
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, "# read-only for this test\n");
+                File.SetAttributes(file, FileAttributes.ReadOnly);
+                try
+                {
+                    var s = fx.NewSession();
+                    s.Add(Lint());
+                    var please = s.Findings.First(f => f.Before == "Please ");
+
+                    Assert.NotNull(s.Exempt(please, "Product name spelling."));
+
+                    Assert.Equal(2, s.Findings.Count);
+                    Assert.Contains(please, s.Findings);
+                    Assert.Equal(0, s.ExemptHidden);
+                    Assert.Empty(Exemptions.Load(Root(fx)).Entries);
+                }
+                finally { File.SetAttributes(file, FileAttributes.Normal); }
+            }
+        }
     }
 }
