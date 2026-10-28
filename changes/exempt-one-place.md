@@ -1,0 +1,1 @@
+- Exempt a single piece of text from a rule. Right-click an issue and select Exempt This Text. After you exempt text, Exemptions at the top of the pane lists it, and Remove Exemption shows the issue again.
