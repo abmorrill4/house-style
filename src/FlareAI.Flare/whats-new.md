@@ -20,6 +20,7 @@ New entries go in changes/<name>.md, not here: the nightly release adds them to 
 - The last line of What's New is no longer cut off.
 - Fix a rule that's already in your style guide. In Rules, select Edit Rule to change its wording or examples, or
   Delete Rule to remove it. You no longer have to edit the guide topic in Flare.
+- Exempt a single piece of text from a rule. Right-click an issue and select Exempt This Text. After you exempt text, Exemptions at the top of the pane lists it, and Remove Exemption shows the issue again.
 
 ## 0.3.3
 

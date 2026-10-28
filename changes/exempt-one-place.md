@@ -1,0 +1,2 @@
+- Exempt This Text in the right-click menu and the Ignore menu leaves one piece of text out of one rule, and the rule stays on everywhere else. Exemptions at the top of the pane lists each one, and Remove Exemption shows the issue again.
+- Exemptions are saved in Project\HouseStyle\Exemptions.txt and apply to everyone on the project. If the project is under Perforce or TFS, check out Exemptions.txt first. If it's under git, add the new file, as with LintExclusions.
