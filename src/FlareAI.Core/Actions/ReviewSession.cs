@@ -63,6 +63,11 @@ namespace FlareAI.Core.Actions
         private string _status;
         private bool _watching, _offThreadLogged;
         private int _uiThread, _pendingMarked, _pendingReopened;
+        private readonly HashSet<Tuple<string, string, string, string>> _exemptHidden = new HashSet<Tuple<string, string, string, string>>();
+        private ExemptionList _exemptions;
+        private string _exemptRoot;
+        private DateTime _exemptStamp;
+        private bool _exemptLoaded;
 
         /// <param name="topic">The checked topic (in a project report: the topic that was active).</param>
         /// <param name="dismissed">Where rejected suggestions are remembered.</param>
@@ -155,18 +160,60 @@ namespace FlareAI.Core.Actions
         {
             _findings.Clear();
             _skippedRules.Clear();
+            _exemptHidden.Clear();
             FocusRule = null;
             Current = null;
+        }
+
+        /// <summary>How many distinct issues the project's exemptions kept out of the list in this check.</summary>
+        public int ExemptHidden { get { return _exemptHidden.Count; } }
+
+        private static readonly DateTime NoExemptFile = DateTime.MinValue;
+
+        /// <summary>Reads Exemptions.txt again only when its write time changed since the last read.</summary>
+        private ExemptionList CurrentExemptions()
+        {
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            var stamp = NoExemptFile;
+            if (root != null)
+            {
+                try
+                {
+                    var file = Exemptions.FileFor(root);
+                    if (System.IO.File.Exists(file)) stamp = System.IO.File.GetLastWriteTimeUtc(file);
+                }
+                catch (Exception ex) { Diagnostics.Log("Exemptions.txt", ex); }
+            }
+            if (!_exemptLoaded || _exemptRoot != root || _exemptStamp != stamp)
+            {
+                _exemptions = root == null ? new ExemptionList() : Exemptions.Load(root);
+                _exemptRoot = root; _exemptStamp = stamp; _exemptLoaded = true;
+            }
+            return _exemptions;
+        }
+
+        /// <summary>True (and remembered, once per identity) when the project exempts this text from this rule in this topic.</summary>
+        private bool IsExempt(ExemptionList list, StyleFinding f)
+        {
+            if (list == null || list.Count == 0 || string.IsNullOrEmpty(f.Excerpt)) return false;
+            var topic = Exemptions.TopicKey(f.DocumentPath ?? _doc.SourcePath);
+            if (topic == null) return false;
+            var key = string.IsNullOrEmpty(f.RuleId) ? f.Rule : f.RuleId;
+            if (!Exemptions.Covers(list, topic, key, f.Excerpt, f.Before)) return false;
+            _exemptHidden.Add(Tuple.Create(topic.ToLowerInvariant(), key ?? "", f.Excerpt, f.Before ?? ""));
+            return true;
         }
 
         /// <summary>Adds suggestions, leaving out rejected ones and AI rules the project ignores, and labels them by guide section.</summary>
         public void Add(IEnumerable<StyleFinding> found)
         {
             var ignoredAi = IgnoredAi();
+            var exempt = CurrentExemptions();
             var added = new List<StyleFinding>();
             foreach (var f in found)
             {
                 if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) continue;
+                if (IsExempt(exempt, f)) continue;
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
                 if (f.Layer != "ai" && f.RuleSection == null)
                 {
@@ -204,6 +251,8 @@ namespace FlareAI.Core.Actions
             if (_project) return;
             RecheckApplied();   // an undone fix is live again, so the fresh lint below replaces it instead of duplicating it
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
+            var topicKey = Exemptions.TopicKey(_doc.SourcePath);
+            if (topicKey != null) _exemptHidden.RemoveWhere(t => string.Equals(t.Item1, topicKey, StringComparison.OrdinalIgnoreCase));
             Add(lint);
         }
 
@@ -249,6 +298,12 @@ namespace FlareAI.Core.Actions
         /// line ("117 suggestions in 42 files. 63 can be fixed automatically across 9 rules.").
         /// </summary>
         public string Summary()
+        {
+            var s = SummaryCore();
+            return ExemptHidden > 0 ? s + " " + Exemptions.HiddenTail(ExemptHidden) : s;
+        }
+
+        private string SummaryCore()
         {
             if (_project) return BacklogSummary();
             var open = Open();
