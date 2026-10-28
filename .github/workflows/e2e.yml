@@ -33,10 +33,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'   # git's stderr is not an error here; its exit code decides
           $check = Join-Path $env:RUNNER_TEMP 'Test-FlareReady.ps1'
-          $text = git show origin/main:tests/e2e/Test-FlareReady.ps1 2>$null
-          # ponytail: main had it under scripts/factory until the factory moved out (PR 275); drop this once merged.
-          if ($LASTEXITCODE) { $text = git show origin/main:scripts/factory/Test-FactoryReady.ps1 }
-          $text | Set-Content -Encoding UTF8 $check
+          (git show origin/main:tests/e2e/Test-FlareReady.ps1) | Set-Content -Encoding UTF8 $check
+          if ($LASTEXITCODE) { Write-Host "::error::main has no tests/e2e/Test-FlareReady.ps1."; exit 1 }
           & $check
           exit $LASTEXITCODE
 
