@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Threading;
 using System.Xml;
 using FlareAI.Core.Editing;
@@ -61,6 +62,10 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
+        private IList<Exemption> _exemptions = new List<Exemption>();
+        private DateTime _exemptionsStamp = DateTime.MinValue;
+        private string _exemptionsFile;
+        private readonly HashSet<string> _exemptSeen = new HashSet<string>(StringComparer.Ordinal);
         private bool _watching, _offThreadLogged;
         private int _uiThread, _pendingMarked, _pendingReopened;
 
@@ -154,6 +159,7 @@ namespace FlareAI.Core.Actions
         public void Clear()
         {
             _findings.Clear();
+            _exemptSeen.Clear();
             _skippedRules.Clear();
             FocusRule = null;
             Current = null;
@@ -164,9 +170,19 @@ namespace FlareAI.Core.Actions
         {
             var ignoredAi = IgnoredAi();
             var added = new List<StyleFinding>();
+            var exemptions = ExemptionList();
             foreach (var f in found)
             {
                 if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) continue;
+                if (exemptions.Count > 0 && !string.IsNullOrEmpty(f.Excerpt))
+                {
+                    var topicKey = Exemptions.TopicKey(f, _doc.SourcePath);
+                    if (topicKey != null && Exemptions.Covers(exemptions, topicKey, Exemptions.RuleKey(f), f.Excerpt, f.Before ?? ""))
+                    {
+                        _exemptSeen.Add(ExemptId(topicKey, f));
+                        continue;
+                    }
+                }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
                 if (f.Layer != "ai" && f.RuleSection == null)
                 {
@@ -204,7 +220,71 @@ namespace FlareAI.Core.Actions
             if (_project) return;
             RecheckApplied();   // an undone fix is live again, so the fresh lint below replaces it instead of duplicating it
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
+            var entry = string.IsNullOrEmpty(_doc.SourcePath) ? null : LintExclusions.EntryFor(_doc.SourcePath, false);
+            if (entry != null)
+            {
+                var prefix = entry.Replace('/', '\\').ToUpperInvariant() + "\u0001";
+                _exemptSeen.RemoveWhere(id => id.StartsWith(prefix, StringComparison.Ordinal));   // the fresh lint counts them again
+            }
             Add(lint);
+        }
+
+        private static string ExemptId(string topic, StyleFinding f)
+        {
+            return topic.Replace('/', '\\').ToUpperInvariant() + "\u0001" + Exemptions.RuleKey(f) + "\u0001" + f.Excerpt + "\u0001" + (f.Before ?? "");
+        }
+
+        /// <summary>How many issues the exemptions hid from this list (each place once).</summary>
+        public int ExemptHidden { get { return _exemptSeen.Count; } }
+
+        /// <summary>"2 issues are exempt." for the status line, or "" when none are hidden.</summary>
+        public string ExemptTail
+        {
+            get
+            {
+                var n = _exemptSeen.Count;
+                return n == 0 ? "" : Plural.Of(n, "issue") + (n == 1 ? " is" : " are") + " exempt.";
+            }
+        }
+
+        /// <summary>The project's exemptions; the file is re-read only when its write time changed.</summary>
+        private IList<Exemption> ExemptionList()
+        {
+            var file = string.IsNullOrEmpty(_doc.SourcePath) ? null : Exemptions.FileFor(_doc.SourcePath);
+            if (file == null) { _exemptionsFile = null; return _exemptions = new List<Exemption>(); }
+            DateTime stamp;
+            try { stamp = File.Exists(file) ? File.GetLastWriteTimeUtc(file) : DateTime.MinValue; }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { stamp = DateTime.MinValue; }
+            if (file != _exemptionsFile || stamp != _exemptionsStamp)
+            {
+                _exemptionsFile = file;
+                _exemptionsStamp = stamp;
+                _exemptions = stamp == DateTime.MinValue ? new List<Exemption>() : Exemptions.Load(_doc.SourcePath);
+            }
+            return _exemptions;
+        }
+
+        /// <summary>True when the selected-kind finding can be exempted: it has text, a topic in the project, and a rule with a permanent id (or a structure check).</summary>
+        public bool CanExempt(StyleFinding f)
+        {
+            if (f == null || string.IsNullOrEmpty(f.Excerpt)) return false;
+            if (Exemptions.TopicKey(f, _doc.SourcePath) == null) return false;
+            return !string.IsNullOrEmpty(f.RuleId) || (f.Rule != null && f.Rule.StartsWith("Structure.", StringComparison.Ordinal));
+        }
+
+        /// <summary>Exempt this text from its rule on this topic, for everyone on the project; the rule keeps checking the rest.</summary>
+        public void Exempt(StyleFinding f, string reason)
+        {
+            if (f == null || !CanExempt(f)) return;
+            var topic = Exemptions.TopicKey(f, _doc.SourcePath);
+            var team = CurrentTeam();
+            Exemptions.Add(_doc.SourcePath, topic, Exemptions.RuleKey(f), f.Excerpt, f.Before ?? "", reason, team == null ? "" : team.FeedbackWriter);
+            _exemptSeen.Add(ExemptId(topic, f));
+            var next = NextAfter(f);
+            _findings.Remove(f);
+            Sort();
+            Select(next);
+            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
         }
 
         /// <summary>Lint Project: drops the suggestions in files the project now leaves out (<see cref="LintExclusions"/>).</summary>
