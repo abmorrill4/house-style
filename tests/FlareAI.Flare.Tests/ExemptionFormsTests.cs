@@ -90,7 +90,7 @@ namespace FlareAI.Flare.Tests
                 Row(@"Sales\Topic.htm", "Google.Will", "will", "It ", "legal wording", "ann", "2026-10-01"),
                 Row(@"Sales\Topic.htm", "Google.Passive", "was", "It ", "why", "bo", "2026-10-02"));
 
-            using (var form = new ExemptionsForm(_root, Path.Combine(_root, "Content"), Title))
+            using (var form = new ExemptionsForm(_root, Title))
             {
                 form.Show();
                 var list = All(form).OfType<ListView>().Single();
@@ -124,7 +124,7 @@ namespace FlareAI.Flare.Tests
                 Row(@"Gone\Missing.htm", "Google.Will", "x", "It ", "moved", "bo", "2026-10-02"),
                 Row(@"Sales\Topic.htm", "Google.Passive", "was", "It ", "why", "cy", "2026-10-03"));
 
-            using (var form = new ExemptionsForm(_root, Path.Combine(_root, "Content"), Title))
+            using (var form = new ExemptionsForm(_root, Title))
             {
                 form.Show();
                 var list = All(form).OfType<ListView>().Single();

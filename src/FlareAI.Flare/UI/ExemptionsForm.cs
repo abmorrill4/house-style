@@ -26,7 +26,7 @@ namespace FlareAI.Flare.UI
         private readonly ListView _list;
         private readonly Button _remove;
 
-        public ExemptionsForm(string projectRoot, string contentFolder, Func<string, string> titleFor)
+        public ExemptionsForm(string projectRoot, Func<string, string> titleFor)
         {
             _root = projectRoot;
             _titleFor = titleFor;

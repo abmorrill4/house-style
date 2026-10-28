@@ -1103,7 +1103,11 @@ namespace FlareAI.Flare.UI
         {
             var root = FlareAI.Core.Style.StyleEngine.FlareProjectRoot(_doc.SourcePath);
             if (root == null) return;
-            using (var f = new ExemptionsForm(root, null, null)) f.ShowDialog(FindForm());
+            using (var f = new ExemptionsForm(root, key =>
+            {
+                var rule = string.IsNullOrEmpty(key) ? null : _runner.RuleFor(key);
+                return rule == null || string.IsNullOrEmpty(rule.Display) ? null : rule.Section + ": " + rule.Display;
+            })) f.ShowDialog(FindForm());
             UpdateExemptions();
         }
 

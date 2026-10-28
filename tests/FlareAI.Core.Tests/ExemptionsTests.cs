@@ -95,7 +95,7 @@ namespace FlareAI.Core.Tests
         [Fact]
         public void Load_SkipsUnsafeLines_ParentPathsUncDriveRootedDeviceStreamAndLongKeys()
         {
-            var bad = new[] { @"..\x.htm", @"Sub\..\x.htm", @"\\srv\share\x.htm", @"C:\x.htm", @"\x.htm", @"\\?\C:\x.htm", @"\\.\C:\x.htm", @"Sub\CON.htm", @"nul.htm", @"Sub\com1.x.htm", "a.htm:s.htm", "a.txt" };
+            var bad = new[] { @"..\x.htm", @"Sub\..\x.htm", @"\\srv\share\x.htm", @"C:\x.htm", @"\x.htm", @"\\?\C:\x.htm", @"\\.\C:\x.htm", @"Sub\CON.htm", @"nul.htm", @"Sub\com1.x.htm", "a.htm:s.htm", "a.txt", "a<b.htm", "a>b.htm", "a|b.htm", "a\"b.htm", "a\u0001b.htm" };
             var sb = new StringBuilder("# header\r\n");
             foreach (var t in bad) sb.Append(t + "\tR\ttext\tb\tr\tw\td\r\n");
             sb.Append(@"Sub\ok.htm" + "\t" + new string('r', 201) + "\ttext\tb\tr\tw\td\r\n");
@@ -109,6 +109,9 @@ namespace FlareAI.Core.Tests
             Assert.Equal(@"Sub\ok.htm", list.Entries[0].Topic);
             Assert.True(Exemptions.IsSafeTopicPath("Sub/ok.FLSNP"));
             Assert.False(Exemptions.IsSafeTopicPath(null));
+            Assert.False(Exemptions.IsSafeTopicPath("a<b.htm"));
+            Assert.False(Exemptions.IsSafeTopicPath("a|b.htm"));
+            Assert.False(Exemptions.IsSafeTopicPath("a\u0001b.htm"));
         }
 
         [Fact]

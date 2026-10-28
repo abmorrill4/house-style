@@ -81,7 +81,7 @@ namespace FlareAI.Core.Actions
                 }
                 if (skipped.Count > 0) Diagnostics.Log(SkippedNote(skipped));
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { Diagnostics.Log("Exemptions.txt", ex); }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException) { Diagnostics.Log("Exemptions.txt", ex); }
             return list;
         }
 
@@ -126,7 +126,7 @@ namespace FlareAI.Core.Actions
         public static string Add(string projectRoot, ExemptionEntry e)
         {
             var c = Clean(e);
-            if (!IsSafeTopicPath(c.Topic)) return "This topic can't be exempted: its path isn't inside the project's Content folder.";
+            if (!IsSafeTopicPath(c.Topic)) return "This topic can't be exempted because it isn't in the project's Content folder.";
             var file = FileFor(projectRoot);
             try
             {
@@ -176,10 +176,12 @@ namespace FlareAI.Core.Actions
         {
             if (string.IsNullOrEmpty(path)) return false;
             var p = path.Replace('/', '\\');
-            var ext = Path.GetExtension(p);
-            if (!(ext.Equals(".htm", StringComparison.OrdinalIgnoreCase) || ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".flsnp", StringComparison.OrdinalIgnoreCase))) return false;
             if (p.StartsWith("\\") || p.IndexOf(':') >= 0) return false;
-            foreach (var ch in p) if (ch < ' ' || ch == '\u007f') return false;
+            foreach (var ch in p) if (ch < ' ' || ch == '\u007f' || ch == '<' || ch == '>' || ch == '|' || ch == '"' || ch == '*' || ch == '?') return false;
+            string ext;
+            try { ext = Path.GetExtension(p); }
+            catch (ArgumentException) { return false; }
+            if (!(ext.Equals(".htm", StringComparison.OrdinalIgnoreCase) || ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".flsnp", StringComparison.OrdinalIgnoreCase))) return false;
             foreach (var seg in p.Split('\\'))
             {
                 if (seg.Length == 0 || seg == ".." || seg.EndsWith(".") || seg.EndsWith(" ")) return false;
