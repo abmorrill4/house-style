@@ -58,7 +58,8 @@ namespace FlareAI.Flare.UI
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
         private readonly TabRadio _tabTopic, _tabProject;
-        private readonly Button _excluded, _export;
+        private readonly Button _excluded, _exemptions, _export;
+        private readonly Label _viewLabel;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
@@ -250,10 +251,11 @@ namespace FlareAI.Flare.UI
 
             // Lint Project: one row per rule (most frequent first) or the issues file by file. Remembered.
             _viewBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = files != null };
-            _viewBar.Controls.Add(new Label { Text = "View:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
+            _viewLabel = new Label { Text = "View:", AutoSize = true, Margin = new Padding(0, 6, 4, 0), Visible = files != null };
+            _viewBar.Controls.Add(_viewLabel);
             var byFile = files != null && FlareAI.Core.Settings.PluginSettings.Load().ProjectViewByFile;
-            _byRule = new RadioButton { Text = "By &rule", AutoSize = true, Checked = !byFile, Margin = new Padding(0, 3, 8, 0) };
-            _byFile = new RadioButton { Text = "By &file", AutoSize = true, Checked = byFile, Margin = new Padding(0, 3, 12, 0) };
+            _byRule = new RadioButton { Text = "By &rule", AutoSize = true, Checked = !byFile, Margin = new Padding(0, 3, 8, 0), Visible = files != null };
+            _byFile = new RadioButton { Text = "By &file", AutoSize = true, Checked = byFile, Margin = new Padding(0, 3, 12, 0), Visible = files != null };
             _viewBar.Controls.Add(_byRule);
             _viewBar.Controls.Add(_byFile);
             _byRule.CheckedChanged += (s, e) => Safe.Run("View by rule", () => { if (_byRule.Checked) SwitchView(false); });
@@ -262,8 +264,9 @@ namespace FlareAI.Flare.UI
             _showSkipped = Btn(_viewBar, "Show Skipped Rules", (s, e) => _session.ShowSkippedRules());
             _showAllRules = Btn(_viewBar, "Show All Rules", (s, e) => ShowAllRules());
             _excluded = Btn(_viewBar, "Excluded Files", (s, e) => ShowExcluded());
+            _exemptions = Btn(_viewBar, "Exemptions", (s, e) => ShowExemptions());
             _export = Btn(_viewBar, "Export Issues…", (s, e) => ExportIssues());
-            _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
+            _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = _exemptions.Visible = false;
 
             // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
             // Items, groups, selection, keys, menu and tooltips are the ListView's own; only the painting is ours.
@@ -318,17 +321,21 @@ namespace FlareAI.Flare.UI
             _rule = Btn(actions, "Open Guide", (s, e) => { var f = Current(); if (f != null && !string.IsNullOrEmpty(f.Link)) OpenLink(f.Link); });
             // Ignore asks why (recorded for Rule Decisions): the stored reasons stay "wrong", "fine here", "rule doesn't apply".
             _rejectMenu = new ContextMenuStrip();
-            _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
-            _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
-            _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            var wrong = _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
+            var fine = _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
+            var notApply = _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            wrong.ToolTipText = fine.ToolTipText = notApply.ToolTipText = IgnoreReasonTip;
             _rejectMenu.Items.Add(new ToolStripSeparator());
             _rejectMenu.Items.Add("Skip for Now", null, (s, e) => Safe.Run("Skip", _session.Skip));
             _rejectMenu.Items.Add(new ToolStripSeparator());
             var markFixed = _rejectMenu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
             markFixed.AccessibleName = "Mark as Fixed";
             _rejectMenu.Items.Add(new ToolStripSeparator());
-            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; };
             _rejectMenu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
+            _rejectMenu.Items.Add(new ToolStripSeparator());
+            var exemptHere = _rejectMenu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt This Text", ExemptCurrent));
+            exemptHere.ToolTipText = exemptHere.AccessibleDescription = ExemptTip;
+            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; exemptHere.Visible = _session.CanExempt(f); };
             card.Controls.Add(actions);   // in tab order: the decision first, then the text
             card.Controls.Add(_ruleActions);
             card.Controls.Add(_cardHead);
@@ -1021,6 +1028,9 @@ namespace FlareAI.Flare.UI
             var exFolder = menu.Items.Add("Exclude Folder from Lint Project", null, (s, e) => Safe.Run("Exclude folder", () => Exclude(true)));
             menu.Items.Add(new ToolStripSeparator());
             var report = menu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
+            menu.Items.Add(new ToolStripSeparator());
+            var exempt = menu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt This Text", ExemptCurrent));
+            exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
             menu.Opening += (s, e) =>
             {
                 var p = _list.PointToClient(Cursor.Position);
@@ -1033,6 +1043,7 @@ namespace FlareAI.Flare.UI
                 markFixed.Enabled = !f.IsFixed;
                 open.Enabled = _session.FilePathOf(f) != null;
                 report.Enabled = !string.IsNullOrEmpty(f.Excerpt);
+                exempt.Visible = _session.CanExempt(f);
                 var folder = _files != null && f.DocumentPath != null ? LintExclusions.EntryFor(f.DocumentPath, true) : null;
                 exSep.Visible = exFile.Visible = _files != null && f.DocumentPath != null;
                 exFolder.Visible = folder != null;
@@ -1069,6 +1080,41 @@ namespace FlareAI.Flare.UI
             var n = _files == null ? 0 : LintExclusions.Load(_files.Count > 0 ? _files[0] : _doc.SourcePath).Count;
             _excluded.Visible = n > 0;
             _excluded.Text = "Excluded Files (" + n + ")";
+        }
+
+        private const string ExemptLabel = "Exempt This Text…";
+        private const string ExemptTip = "Hides this issue for everyone on this project.";
+        private const string IgnoreReasonTip = "Hides this issue for you only.";
+
+        /// <summary>Exempt This Text…: this place stops being flagged by this rule, for everyone on the project. The session asks why.</summary>
+        private void ExemptCurrent()
+        {
+            var f = Current();
+            if (f == null) return;
+            // Null is a success (the session says so in the status) or a cancelled reason, which writes nothing; a message is a failure.
+            var error = _session.Exempt(f);
+            if (error != null) Notify.Failed(FindForm(), "exempt the text in " + System.IO.Path.GetFileName(f.DocumentPath ?? _doc.SourcePath), new InvalidOperationException(error), "Exempt This Text");
+            Rebuild();
+            UpdateExemptions();
+        }
+
+        /// <summary>The project's exemptions, to read and remove (Remove Exemption lives in the form).</summary>
+        private void ShowExemptions()
+        {
+            var root = FlareAI.Core.Style.StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            if (root == null) return;
+            using (var f = new ExemptionsForm(root, null, null)) f.ShowDialog(FindForm());
+            UpdateExemptions();
+        }
+
+        /// <summary>The Exemptions button with its count; the bar shows for it in a topic too, and only when the project has any.</summary>
+        private void UpdateExemptions()
+        {
+            var root = FlareAI.Core.Style.StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            var n = root == null ? 0 : Exemptions.Count(root);
+            _exemptions.Visible = n > 0;
+            _exemptions.Text = "Exemptions (" + n + ")";
+            _viewBar.Visible = _files != null || n > 0;
         }
 
         // ---- end-to-end runner (E2EHook) ---------------------------------------------------------------
@@ -1290,6 +1336,7 @@ namespace FlareAI.Flare.UI
                     _status.Text = Summary() + "  Stopped after " + _doneUnits + " of " + _unitCount + " paragraphs. Lint Again reviews the rest.";
                     UpdateButtons();
                     UpdateChecklist();
+                    UpdateExemptions();
                     return;
                 }
                 if (e.Error != null)
@@ -1316,6 +1363,7 @@ namespace FlareAI.Flare.UI
                 if (_list.SelectedItems.Count == 0) _session.Next();
                 UpdateButtons();
                 UpdateChecklist();
+                UpdateExemptions();
                 GettingStarted.Did(TourEvent.TopicLinted);
             };
             _worker.RunWorkerAsync();
@@ -1362,6 +1410,7 @@ namespace FlareAI.Flare.UI
                     if (RuleRows && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
+                    UpdateExemptions();
                 }
                 UpdateButtons();
                 UpdateChecklist();
