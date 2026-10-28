@@ -318,16 +318,21 @@ namespace FlareAI.Flare.UI
             _rule = Btn(actions, "Open Guide", (s, e) => { var f = Current(); if (f != null && !string.IsNullOrEmpty(f.Link)) OpenLink(f.Link); });
             // Ignore asks why (recorded for Rule Decisions): the stored reasons stay "wrong", "fine here", "rule doesn't apply".
             _rejectMenu = new ContextMenuStrip();
-            _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
-            _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
-            _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            var wrong = _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
+            var fine = _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
+            var notApply = _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            foreach (var reason in new[] { wrong, fine, notApply }) { reason.ToolTipText = IgnoreForYouTip; reason.AccessibleDescription = IgnoreForYouTip; }
+            // Exempt this one place for everyone on the project; shown only when the session says it can be exempted.
+            var exemptHere = _rejectMenu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt This Text", Exempt));
+            exemptHere.ToolTipText = ExemptTip;
+            exemptHere.AccessibleDescription = ExemptTip;
             _rejectMenu.Items.Add(new ToolStripSeparator());
             _rejectMenu.Items.Add("Skip for Now", null, (s, e) => Safe.Run("Skip", _session.Skip));
             _rejectMenu.Items.Add(new ToolStripSeparator());
             var markFixed = _rejectMenu.Items.Add("Mark as Fixed", null, (s, e) => Safe.Run("Mark as Fixed", _session.MarkFixed));
             markFixed.AccessibleName = "Mark as Fixed";
             _rejectMenu.Items.Add(new ToolStripSeparator());
-            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; };
+            _rejectMenu.Opening += (s, e) => { var f = Current(); markFixed.Enabled = f != null && !f.IsFixed; exemptHere.Visible = _session.CanExempt(f); };
             _rejectMenu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
             card.Controls.Add(actions);   // in tab order: the decision first, then the text
             card.Controls.Add(_ruleActions);
@@ -1021,6 +1026,9 @@ namespace FlareAI.Flare.UI
             var exFolder = menu.Items.Add("Exclude Folder from Lint Project", null, (s, e) => Safe.Run("Exclude folder", () => Exclude(true)));
             menu.Items.Add(new ToolStripSeparator());
             var report = menu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
+            var exempt = menu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt This Text", Exempt));
+            exempt.ToolTipText = ExemptTip;
+            exempt.AccessibleDescription = ExemptTip;
             menu.Opening += (s, e) =>
             {
                 var p = _list.PointToClient(Cursor.Position);
@@ -1033,6 +1041,7 @@ namespace FlareAI.Flare.UI
                 markFixed.Enabled = !f.IsFixed;
                 open.Enabled = _session.FilePathOf(f) != null;
                 report.Enabled = !string.IsNullOrEmpty(f.Excerpt);
+                exempt.Visible = _session.CanExempt(f);
                 var folder = _files != null && f.DocumentPath != null ? LintExclusions.EntryFor(f.DocumentPath, true) : null;
                 exSep.Visible = exFile.Visible = _files != null && f.DocumentPath != null;
                 exFolder.Visible = folder != null;
@@ -1176,6 +1185,23 @@ namespace FlareAI.Flare.UI
         }
 
         public const string ReportFalsePositiveLabel = "Report False Positive…";
+
+        public const string ExemptLabel = "Exempt This Text…";
+        private const string ExemptTip = "Hides this issue for everyone on this project.";
+        private const string IgnoreForYouTip = "Hides this issue for you only.";
+
+        /// <summary>
+        /// Exempt This Text: the session asks for the required reason and writes it; the issue leaves the list and the status
+        /// says so. A write that fails is reported and the issue stays where it was.
+        /// </summary>
+        private void Exempt()
+        {
+            var f = Current();
+            if (f == null) return;
+            // GuideWriteException is an IOException, so one catch covers both.
+            try { _session.Exempt(f); }
+            catch (System.IO.IOException ex) { Diagnostics.Log("exempt this text", ex); Notify.Failed(FindForm(), "exempt this text", ex, "Exemptions"); }
+        }
 
         /// <summary>
         /// Report False Positive (issue #124): the rule, the flagged words and the writer's reason go to the House Style
