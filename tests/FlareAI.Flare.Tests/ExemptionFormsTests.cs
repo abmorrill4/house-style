@@ -141,4 +141,50 @@ namespace FlareAI.Flare.Tests
             if (error != null) throw new Exception(error.Message, error);
         }
     }
+
+    /// <summary>The required text prompt behind Exempt (issue #29): OK stays off until the box has a reason.</summary>
+    [Collection("Panes")]
+    public class TextPromptTests
+    {
+        [Fact]
+        public void OkIsOffUntilThereIsAReason()
+        {
+            Sta(() =>
+            {
+                using (var f = TextPrompt.Build("Exempt This Text", "Why is this text exempt?", "", false, true))
+                {
+                    f.StartPosition = FormStartPosition.Manual;
+                    f.Location = new Point(-20000, -20000);
+                    f.ShowInTaskbar = false;
+                    f.Show();
+
+                    var ok = All(f).OfType<Button>().Single(b => b.Text == "OK");
+                    var box = All(f).OfType<TextBox>().Single();
+                    Assert.False(ok.Enabled, "an empty box can't be OK'd");
+
+                    box.Text = "   ";
+                    Assert.False(ok.Enabled, "spaces are not a reason");
+
+                    box.Text = "Brand term";
+                    Assert.True(ok.Enabled);
+                }
+            });
+        }
+
+        private static IEnumerable<Control> All(Control c)
+        {
+            foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
+        }
+
+        private static void Sta(Action body)
+        {
+            Exception error = null;
+            var t = new Thread(() => { try { body(); } catch (Exception ex) { error = ex; } });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            if (error != null) throw new Exception(error.Message, error);
+        }
+    }
 }

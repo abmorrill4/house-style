@@ -20,7 +20,7 @@ namespace FlareAI.Flare.UI
     /// section by section. While getting started, a hint strip at the top carries the guided first lint and the empty
     /// list shows the getting-started checklist.
     /// </summary>
-    public sealed class FindingsPanel : UserControl, IReviewHost
+    public sealed class FindingsPanel : UserControl, IReviewHost, IRequiredTextHost
     {
         private readonly ActionRunner _runner;
         private readonly IDocumentAdapter _doc;
@@ -2139,6 +2139,8 @@ namespace FlareAI.Flare.UI
 
         string IReviewHost.AskText(string title, string label, string initial, bool multiline) { return TextPrompt.Ask(this, title, label, initial, multiline); }
 
+        string IRequiredTextHost.AskRequiredText(string title, string label) { return TextPrompt.Ask(this, title, label, "", false, required: true); }
+
         IDocumentAdapter IReviewHost.OpenDocument(string path) { return _open == null ? null : _open(path); }
 
         bool IReviewHost.PreviewBatch(BatchPlan plan)
@@ -2167,20 +2169,30 @@ namespace FlareAI.Flare.UI
     /// <summary>A one-field text prompt (Edit / Refine).</summary>
     internal static class TextPrompt
     {
-        public static string Ask(IWin32Window owner, string title, string label, string initial, bool multiline)
+        public static string Ask(IWin32Window owner, string title, string label, string initial, bool multiline, bool required = false)
         {
-            using (var form = new Form { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font })
+            using (var form = Build(title, label, initial, multiline, required))
+                return form.ShowDialog(owner) == DialogResult.OK ? form.Controls.OfType<TextBox>().Single().Text : null;
+        }
+
+        /// <summary>The form, not shown. When <paramref name="required"/>, OK stays off until the box has text that isn't only spaces.</summary>
+        internal static Form Build(string title, string label, string initial, bool multiline, bool required)
+        {
+            var form = new Form { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font };
+            var text = new Label { Text = label, Left = 12, Top = 12, Width = 496, Height = 34 };
+            var box = new TextBox { Left = 12, Top = 50, Width = 496, Height = multiline ? 84 : 24, Multiline = multiline, AcceptsReturn = false, Text = initial ?? "", ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None };
+            var ok = new Button { Text = "OK", Left = 352, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", Left = 433, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.Cancel };
+            form.Controls.AddRange(new Control[] { text, box, ok, cancel });
+            A11y.Name(box, label);
+            if (required)
             {
-                var text = new Label { Text = label, Left = 12, Top = 12, Width = 496, Height = 34 };
-                var box = new TextBox { Left = 12, Top = 50, Width = 496, Height = multiline ? 84 : 24, Multiline = multiline, AcceptsReturn = false, Text = initial ?? "", ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None };
-                var ok = new Button { Text = "OK", Left = 352, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.OK };
-                var cancel = new Button { Text = "Cancel", Left = 433, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.Cancel };
-                form.Controls.AddRange(new Control[] { text, box, ok, cancel });
-                A11y.Name(box, label);
-                A11y.Apply(form);
-                form.AcceptButton = ok; form.CancelButton = cancel;
-                return form.ShowDialog(owner) == DialogResult.OK ? box.Text : null;
+                ok.Enabled = !string.IsNullOrWhiteSpace(box.Text);
+                box.TextChanged += (s, e) => ok.Enabled = !string.IsNullOrWhiteSpace(box.Text);
             }
+            A11y.Apply(form);
+            form.AcceptButton = ok; form.CancelButton = cancel;
+            return form;
         }
     }
 }
