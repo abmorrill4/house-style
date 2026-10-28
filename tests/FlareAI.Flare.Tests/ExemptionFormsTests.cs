@@ -112,4 +112,42 @@ namespace FlareAI.Flare.Tests
             if (error != null) ExceptionDispatchInfo.Capture(error).Throw();
         }
     }
+
+    /// <summary>The required text prompt behind Exempt This Text: OK waits for a reason.</summary>
+    [Collection("Panes")]
+    public class TextPromptTests
+    {
+        [Fact]
+        public void OkIsOffUntilThereIsAReason()
+        {
+            Exception error = null;
+            var t = new Thread(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+                try
+                {
+                    using (var form = TextPrompt.Build("Exempt This Text", "Why is this text exempt?", "", false, true))
+                    {
+                        var ok = form.Controls.OfType<Button>().Single(b => b.Text == "OK");
+                        var box = form.Controls.OfType<TextBox>().Single();
+                        Assert.False(ok.Enabled);
+                        box.Text = "   ";
+                        Assert.False(ok.Enabled);
+                        box.Text = " Quoted in a glossary ";
+                        Assert.True(ok.Enabled);
+                        box.Text = "";
+                        Assert.False(ok.Enabled);
+                    }
+                    using (var form = TextPrompt.Build("Edit", "Text", "", false, false))
+                        Assert.True(form.Controls.OfType<Button>().Single(b => b.Text == "OK").Enabled);
+                }
+                catch (Exception ex) { error = ex; }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            if (!t.Join(60000)) throw new TimeoutException("The text prompt test didn't finish in 60 s.");
+            if (error != null) ExceptionDispatchInfo.Capture(error).Throw();
+        }
+    }
 }
