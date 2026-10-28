@@ -9,6 +9,7 @@ using FlareAI.Core;
 using FlareAI.Core.Actions;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Settings;
+using FlareAI.Core.Style;
 
 namespace FlareAI.Flare.UI
 {
@@ -58,7 +59,7 @@ namespace FlareAI.Flare.UI
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
         private readonly TabRadio _tabTopic, _tabProject;
-        private readonly Button _excluded, _export;
+        private readonly Button _excluded, _export, _exemptions;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
@@ -245,6 +246,8 @@ namespace FlareAI.Flare.UI
                 _status.Text = "Stopping after this file. Files already changed keep their tracked changes.";
             });
             _batchStop.Visible = false;
+            _exemptions = Btn(triage, "Exemptions", (s, e) => ShowExemptions());
+            _exemptions.Visible = false;
             _legend = Btn(triage, "?", (s, e) => { using (var f = new LegendForm()) f.ShowDialog(FindForm()); });
             _session.RunBatch = RunBatchInPane;
 
@@ -628,6 +631,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_rule, "Open Guide", "Open this rule's page in the style guide.");
             A11y.Name(_recheck, "Lint Again");
             A11y.Name(_legend, "What the symbols mean", "Show what the symbols and buttons mean. Opens a dialog.");
+            A11y.Name(_exemptions, "Exemptions", "The places in this project exempted from a rule, with the reasons. Opens a dialog.");
             A11y.Name(_ignore, "Disable Rule", "Stop linting for this rule. Opens a dialog.");
             // Tab order: tour, notice, triage buttons, list, decision buttons, card text, bottom bar.
             var top = new Control[] { _tabs, _tourStrip, _widthTip, _status, _notice, _acceptAll.Parent, _viewBar, _progress, _list.Parent.Parent, _cost, _recheck.Parent };
@@ -646,7 +650,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_tourSkip, "Skip Tour", "End the practice.");
             A11y.Name(_tourDone, "Done", "End the practice.");
             A11y.Name(_tabs, "Issues for");
-            var order = new Control[] { _tourStrip, _widthTip, _notice, _acceptAll, _bulk, _stop, _batchStop, _legend, _byRule, _byFile, _backToRules, _showSkipped, _showAllRules, _checklist, _list, _result,
+            var order = new Control[] { _tourStrip, _widthTip, _notice, _acceptAll, _bulk, _stop, _batchStop, _legend, _exemptions, _byRule, _byFile, _backToRules, _showSkipped, _showAllRules, _checklist, _list, _result,
                                         _accept, _changeAll, _reject, _edit, _refine, _reanalyze, _rule, _fixRule, _reviewRule, _turnOffRule, _skipRule, _cardDiff, _cardWhy, _recheck, _ignore };
             for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
             A11y.Apply(this);
@@ -1080,6 +1084,35 @@ namespace FlareAI.Flare.UI
             _excluded.Text = "Excluded Files (" + n + ")";
         }
 
+        /// <summary>The project's exemptions, to read and remove. Works in Lint Topic too: it needs only the topic's project.</summary>
+        private void ShowExemptions()
+        {
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            using (var f = new ExemptionsForm(root, RuleTitleOf)) f.ShowDialog(FindForm());
+            UpdateExemptions();
+        }
+
+        private void UpdateExemptions()
+        {
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            var n = Exemptions.Load(root).Count;   // every line in the file, not only the ones this pane hid
+            _exemptions.Visible = n > 0;
+            _exemptions.Text = "Exemptions (" + n + ")";
+        }
+
+        private string RuleTitleOf(string id)
+        {
+            var rule = _runner.RuleFor(id);
+            return rule != null && !string.IsNullOrEmpty(rule.Display) ? rule.Display : id;
+        }
+
+        /// <summary>" 2 issues are exempt." when exemptions hid issues from this lint; empty otherwise. Added to the end of a finished lint's status.</summary>
+        private string ExemptTail()
+        {
+            var n = _session.ExemptHidden;
+            return n == 0 ? "" : " " + Plural.Of(n, "issue") + (n == 1 ? " is" : " are") + " exempt.";
+        }
+
         // ---- end-to-end runner (E2EHook) ---------------------------------------------------------------
 
         /// <summary>The status line and the rows as the writer sees them.</summary>
@@ -1201,6 +1234,7 @@ namespace FlareAI.Flare.UI
             // GuideWriteException is an IOException, so one catch covers both.
             try { _session.Exempt(f); }
             catch (System.IO.IOException ex) { Diagnostics.Log("exempt this text", ex); Notify.Failed(FindForm(), "exempt this text", ex, "Exemptions"); }
+            UpdateExemptions();
         }
 
         /// <summary>
@@ -1313,7 +1347,8 @@ namespace FlareAI.Flare.UI
                 _cost.Text = AiCost.Session();
                 if (e.Cancelled)
                 {
-                    _status.Text = Summary() + "  Stopped after " + _doneUnits + " of " + _unitCount + " paragraphs. Lint Again reviews the rest.";
+                    _status.Text = Summary() + "  Stopped after " + _doneUnits + " of " + _unitCount + " paragraphs. Lint Again reviews the rest." + ExemptTail();
+                    UpdateExemptions();
                     UpdateButtons();
                     UpdateChecklist();
                     return;
@@ -1339,6 +1374,8 @@ namespace FlareAI.Flare.UI
                 ShowRequestNote();
                 var team = Team.Current;
                 if (team != null && team.Status != null && team.Status.Behind > 0) _status.Text += "  " + team.Status;
+                _status.Text += ExemptTail();
+                UpdateExemptions();
                 if (_list.SelectedItems.Count == 0) _session.Next();
                 UpdateButtons();
                 UpdateChecklist();
@@ -1385,9 +1422,11 @@ namespace FlareAI.Flare.UI
                     var guide = _runner.GuideNotice;
                     if (guide != null) _status.Text += "  " + guide;
                     ShowRequestNote();
+                    _status.Text += ExemptTail();
                     if (RuleRows && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
+                    UpdateExemptions();
                 }
                 UpdateButtons();
                 UpdateChecklist();
