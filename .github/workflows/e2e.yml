@@ -31,6 +31,7 @@ jobs:
         shell: powershell
         # From main, so a branch can't change its own check. Exits 1 with the reason when the VM can't drive Flare.
         run: |
+          $ErrorActionPreference = 'Continue'   # git's stderr is not an error here; its exit code decides
           $check = Join-Path $env:RUNNER_TEMP 'Test-FlareReady.ps1'
           $text = git show origin/main:tests/e2e/Test-FlareReady.ps1 2>$null
           # ponytail: main had it under scripts/factory until the factory moved out (PR 275); drop this once merged.
