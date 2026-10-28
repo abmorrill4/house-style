@@ -41,6 +41,15 @@ namespace FlareAI.Core.Actions
     }
 
     /// <summary>
+    /// A host that can ask for a required text answer. Null, empty or whitespace means cancelled. A host without it is asked
+    /// through <see cref="IReviewHost.AskText"/> instead.
+    /// </summary>
+    public interface IRequiredTextHost
+    {
+        string AskRequiredText(string title, string label);
+    }
+
+    /// <summary>
     /// The review pane's decisions, without the pane: the list of suggestions in reading order, which one is selected, and
     /// what Apply, Apply all fixes, Write all as tracked changes, Reject, Skip, Edit, Turn off this rule and Go to do to the
     /// topic, its snippets, the feedback log and the style guide. The Flare pane renders it and forwards clicks; tests drive
@@ -1028,6 +1037,48 @@ namespace FlareAI.Core.Actions
             Sort();
             Select(next);
             Status = Summary() + "  Ignored. It stays hidden for this text.";
+        }
+
+        /// <summary>
+        /// True when this finding can be exempted: its text is in a topic the exemptions can be kept for, and it has a rule
+        /// key (a guide rule, or a structure rule). An AI finding with no guide rule can't be exempted.
+        /// </summary>
+        public bool CanExempt(StyleFinding f)
+        {
+            if (f == null || string.IsNullOrEmpty(f.Excerpt)) return false;
+            var topic = Exemptions.TopicFor(f.DocumentPath ?? _doc.SourcePath);
+            if (topic == null || !Exemptions.IsSafeTopicPath(topic)) return false;
+            return !string.IsNullOrEmpty(f.RuleId) || (f.Rule ?? "").StartsWith("Structure.", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Exempt this text: hidden in this place for everyone on the project, with the rule still on. Asks for a reason first;
+        /// an empty answer writes nothing. A write that fails throws, and the finding stays where it was.
+        /// </summary>
+        public void Exempt(StyleFinding f)
+        {
+            if (!CanExempt(f)) return;
+            var reason = AskRequiredText("Exempt This Text", "Why is this text exempt?");
+            if (reason == null) return;
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            if (root == null) { Status = Summary() + "  Not exempted. This topic isn't in a Flare project."; return; }
+            var team = CurrentTeam();
+            var who = team == null ? Team.AnonymousId() : team.FeedbackWriter;
+            Exemptions.Add(root, _doc.SourcePath, f, reason, who, DateTime.Today);
+            _exemptHidden.Add(Exemptions.Identity(Exemptions.TopicFor(f.DocumentPath ?? _doc.SourcePath), Exemptions.RuleKey(f), f.Excerpt, f.Before));
+            var next = NextAfter(f);
+            _findings.Remove(f);
+            Sort();
+            Select(next);
+            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
+        }
+
+        /// <summary>The answer to a required text prompt, trimmed, or null when cancelled or blank.</summary>
+        private string AskRequiredText(string title, string label)
+        {
+            var required = _host as IRequiredTextHost;
+            var answer = required != null ? required.AskRequiredText(title, label) : _host.AskText(title, label, "", false);
+            return string.IsNullOrWhiteSpace(answer) ? null : answer.Trim();
         }
 
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>

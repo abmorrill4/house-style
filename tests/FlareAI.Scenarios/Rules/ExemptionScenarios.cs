@@ -196,5 +196,84 @@ namespace FlareAI.Scenarios.Rules
                 Assert.Equal(1, fx.Session.ExemptHidden);
             }
         }
+
+        [Fact]
+        public void Exempt_WithAReason_HidesTheIssueAtOnceAndWritesTheLine()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                fx.LintOnlyCheck();
+                var s = fx.Session;
+                var f = s.Findings.First(x => x.RuleId == EMail);
+                fx.Host.AskTextAnswer = "  Brand name.  ";
+
+                s.Exempt(f);
+
+                Assert.Equal(1, Count(s, EMail));
+                Assert.Equal(1, s.ExemptHidden);
+                Assert.EndsWith(" 1 issue is exempt.", s.Status);
+                var entry = Exemptions.Current(Root(fx)).Entries.Single();
+                Assert.Equal("Brand name.", entry.Reason);
+                Assert.Equal(f.Excerpt, entry.Text);
+            }
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Exempt_WithAnEmptyReason_WritesNothing(string answer)
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                fx.LintOnlyCheck();
+                var s = fx.Session;
+                fx.Host.AskTextAnswer = answer;
+
+                s.Exempt(s.Findings.First(x => x.RuleId == EMail));
+
+                Assert.False(File.Exists(Exemptions.FileFor(Root(fx))));
+                Assert.Equal(2, Count(s, EMail));
+                Assert.Equal(0, s.ExemptHidden);
+            }
+        }
+
+        [Fact]
+        public void RemovedExemption_ShowsTheIssueAgain()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                Exempt(fx, Lint(fx).First(f => f.RuleId == EMail));
+                fx.LintOnlyCheck();
+                Assert.Equal(1, fx.Session.ExemptHidden);
+
+                Exemptions.Remove(Root(fx), Exemptions.Current(Root(fx)).Entries.Single());
+
+                fx.Restart();
+                fx.LintOnlyCheck();
+                Assert.Equal(2, Count(fx.Session, EMail));
+                Assert.Equal(0, fx.Session.ExemptHidden);
+            }
+        }
+
+        [Fact]
+        public void AGuideRuleFinding_OffersExempt()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                Assert.True(fx.Session.CanExempt(Lint(fx).First(f => f.RuleId == EMail)));
+            }
+        }
+
+        [Fact]
+        public void AnAiFindingWithNoRuleId_DoesNotOfferExempt()
+        {
+            using (var fx = ReviewFixture.Scratch(Body))
+            {
+                var ai = new StyleFinding { Source = "ai", Layer = "ai", Rule = "Clarity", Excerpt = "e-mail", Before = "Send the " };
+
+                Assert.False(fx.Session.CanExempt(ai));
+            }
+        }
     }
 }
