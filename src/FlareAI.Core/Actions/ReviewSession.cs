@@ -60,6 +60,7 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _ignoredAi;
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _exemptHidden = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
         private bool _watching, _offThreadLogged;
         private int _uiThread, _pendingMarked, _pendingReopened;
@@ -122,8 +123,18 @@ namespace FlareAI.Core.Actions
         /// <summary>The last status line the session wrote.</summary>
         public string Status
         {
-            get { return _status; }
-            private set { _status = value; var h = StatusChanged; if (h != null) h(value); }
+            get { return WithExemptTail(_status); }
+            private set { _status = value; var h = StatusChanged; if (h != null) h(WithExemptTail(value)); }
+        }
+
+        /// <summary>How many different findings the exemptions kept out of the list.</summary>
+        public int ExemptHidden { get { return _exemptHidden.Count; } }
+
+        private string WithExemptTail(string status)
+        {
+            var n = _exemptHidden.Count;
+            if (status == null || n == 0) return status;
+            return status + " " + Plural.Of(n, "issue") + (n == 1 ? " is" : " are") + " exempt.";
         }
 
         /// <summary>The list changed (added, applied, removed, re-sorted): redraw it, keeping <see cref="Current"/> selected.</summary>
@@ -155,6 +166,7 @@ namespace FlareAI.Core.Actions
         {
             _findings.Clear();
             _skippedRules.Clear();
+            _exemptHidden.Clear();
             FocusRule = null;
             Current = null;
         }
@@ -164,9 +176,22 @@ namespace FlareAI.Core.Actions
         {
             var ignoredAi = IgnoredAi();
             var added = new List<StyleFinding>();
+            string exemptRoot = null;
+            var exemptRootKnown = false;
             foreach (var f in found)
             {
                 if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) continue;
+                var exemptTopic = Exemptions.TopicFor(f.DocumentPath ?? _doc.SourcePath);
+                if (exemptTopic != null)
+                {
+                    if (!exemptRootKnown) { exemptRoot = StyleEngine.FlareProjectRoot(_doc.SourcePath); exemptRootKnown = true; }
+                    var exemptKey = Exemptions.RuleKey(f);
+                    if (exemptRoot != null && Exemptions.Covers(Exemptions.Current(exemptRoot), exemptTopic, exemptKey, f.Excerpt, f.Before))
+                    {
+                        _exemptHidden.Add(Exemptions.Identity(exemptTopic, exemptKey, f.Excerpt, f.Before));
+                        continue;
+                    }
+                }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
                 if (f.Layer != "ai" && f.RuleSection == null)
                 {
@@ -204,6 +229,12 @@ namespace FlareAI.Core.Actions
             if (_project) return;
             RecheckApplied();   // an undone fix is live again, so the fresh lint below replaces it instead of duplicating it
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
+            var topic = Exemptions.TopicFor(_doc.SourcePath);
+            if (topic != null)
+            {
+                var prefix = topic.ToLowerInvariant() + "\t";
+                _exemptHidden.RemoveWhere(id => id.StartsWith(prefix, StringComparison.Ordinal));
+            }
             Add(lint);
         }
 
@@ -773,7 +804,7 @@ namespace FlareAI.Core.Actions
             {
                 foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
                 var inSnippets = _findings.FindAll(f => f.CanFix && f.DocumentPath != null && !_project).Count;
-                if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
+                if (inSnippets > 0) Status = _status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
                 else Next();
             };
