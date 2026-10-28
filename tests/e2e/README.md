@@ -55,7 +55,7 @@ A `scenarios\*.ps1` file takes `-Fixture` and throws on failure. Use the module'
 `Send-E2E <verb>` (`open`, `click`, `rowMenu`, `command`, `dialogClick`, `dialogSelect`, `state`, and the verbs below),
 `Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them, and start one through the company AI service with
 `Start-FlareE2E -Bifrost`. CI runs them on `main`, nightly, by hand, and on a build factory `factory/*` branch whose
-change touches the AI (`aiPaths` in `rules/factory.json`), gating the merge. A factory branch's AI scenarios all go
+change touches the AI (`aiPaths` in `tests/e2e/ai-paths.json` on main), gating the merge. A factory branch's AI scenarios all go
 through the owner's Bifrost gateway (aigw.praeviderant.com), with the Flare VM's own key.
 Other branch pushes skip them, because their
 results vary from run to run. `Get-E2EHistory.ps1` shows how each scenario has done over recent runs.

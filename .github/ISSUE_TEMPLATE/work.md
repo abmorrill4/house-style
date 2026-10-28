@@ -1,12 +1,12 @@
 ---
 name: Work item
-about: A fix, feature or larger piece of work, tracked through the work loop
+about: A fix, feature or larger piece of work
 labels: []
 ---
 
 <!-- This repo is public. A vulnerability with an exploit path goes to a private security advisory, not here.
      Never paste tester report text or names. Add one origin label: from:tester, from:owner or from:research.
-     Add an area:* label (rules/areas.json) and set When on the board. -->
+     Add an area:* label and set When on the board. -->
 
 **Size:** Fix | Feature | Large
 

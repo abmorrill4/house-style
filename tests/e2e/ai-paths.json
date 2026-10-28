@@ -1,0 +1,3 @@
+{
+  "aiPaths": "^src/FlareAI\\.Core/(Llm|Prompts)/|^src/FlareAI\\.Core/Actions/(ActionRunner|Assists|BatchPlan|BatchRun|Contracts|ExampleResult|MeaningGuard|PromptBuilder|ResponseParser|ReviewCache|ReviewSession)\\.cs$|^tests/e2e/scenarios/ai-"
+}
