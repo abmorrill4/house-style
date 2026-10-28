@@ -24,6 +24,9 @@ namespace FlareAI.Core.Actions
         public string When { get; set; }
     }
 
+    /// <summary>Whether an exemption still points at something: its text is in the topic, the topic lacks it, or the topic is gone.</summary>
+    public enum StaleState { Ok, TextNotFound, TopicNotFound }
+
     /// <summary>The exemptions of one project, with a lookup by topic, rule, text and context.</summary>
     public sealed class ExemptionSet
     {
@@ -51,6 +54,8 @@ namespace FlareAI.Core.Actions
         private const long MaxFileBytes = 1024 * 1024;
         private const int MaxRuleLength = 200;
         private const int MaxFieldLength = 2000;
+        private const long MaxTopicBytes = 2 * 1024 * 1024;
+        private const int MaxStaleTopics = 200;
 
         private static readonly HashSet<string> DeviceNames = new HashSet<string>(new[]
         {
@@ -202,6 +207,58 @@ namespace FlareAI.Core.Actions
             var kept = lines.Where(l => { var p = ParseLine(l); return p == null || Identity(p.Topic, p.Rule, p.Text, p.Before) != id; }).ToList();
             if (kept.Count == lines.Length) return;
             Save(root, kept);
+        }
+
+        /// <summary>
+        /// For the list dialog: whether each entry's topic still holds its text. Same order as the entries. Reads topics
+        /// shared and read only, never writes, and is never part of matching. Entries on topics past the limit count as Ok.
+        /// </summary>
+        public static IList<StaleState> Stale(string root, IList<ExemptionEntry> entries)
+        {
+            var result = new StaleState[entries.Count];
+            var texts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // null = topic not found
+            string content = null;
+            if (root != null)
+            {
+                var c = LintExclusions.ContentOf(root);
+                if (c != null) content = Path.GetFullPath(c).TrimEnd('\\') + "\\";
+            }
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                var topic = e.Topic ?? "";
+                string text;
+                if (!texts.TryGetValue(topic, out text))
+                {
+                    if (texts.Count >= MaxStaleTopics) { result[i] = StaleState.Ok; continue; }
+                    text = ReadTopicText(content, topic);
+                    texts[topic] = text;
+                }
+                if (text == null) result[i] = StaleState.TopicNotFound;
+                else result[i] = text.Contains((e.Before ?? "") + (e.Text ?? "")) ? StaleState.Ok : StaleState.TextNotFound;
+            }
+            return new ReadOnlyCollection<StaleState>(result);
+        }
+
+        /// <summary>The plain text of a topic, or null when it is unsafe, outside Content, missing, unreadable or over 2 MB.</summary>
+        private static string ReadTopicText(string content, string topic)
+        {
+            if (content == null || !IsSafeTopicPath(topic)) return null;
+            try
+            {
+                var full = Path.GetFullPath(Path.Combine(content, topic.Replace('/', '\\')));
+                if (full.StartsWith("\\\\", StringComparison.Ordinal) || !full.StartsWith(content, StringComparison.OrdinalIgnoreCase)) return null;
+                using (var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    if (fs.Length > MaxTopicBytes) return null;
+                    using (var r = new StreamReader(fs, Encoding.UTF8, true))
+                        return NoteText.CleanHtml(r.ReadToEnd());
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+            {
+                return null;
+            }
         }
 
         private static ExemptionSet Empty() { return new ExemptionSet(new List<ExemptionEntry>()); }

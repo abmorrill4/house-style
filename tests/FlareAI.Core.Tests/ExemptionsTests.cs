@@ -190,6 +190,46 @@ namespace FlareAI.Core.Tests
             Assert.Contains("# Text exempted from a rule. One per line, tab separated.", File.ReadAllLines(Exemptions.FileFor(_root)));
         }
 
+        private static ExemptionEntry Entry(string topic, string text = "will", string before = "It ")
+        {
+            return new ExemptionEntry { Topic = topic, Rule = "google.Will", Text = text, Before = before, Reason = "r", Who = "w", When = "2026-10-28" };
+        }
+
+        [Fact]
+        public void IsStale_WhenTheTopicNoLongerHoldsTheText()
+        {
+            File.WriteAllText(Topic("a.htm"), "<html><body><p>It <b>will</b> work.</p></body></html>");
+            var s = Exemptions.Stale(_root, new[] { Entry("a.htm"), Entry("A.HTM", "won't"), Entry("a.htm", "will", "They ") });
+            Assert.Equal(new[] { StaleState.Ok, StaleState.TextNotFound, StaleState.TextNotFound }, s.ToArray());
+        }
+
+        [Fact]
+        public void IsStale_ShowsTopicNotFound_ForAMissingMovedOrUnsafeTopic()
+        {
+            File.WriteAllText(Topic("a.htm"), "<p>It will</p>");
+            var s = Exemptions.Stale(_root, new[] { Entry("gone.htm"), Entry(@"Sub\a.htm"), Entry("..\\a.htm"), Entry("a.txt") });
+            Assert.All(s, x => Assert.Equal(StaleState.TopicNotFound, x));
+        }
+
+        [Fact]
+        public void IsStale_NeverOpensARootedDeviceOrAlternateStreamPath()
+        {
+            File.WriteAllText(Topic("a.htm"), "<p>It will</p>");
+            var s = Exemptions.Stale(_root, new[]
+            {
+                Entry(@"C:\Windows\a.htm"), Entry(@"\\server\share\a.htm"), Entry(@"\\?\C:\a.htm"), Entry("NUL.htm"), Entry("a.htm:stream.htm")
+            });
+            Assert.All(s, x => Assert.Equal(StaleState.TopicNotFound, x));
+        }
+
+        [Fact]
+        public void IsStale_NeverReadsOutsideContent()
+        {
+            File.WriteAllText(Path.Combine(_root, "Outside.htm"), "<p>It will</p>");
+            var s = Exemptions.Stale(_root, new[] { Entry(@"..\Outside.htm"), Entry(@"Sub\..\..\Outside.htm") });
+            Assert.All(s, x => Assert.Equal(StaleState.TopicNotFound, x));
+        }
+
         [Fact]
         public void Current_ReloadsAfterAWrite()
         {

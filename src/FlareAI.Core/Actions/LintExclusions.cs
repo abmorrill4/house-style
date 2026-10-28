@@ -62,7 +62,7 @@ namespace FlareAI.Core.Actions
             File.WriteAllLines(file, lines.ToArray());
         }
 
-        private static string ContentOf(string path)
+        internal static string ContentOf(string path)
         {
             var root = StyleEngine.FlareProjectRoot(path);
             return root == null ? null : Path.Combine(root, "Content") + "\\";
