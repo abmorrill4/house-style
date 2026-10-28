@@ -1,8 +1,3 @@
----
-name: coding-standards
-description: The House Style hard constraints and security invariants from CLAUDE.md, each with a short right and wrong example. Use when writing or reviewing C# or PowerShell in this repo, or deciding whether a change breaks a constraint.
----
-
 # Coding standards
 
 CLAUDE.md is the source. This skill repeats its hard constraints with examples, so a change can be checked quickly.

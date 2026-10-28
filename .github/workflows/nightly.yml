@@ -1,6 +1,6 @@
 # The nightly release: if anything that ships changed since the last release, tag the next patch version on main and
 # start build.yml on that tag, which builds, signs and publishes it. No approval click (owner decision 2026-10-24).
-# To stop releases, disable this workflow (gh workflow disable nightly). FACTORY_MODE doesn't touch it (owner decision 2026-10-26).
+# To stop releases, disable this workflow (gh workflow disable nightly).
 # The tag ruleset blocks moving or deleting v* tags, and only a release started by this workflow publishes (the
 # release job in build.yml checks that through the API). GitHub doesn't start workflows from a tag this job's
 # token pushes, so the build is started with a workflow_dispatch, which it does allow, carrying this run's id; the

@@ -1,8 +1,3 @@
----
-name: repo-map
-description: Where things live in the House Style repo, by area, so a lookup starts in the right file. Use when asked where X lives, which file owns a behavior, or which tests cover an area.
----
-
 # Repo map
 
 CLAUDE.md has the top-level map. This adds the files people ask about most. Prefer `Grep` and `Glob` over reading
@@ -50,7 +45,6 @@ The `testing` skill says which of these to use first.
 ## Other places
 - `styleguide/Company/` holds team rule rows. `styleguide/Google/` is generated, never edited by hand.
 - `changes/<name>.md` holds one note per writer-visible change (`changes/README.md`).
-- `scripts/factory/` runs the factory on the VM. `scripts/agent/` holds the agent check scripts. `rules/` holds the
-  routing rules. `.claude/agents/`, `.claude/skills/` and `.claude/workflows/` hold the agents, skills and review
-  workflow. Fix agents never change any of these.
+- The build factory (its agents, skills, review workflow, routing rules and scripts) lives in the private repo
+  abmorrill4/house-style-factory, not here.
 - `docs/api-dump.txt` is the real Flare API and `docs/flare-api-notes.md` the verified Flare behavior.

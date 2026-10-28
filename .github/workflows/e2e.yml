@@ -27,15 +27,20 @@ jobs:
           persist-credentials: false
           fetch-depth: 0   # a factory branch's diff from main decides whether the ai-* scenarios run
 
-      - name: Check the factory VM is ready
+      - name: Check the Flare VM is ready
         shell: powershell
-        run: .\scripts\factory\Test-FactoryReady.ps1   # exits 1 with the reason when the VM can't drive Flare
+        # From main, so a branch can't change its own check. Exits 1 with the reason when the VM can't drive Flare.
+        run: |
+          $check = Join-Path $env:RUNNER_TEMP 'Test-FlareReady.ps1'
+          (git show origin/main:tests/e2e/Test-FlareReady.ps1) | Set-Content -Encoding UTF8 $check
+          & $check
+          exit $LASTEXITCODE
 
       - name: Run the scenarios in Flare
         shell: powershell
         env:
           # The ai-* scenarios need AI, so they run on main, nightly, by hand, and on the build factory's factory/*
-          # branches whose change touches the AI (rules/factory.json aiPaths), where they gate the merge (owner decision
+          # branches whose change touches the AI (aiPaths in tests/e2e/ai-paths.json on main), where they gate the merge (owner decision
           # 2026-10-26). This runner also runs agent-written code from factory/* branches and keeps state between jobs,
           # so it never gets ANTHROPIC_API_KEY. All its AI goes through the owner's Bifrost gateway
           # (aigw.praeviderant.com) with a virtual key that is for this Flare VM only (owner, 2026-10-27; saved as
@@ -46,9 +51,9 @@ jobs:
         run: |
           $factory = $env:GITHUB_REF_NAME -like 'factory/*'
           if ($factory) {
-            # Only a change that touches the AI runs the ai-* scenarios. rules/ is owner-only for the factory, so the
-            # branch can't change the list. A change that needs them and has no key fails instead of skipping AI.
-            $aiPaths = (Get-Content rules\factory.json -Raw | ConvertFrom-Json).aiPaths
+            # Only a change that touches the AI runs the ai-* scenarios. The list is read from main, so the branch
+            # can't change it. A change that needs them and has no key fails instead of skipping AI.
+            $aiPaths = ((git show origin/main:tests/e2e/ai-paths.json) -join "`n" | ConvertFrom-Json).aiPaths
             $changed = @(git -c core.quotePath=false diff --name-only --no-renames origin/main...HEAD)
             $touchesAi = @($changed | Where-Object { $_ -match $aiPaths }).Count -gt 0
             if (-not $touchesAi) { $env:HOUSESTYLE_TEST_BIFROST_KEY = '' }
