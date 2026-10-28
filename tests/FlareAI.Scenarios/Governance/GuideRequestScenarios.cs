@@ -696,7 +696,7 @@ namespace FlareAI.Scenarios.Governance
             public bool Confirm(string message, string action) { Confirms.Add(message); return true; }
             public RuleSettingChoice ChooseRuleSetting(string ruleText, bool canChangeTeamGuide, bool personalGuide, IList<RuleRef> otherRules) { return RuleChoice; }
             public RuleSettingChoice ChooseRequest(RequestQuestion question) { Request = question; return OnRequest != null ? OnRequest(question) : RequestChoice; }
-            public string AskText(string title, string label, string initial, bool multiline) { return null; }
+            public string AskText(string title, string label, string initial, bool multiline, bool required = false) { return null; }
             public IDocumentAdapter OpenDocument(string path) { return null; }
             public bool PreviewBatch(BatchPlan plan) { return true; }
             public bool SaveAndClose(IDocumentAdapter doc) { return false; }

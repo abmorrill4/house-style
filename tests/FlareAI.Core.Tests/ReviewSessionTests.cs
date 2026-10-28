@@ -1263,7 +1263,7 @@ namespace FlareAI.Core.Tests
 
             public RuleSettingChoice ChooseRequest(RequestQuestion question) { Request = question; return OnRequest != null ? OnRequest(question) : RequestChoice; }
 
-            public string AskText(string title, string label, string initial, bool multiline) { TextLabels.Add(label); return TextAnswer; }
+            public string AskText(string title, string label, string initial, bool multiline, bool required = false) { TextLabels.Add(label); return TextAnswer; }
 
             public IDocumentAdapter OpenDocument(string path)
             {

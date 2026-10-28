@@ -83,7 +83,7 @@ namespace FlareAI.Scenarios.Review
             public bool Confirm(string message, string action) { return true; }
             public RuleSettingChoice ChooseRuleSetting(string ruleText, bool canChangeTeamGuide, bool personalGuide, IList<RuleRef> otherRules) { return RuleChoice; }
             public RuleSettingChoice ChooseRequest(RequestQuestion question) { return null; }
-            public string AskText(string title, string label, string initial, bool multiline) { return null; }
+            public string AskText(string title, string label, string initial, bool multiline, bool required = false) { return null; }
             public IDocumentAdapter OpenDocument(string path) { return _ws.OpenForPlugin(path); }
             public bool PreviewBatch(BatchPlan plan) { Previewed.Add(plan); return PreviewAnswer; }
             public bool SaveAndClose(IDocumentAdapter doc)

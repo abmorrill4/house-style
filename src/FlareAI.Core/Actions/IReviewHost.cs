@@ -32,7 +32,7 @@ namespace FlareAI.Core.Actions
         RuleSettingChoice ChooseRequest(RequestQuestion question);
 
         /// <summary>A one-field text prompt. Null when cancelled.</summary>
-        string AskText(string title, string label, string initial, bool multiline);
+        string AskText(string title, string label, string initial, bool multiline, bool required = false);
 
         /// <summary>Opens a topic or snippet in the editor (or brings it to the front) and returns its adapter, or null.</summary>
         IDocumentAdapter OpenDocument(string path);

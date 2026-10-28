@@ -38,7 +38,7 @@ namespace FlareAI.Scenarios.Support
         }
 
         public RuleSettingChoice ChooseRequest(RequestQuestion question) { Request = question; return RequestChoice; }
-        public string AskText(string title, string label, string initial, bool multiline) { return AskTextAnswer; }
+        public string AskText(string title, string label, string initial, bool multiline, bool required = false) { return AskTextAnswer; }
 
         public IDocumentAdapter OpenDocument(string path)
         {
