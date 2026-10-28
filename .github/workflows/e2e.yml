@@ -32,7 +32,10 @@ jobs:
         # From main, so a branch can't change its own check. Exits 1 with the reason when the VM can't drive Flare.
         run: |
           $check = Join-Path $env:RUNNER_TEMP 'Test-FlareReady.ps1'
-          (git show origin/main:tests/e2e/Test-FlareReady.ps1) | Set-Content -Encoding UTF8 $check
+          $text = git show origin/main:tests/e2e/Test-FlareReady.ps1 2>$null
+          # ponytail: main had it under scripts/factory until the factory moved out (PR 275); drop this once merged.
+          if ($LASTEXITCODE) { $text = git show origin/main:scripts/factory/Test-FactoryReady.ps1 }
+          $text | Set-Content -Encoding UTF8 $check
           & $check
           exit $LASTEXITCODE
 
