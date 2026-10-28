@@ -154,6 +154,51 @@ namespace FlareAI.Core.Tests
             Assert.Equal("Exemptions.txt: 1 line skipped (line 1)", Assert.Single(ExemptionsLog()));
         }
 
+        private static Exemption Ex(string topic, string text)
+        {
+            return new Exemption(topic, "plain-words.utilize", text, "We ", "why", "me", "2026-10-28");
+        }
+
+        [Fact]
+        public void IsStale_WhenTheTopicNoLongerHoldsTheText()
+        {
+            File.WriteAllText(B, "<html><body><p>We utilize it.</p></body></html>");
+
+            Assert.Null(Exemptions.StaleNote(B, Ex(@"Sub\B.htm", "utilize")));
+            Assert.Equal("Text not found", Exemptions.StaleNote(B, Ex(@"Sub\B.htm", "leverage")));
+            Assert.Equal("Text not found", Exemptions.StaleNote(B, Ex(@"Sub\B.htm", "UTILIZE")));
+        }
+
+        [Fact]
+        public void IsStale_ShowsTopicNotFound_ForAMissingMovedOrUnsafeTopic()
+        {
+            File.WriteAllText(B, "<html><body><p>We utilize it.</p></body></html>");
+
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"Sub\Moved.htm", "utilize")));
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"Other\B.htm", "utilize")));
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"Sub\CON.htm", "utilize")));
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"Sub\B.txt", "utilize")));
+        }
+
+        [Fact]
+        public void IsStale_NeverOpensARootedDeviceOrAlternateStreamPath()
+        {
+            foreach (var topic in new[] { @"C:\x.htm", @"\\?\C:\x.htm", "a.htm:stream.htm", @"\\server\share\x.htm", @"\x.htm" })
+                Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(topic, "utilize")));
+        }
+
+        [Fact]
+        public void IsStale_NeverReadsOutsideContent()
+        {
+            File.WriteAllText(Path.Combine(_root, @"Project\Secret.htm"), "utilize");
+            File.WriteAllText(Path.Combine(_root, @"Content\Sub\B.htm"), "utilize");
+
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"..\Project\Secret.htm", "utilize")));
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"Sub\..\..\Project\Secret.htm", "utilize")));
+            Assert.Equal("Topic not found", Exemptions.StaleNote(B, Ex(@"..\Content\Sub\B.htm", "utilize")));
+            Assert.Null(Exemptions.StaleNote(B, Ex(@"Sub\B.htm", "utilize")));
+        }
+
         [Fact]
         public void Remove_DropsOnlyThatLine()
         {

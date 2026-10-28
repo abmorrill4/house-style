@@ -15,6 +15,8 @@ namespace FlareAI.Core.Actions
     public static class Exemptions
     {
         private const long MaxFileBytes = 1048576;
+        private const long MaxStaleFileBytes = 2097152;
+        private const int MaxStaleTopics = 200;
         private const int MaxRuleChars = 200;
         private const int MaxFieldChars = 2000;
         private const string Header = "# Text exempted from a rule. One per line, tab separated.\r\n";
@@ -153,6 +155,58 @@ namespace FlareAI.Core.Actions
                 if (DeviceNames.Contains(seg.Split('.')[0].TrimEnd(' '))) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// For the list form only: null when the exemption's text is still in its topic, "Text not found" when the topic
+        /// no longer holds it, "Topic not found" when the topic is missing, unsafe, unreadable or outside Content.
+        /// </summary>
+        public static string StaleNote(string anyPath, Exemption e)
+        {
+            if (e == null) return null;
+            var notes = StaleNotes(anyPath, new[] { e });
+            string note;
+            return notes.TryGetValue(e, out note) ? note : null;
+        }
+
+        /// <summary>The stale notes for a list, keyed by exemption (only stale ones). Reads each topic once; stops at 200 distinct topics.</summary>
+        public static Dictionary<Exemption, string> StaleNotes(string anyPath, IList<Exemption> list)
+        {
+            var notes = new Dictionary<Exemption, string>();
+            if (list == null || list.Count == 0) return notes;
+            var topics = list.Select(x => (x.Topic ?? "").Replace('/', '\\')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (topics.Count > MaxStaleTopics) return notes;
+            var root = StyleEngine.FlareProjectRoot(anyPath);
+            var content = root == null ? null : Path.Combine(root, "Content");
+            var texts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var topic in topics) texts[topic] = ReadTopic(content, topic);
+            foreach (var x in list)
+            {
+                var text = texts[(x.Topic ?? "").Replace('/', '\\')];
+                if (text == null) notes[x] = "Topic not found";
+                else if (text.IndexOf(x.Text, StringComparison.Ordinal) < 0) notes[x] = "Text not found";
+            }
+            return notes;
+        }
+
+        /// <summary>The topic's contents, or null when it is unsafe, outside Content, missing, over 2 MB or unreadable. Never writes.</summary>
+        private static string ReadTopic(string content, string rel)
+        {
+            if (content == null || !IsSafeTopicPath(rel)) return null;
+            try
+            {
+                var full = Path.GetFullPath(Path.Combine(content, rel));
+                if (full.StartsWith("\\\\")) return null;
+                if (!full.StartsWith(content.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return null;
+                if (!File.Exists(full) || new FileInfo(full).Length > MaxStaleFileBytes) return null;
+                using (var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                    return reader.ReadToEnd();
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+            {
+                return null;
+            }
         }
 
         private static bool TryParse(string line, out Exemption e)
