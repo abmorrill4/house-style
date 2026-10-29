@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Xml;
 using FlareAI.Core.Style;
@@ -6,8 +8,51 @@ using Xunit;
 
 namespace FlareAI.Core.Tests
 {
-    public class StructureCheckTests
+    public class StructureCheckTests : IDisposable
     {
+        private readonly string _temp = Path.Combine(Path.GetTempPath(), "flareai-structure-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_temp, true); } catch (Exception) { }
+        }
+
+        private static string Repo
+        {
+            get
+            {
+                var d = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+                while (d != null && !File.Exists(Path.Combine(d.FullName, "FlareAI.sln"))) d = d.Parent;
+                return d.FullName;
+            }
+        }
+
+        private static string Guide { get { return Path.Combine(Repo, "styleguide"); } }
+
+        private static void Write(string root, string rel, string text)
+        {
+            var p = Path.Combine(root, rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(p));
+            File.WriteAllText(p, text);
+        }
+
+        /// <summary>A team guide folder (a Flare project shape) with one table row, so it has a rule of its own.</summary>
+        private static string TeamGuide(string folder)
+        {
+            Write(folder, "Team.flprj", "<CatapultProject />");
+            Write(folder, @"Content\Resources\StyleGuide\Words.htm", "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Words</h1>" +
+                "<table><tr><th>Avoid</th><th>Use</th><th>Example</th></tr><tr><td>kick off</td><td>start</td><td>Kick off the import.</td></tr></table></body></html>");
+            return folder;
+        }
+
+        /// <summary>The built-in checks are listed once, in order, as the second source (after Google), and nowhere else.</summary>
+        private static void AssertBuiltInListed(StyleEngine engine)
+        {
+            var cat = RuleCatalog.Build(engine.Compose(null), r => false);
+            Assert.Equal("Built-in checks", cat.Sources[1]);
+            Assert.Equal(StructureCheck.Rules.Select(r => r.Id).ToList(), cat.Rules.Where(r => r.Source == "Built-in checks").Select(r => r.Id).ToList());
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
@@ -89,6 +134,123 @@ namespace FlareAI.Core.Tests
             Assert.Empty(StructureCheck.Of(Body(
                 "<h1>Pay bills</h1><p><img src=\"a.png\" alt=\"The Pay Bills page\" /></p><h2>Steps</h2>" +
                 "<table><tr><th>Name</th></tr><tr><td>A</td></tr></table><p>See <a href=\"y.htm\">Payee limits</a>.</p>")));
+        }
+
+        [Fact]
+        public void Findings_CarryAStableRuleId_ForEachOfTheSixChecks()
+        {
+            var found = StructureCheck.Settle(StructureCheck.Of(Body(
+                "<h1>Pay bills</h1><p><img src=\"a.png\" /></p><h3>Skipped a level</h3><h1>Second title</h1>" +
+                "<table><tr><td>Name</td></tr></table><p><a href=\"x.htm\">click here</a> Call 800-555-0100.</p>")), (id, name) => null);
+            Assert.All(found, f => Assert.NotNull(f.RuleId));
+            Assert.Equal(new[] { "structure:alt-text", "structure:hard-coded", "structure:heading-order", "structure:link-text", "structure:one-h1", "structure:table-header" },
+                found.Select(f => f.RuleId).Distinct().OrderBy(id => id, System.StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public void Find_AcceptsIdOrNameInAnyCase()
+        {
+            Assert.Equal("structure:heading-order", StructureCheck.Find("STRUCTURE:HEADING-ORDER").Id);
+            Assert.Equal("structure:heading-order", StructureCheck.Find("structure.headingorder").Id);
+            Assert.Equal("structure:heading-order", StructureCheck.Find("Structure.HeadingOrder").Id);
+            Assert.Null(StructureCheck.Find("structure:alt-text-x"));
+            Assert.Null(StructureCheck.Find("Structure.AltTextFoo"));
+            Assert.Null(StructureCheck.Find(null));
+            Assert.Equal("structure:heading-order", StructureCheck.IdOf("Structure.HeadingOrder"));
+            Assert.Equal("structure:alt-text-x", StructureCheck.IdOf("structure:alt-text-x"));
+            Assert.Equal("Structure.AltTextFoo", StructureCheck.IdOf("Structure.AltTextFoo"));
+        }
+
+        [Fact]
+        public void Of_LeavesRuleIdNull()
+        {
+            var found = StructureCheck.Of(Body("<h1>A</h1><h3>B</h3><img src=\"a.png\" />"));
+            Assert.NotEmpty(found);
+            Assert.All(found, f => Assert.Null(f.RuleId));
+        }
+
+        [Fact]
+        public void Settle_LeavesAiFindingsAlone()
+        {
+            var ai = new FlareAI.Core.Actions.StyleFinding { Source = "ai", Rule = "Structure.HeadingOrder", Severity = "warning", Excerpt = "B" };
+            var kept = StructureCheck.Settle(new List<FlareAI.Core.Actions.StyleFinding> { ai }, (id, name) => "off");
+            Assert.Single(kept);
+            Assert.Same(ai, kept[0]);
+            Assert.Null(ai.RuleId);
+            Assert.Equal("warning", ai.Severity);
+        }
+
+        [Fact]
+        public void Rules_ListsTheSixBuiltInChecks_InEveryComposition()
+        {
+            var mine = Path.Combine(_temp, @"AppData\FlareAI\StyleGuide");
+            GuideSeed.Ensure(Guide, mine);
+            Assert.True(GuideSeed.IsPersonal(mine));
+            AssertBuiltInListed(new StyleEngine(new[] { Guide, mine }, Guide));                                    // a personal guide
+            AssertBuiltInListed(new StyleEngine(new[] { TeamGuide(Path.Combine(_temp, "TeamGuide")) }, Guide));   // a team guide only
+            AssertBuiltInListed(new StyleEngine(new[] { Path.Combine(_temp, "Unreachable") }, Guide) { Fallback = () => new[] { Guide } });   // an unreadable guide folder
+        }
+
+        [Fact]
+        public void Compose_RenamesATeamLayerNamedStructure()
+        {
+            var team = TeamGuide(Path.Combine(_temp, "structure"));
+            var comp = new StyleEngine(new[] { team }, Guide).Compose(null);
+            Assert.Contains(comp.Layers, l => l.Name == "structure-guide");
+            Assert.DoesNotContain(comp.Layers, l => !l.IsBuiltIn && l.Name == "structure");
+
+            var cat = RuleCatalog.Build(comp, r => false);
+            Assert.Equal(cat.Rules.Count, cat.Rules.Select(r => r.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count());   // no id collision
+            Assert.Equal("Structure.HeadingOrder", cat.Find("structure:heading-order").Name);
+            var teamRules = cat.Rules.Where(r => r.Source == "Team style guide (structure)").ToList();
+            Assert.NotEmpty(teamRules);
+            Assert.All(teamRules, r => Assert.StartsWith("StructureGuide.", r.Name));
+            Assert.Equal(6, cat.Rules.Count(r => r.Source == "Built-in checks"));
+        }
+
+        [Fact]
+        public void Settle_OffDropsTheFinding_ALevelChangesIt()
+        {
+            var found = StructureCheck.Of(Body("<h1>A</h1><h3>B</h3>"));
+            Assert.Empty(StructureCheck.Settle(found, (id, name) => id == "structure:heading-order" ? "off" : null));
+
+            var levelled = StructureCheck.Settle(StructureCheck.Of(Body("<h1>A</h1><h3>B</h3>")), (id, name) => id == "structure:heading-order" ? "error" : null);
+            var f = Assert.Single(levelled);
+            Assert.Equal("structure:heading-order", f.RuleId);
+            Assert.Equal("error", f.Severity);
+        }
+
+        /// <summary>A team guide whose overrides.ini holds these lines, and the engine that reads it.</summary>
+        private StyleEngine EngineWithOverrides(string folder, string ini)
+        {
+            var team = TeamGuide(folder);
+            Write(team, @"Content\Resources\StyleGuide\overrides.ini", ini);
+            return new StyleEngine(new[] { team }, Guide);
+        }
+
+        [Fact]
+        public void StructureFindings_DropsAnOffRule_ByIdAndByLegacyName()
+        {
+            var headings = "<h1>A</h1><h3>B</h3>";
+            var legacy = EngineWithOverrides(Path.Combine(_temp, "Legacy"), "Structure.HeadingOrder = NO\n");
+            var byId = EngineWithOverrides(Path.Combine(_temp, "ById"), "structure:heading-order = off\n");
+            var none = EngineWithOverrides(Path.Combine(_temp, "None"), "");
+
+            Assert.Single(none.StructureFindings(null, Body(headings)));   // the control: the rule fires without an override
+            Assert.Empty(legacy.StructureFindings(null, Body(headings)));
+            Assert.Empty(byId.StructureFindings(null, Body(headings)));
+        }
+
+        [Fact]
+        public void StructureFindings_TakeTheOverrideLevel()
+        {
+            var byId = EngineWithOverrides(Path.Combine(_temp, "LevelById"), "structure:heading-order = suggestion\n");
+            var f = Assert.Single(byId.StructureFindings(null, Body("<h1>A</h1><h3>B</h3>")));
+            Assert.Equal("structure:heading-order", f.RuleId);
+            Assert.Equal("suggestion", f.Severity);
+
+            var legacy = EngineWithOverrides(Path.Combine(_temp, "LevelLegacy"), "Structure.HeadingOrder = suggestion\n");
+            Assert.Equal("suggestion", Assert.Single(legacy.StructureFindings(null, Body("<h1>A</h1><h3>B</h3>"))).Severity);
         }
     }
 }

@@ -131,7 +131,7 @@ namespace FlareAI.Core.Tests
                 Assert.Contains(msgs, m => m.Contains("Unknown severity"));
                 Assert.Contains(msgs, m => m.StartsWith("Duplicates company:plain-language/"));   // same word, same fix as a company rule
                 Assert.Contains(msgs, m => m.StartsWith("No rule 'google:nothing/9'"));
-                Assert.Equal(new[] { "google", "company", "project" }, e.Compose(topic).Layers.Select(l => l.Name).ToArray());
+                Assert.Equal(new[] { "google", "structure", "company", "project" }, e.Compose(topic).Layers.Select(l => l.Name).ToArray());
             }
             finally { Directory.Delete(root, true); }
         }

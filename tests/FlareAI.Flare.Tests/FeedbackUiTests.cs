@@ -215,7 +215,7 @@ namespace FlareAI.Flare.Tests
                 {
                     var list = All(panel).OfType<ListView>().Single();
                     var rowMenu = list.ContextMenuStrip.Items.Cast<ToolStripItem>().Select(i => i.Text).ToList();
-                    Assert.Equal(new[] { "Go To", "Mark as Fixed", "Open File", "Copy File Path", "", "Exclude File from Lint Project", "Exclude Folder from Lint Project", "", FindingsPanel.ReportFalsePositiveLabel }, rowMenu.ToArray());
+                    Assert.Equal(new[] { "Go To", "Mark as Fixed", "Open File", "Copy File Path", "", "Exclude File from Lint Project", "Exclude Folder from Lint Project", "", FindingsPanel.ReportFalsePositiveLabel, "Exempt This Text…" }, rowMenu.ToArray());
                     var ignore = (ContextMenuStrip)typeof(FindingsPanel).GetField("_rejectMenu", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(panel);
                     Assert.Equal(FindingsPanel.ReportFalsePositiveLabel, ignore.Items.Cast<ToolStripItem>().Last().Text);
                     Assert.Equal("Report False Positive…", FindingsPanel.ReportFalsePositiveLabel);
@@ -343,7 +343,7 @@ namespace FlareAI.Flare.Tests
             t.SetApartmentState(ApartmentState.STA);
             t.IsBackground = true;
             t.Start();
-            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            if (!t.Join(180000)) throw new TimeoutException("The UI test didn't finish in 180 s.");   // a loaded CI runner took the suite from 50 s to 2 min (2026-10-29)
             if (error != null) throw new Exception(error.Message, error);
         }
     }

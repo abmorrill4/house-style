@@ -25,8 +25,9 @@ namespace FlareAI.Flare.Tests
     {
         // The writer's data folder (onboarding notes, checklist) is a temp folder: a pane test never writes to %APPDATA%.
         private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hs-pane-" + Guid.NewGuid().ToString("N"));
+        private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
         public NarrowPaneTests() { System.IO.Directory.CreateDirectory(_root); FlareAI.Core.Paths.Root = _root; FlareAI.Core.Settings.GuidedTour.Stop(); }
-        public void Dispose() { FlareAI.Core.Paths.Root = null; try { System.IO.Directory.Delete(_root, true); } catch (Exception) { } }
+        public void Dispose() { FlareAI.Core.Paths.Root = _prevRoot; try { System.IO.Directory.Delete(_root, true); } catch (Exception) { } }
 
         private const string Topic = "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Transfers</h1>" +
                                      "<p>Please note that the fee is waived for members who move money between their own accounts.</p></body></html>";
@@ -1093,7 +1094,7 @@ namespace FlareAI.Flare.Tests
             });
         }
 
-        [Fact]
+        [DesktopFact]
         public void SwitchingTabs_MovesFocus_AndAltP_SwitchesWhenFocusIsInThePane()
         {
             WithPane((panel, form, list) =>
