@@ -147,6 +147,12 @@ namespace FlareAI.Core.Actions
 
         /// <summary>The topic's empty state.</summary>
         public const string NoIssuesInTopic = "No issues found in this topic.";
+        /// <summary>Status after one ignored issue came back.</summary>
+        public const string RestoredOneText = "Restored. The issue is back in the list.";
+        /// <summary>Status after several ignored issues came back.</summary>
+        public static string RestoredManyText(int n) { return "Restored " + n + " issues. They are back in the list."; }
+        /// <summary>Status when the restore could not be saved: the issue is back for now only.</summary>
+        public const string SaveFailedText = "Restored for now. House Style couldn't save this, so it may be hidden again next time.";
         private const string TextChanged = "The text changed. Lint the paragraph again.";
         private const string UndoneBack = "The change was undone. The issue is back.";
 
@@ -1044,6 +1050,67 @@ namespace FlareAI.Core.Actions
             Sort();
             Select(next);
             Status = Summary() + "  Ignored. It stays hidden for this text.";
+        }
+
+        /// <summary>What <see cref="Restore"/> did: how many issues came back, and whether the restore was saved.</summary>
+        public sealed class RestoreResult
+        {
+            public int Restored { get; private set; }
+            public bool Saved { get; private set; }
+            public RestoreResult(int restored, bool saved) { Restored = restored; Saved = saved; }
+        }
+
+        /// <summary>
+        /// Brings ignored issues back: they are shown again now and no longer hidden on later checks. Issues that are
+        /// the same text come back together. One that no longer matches its text exactly comes back marked stale.
+        /// The first one restored is selected.
+        /// </summary>
+        public RestoreResult Restore(IList<StyleFinding> items)
+        {
+            var saved = true;
+            var back = new List<StyleFinding>();
+            if (items != null)
+            {
+                foreach (var f in items)
+                {
+                    if (f == null) continue;
+                    if (_dismissed != null && !_dismissed.Restore(f, _doc.SourcePath)) saved = false;
+                    RecordFeedback(f, _doc.SourcePath, "restored", null);
+                    var key = Dismissals.Key(f, _doc.SourcePath);
+                    foreach (var m in _ignored.FindAll(x => Dismissals.Key(x, _doc.SourcePath) == key))
+                    {
+                        _ignored.Remove(m);
+                        _findings.Add(m);
+                        back.Add(m);
+                    }
+                }
+            }
+            if (back.Count == 0 && (items == null || items.Count == 0)) return new RestoreResult(0, saved);
+
+            var doms = new Dictionary<string, XmlDocument>(StringComparer.OrdinalIgnoreCase);
+            var texts = new Dictionary<XmlNode, string>();
+            foreach (var f in back)
+            {
+                try
+                {
+                    var dom = DomOf(f, doms);
+                    if (dom == null) continue;
+                    if (!string.IsNullOrEmpty(f.Excerpt))
+                    {
+                        XmlText run; int start; bool exact;
+                        var found = FindingLocator.TryLocate(dom, f, out run, out start, out exact);
+                        f.IsStale = !(found && exact);
+                    }
+                    Record(f, dom, texts);
+                }
+                catch (Exception ex) { Diagnostics.Log("restore: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
+            }
+            Sort();
+            var first = _findings.Find(back.Contains);
+            if (first != null) Select(first);
+            RaiseIgnored();
+            Status = !saved ? SaveFailedText : back.Count == 1 ? RestoredOneText : RestoredManyText(back.Count);
+            return new RestoreResult(back.Count, saved);
         }
 
         /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>
