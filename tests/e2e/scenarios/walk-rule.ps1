@@ -31,7 +31,7 @@ function KeyUntil([string]$Key, [scriptblock]$Done, [string]$What) {
 Send-E2E open (Join-Path $run.Project "Content\billpay\faq.htm") | Out-Null
 Invoke-Ribbon "Lint Project"
 Wait-PaneDone 300 | Out-Null
-Send-E2E click "By Rule" | Out-Null
+Send-E2E click "By rule" | Out-Null
 
 # 2. A rule in two files or more: its source reads "N in M files" with M of 2 or more.
 $rows = Rows
@@ -102,8 +102,8 @@ AssertProject "after Next Rule"
 
 # 10. By File and By Rule keep the walk: the same rule and place.
 $w10 = WalkNow
-Send-E2E click "By File" | Out-Null
-Send-E2E click "By Rule" | Out-Null
+Send-E2E click "By file" | Out-Null
+Send-E2E click "By rule" | Out-Null
 $w10b = WalkNow
 Assert-E2E ($w10b.rule -eq $w10.rule -and $w10b.position -eq $w10.position) "By File and By Rule keep the walk on the same rule and place (was $($w10.position), now $($w10b.position))"
 AssertProject "after switching views"
