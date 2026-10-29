@@ -108,5 +108,36 @@ namespace FlareAI.Core.Tests
             Assert.DoesNotContain("@", text);
             Assert.Equal(2, items.SelectMany(i => i.Writers).Distinct().Count());
         }
+
+        [Fact]
+        public void RestoredAfterRejected_IsNotCountedAsReject()
+        {
+            Team.Current = Team.Load(_guide, _shared, "pat@example.com");
+            FeedbackLog.Record(Finding(), "a.htm", "rejected", "fine here");
+            FeedbackLog.Record(Finding(), "a.htm", "restored");
+            Assert.Empty(FeedbackStats.Load(FeedbackStats.FilesIn(_shared)));
+        }
+
+        [Fact]
+        public void RestoreByAnotherWriter_DoesNotCancelTheReject()
+        {
+            Team.Current = Team.Load(_guide, _shared, "pat@example.com");
+            FeedbackLog.Record(Finding(), "a.htm", "rejected", "fine here");
+            Team.AnonymousIdPath = Path.Combine(_dir, "other-writer-id.txt");
+            FeedbackLog.Record(Finding(), "a.htm", "restored");
+            var ds = FeedbackStats.Load(FeedbackStats.FilesIn(_shared));
+            Assert.Equal(2, ds.Count);
+            Assert.Equal("rejected", ds.Single(d => d.Verdict != "restored").Verdict);
+            Assert.Equal(2, ds.Select(d => d.Writer).Distinct().Count());
+        }
+
+        [Fact]
+        public void RestoreWithNoEarlierReject_DoesNothing()
+        {
+            Team.Current = Team.Load(_guide, _shared, "pat@example.com");
+            FeedbackLog.Record(Finding(), "a.htm", "restored");
+            FeedbackLog.Record(Finding(), "a.htm", "rejected", "fine here");
+            Assert.Equal(new[] { "restored", "rejected" }, FeedbackStats.Load(FeedbackStats.FilesIn(_shared)).Select(d => d.Verdict).ToArray());
+        }
     }
 }
