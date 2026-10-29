@@ -1,0 +1,2 @@
+- The Issues pane has Level and Source combos above the list. Level shows only the errors, the warnings or the suggestions. Source shows the rule issues, the AI issues, or both. Clear Filters shows every issue again.
+- Your choice is remembered when you open the pane again. Next and Fix All follow the filter, so they only go through the issues you can see. While you review one by one, the combos are locked until you finish.
