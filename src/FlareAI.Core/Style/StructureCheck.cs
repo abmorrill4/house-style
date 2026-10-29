@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml;
 using FlareAI.Core.Actions;
@@ -7,6 +9,15 @@ using FlareAI.Core.Editing;
 
 namespace FlareAI.Core.Style
 {
+    /// <summary>One built-in structure check as a rule: its citable id, its legacy name (what <see cref="StructureCheck.Of"/> sets on a finding), its text and its default level.</summary>
+    public sealed class StructureRule
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Statement { get; set; }
+        public string Level { get; set; }
+    }
+
     /// <summary>
     /// Accessibility, structure and white-label checks a text linter can't see: images without alt text, skipped heading
     /// levels, a second h1, tables without a header row, link text that doesn't say where it goes, and hard-coded
@@ -20,6 +31,65 @@ namespace FlareAI.Core.Style
         private static readonly Regex Url = new Regex(@"\b(?:https?://|www\.)[^\s<>""]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly HashSet<string> VagueLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "here", "click here", "this link", "link", "more", "read more", "learn more", "this page", "this", "go", "details" };
+
+        /// <summary>The built-in checks, in the order <see cref="Of"/> makes them. Their levels are the defaults Of sets.</summary>
+        public static readonly ReadOnlyCollection<StructureRule> Rules = new ReadOnlyCollection<StructureRule>(new List<StructureRule>
+        {
+            new StructureRule { Id = "structure:alt-text", Name = "Structure.AltText", Level = "error", Statement = "Images have alt text: describe what each one shows, or mark it decorative." },
+            new StructureRule { Id = "structure:one-h1", Name = "Structure.OneH1", Level = "warning", Statement = "A topic has one h1, its title; other headings are h2 or lower." },
+            new StructureRule { Id = "structure:heading-order", Name = "Structure.HeadingOrder", Level = "warning", Statement = "Headings go down one level at a time." },
+            new StructureRule { Id = "structure:table-header", Name = "Structure.TableHeader", Level = "warning", Statement = "Tables have a header row of th cells." },
+            new StructureRule { Id = "structure:link-text", Name = "Structure.LinkText", Level = "warning", Statement = "Link text says where the link goes." },
+            new StructureRule { Id = "structure:hard-coded", Name = "Structure.HardCoded", Level = "suggestion", Statement = "Phone numbers, email addresses and URLs are variables in white-label docs, not typed in." },
+        });
+
+        /// <summary>The built-in rule with this id or name (matched exactly, ignoring case), or null.</summary>
+        public static StructureRule Find(string idOrName)
+        {
+            if (string.IsNullOrEmpty(idOrName)) return null;
+            return Rules.FirstOrDefault(r => string.Equals(r.Id, idOrName, StringComparison.OrdinalIgnoreCase) || string.Equals(r.Name, idOrName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>The id of the built-in rule with this id or name; the input unchanged when no built-in rule matches it.</summary>
+        public static string IdOf(string idOrName)
+        {
+            var rule = Find(idOrName);
+            return rule == null ? idOrName : rule.Id;
+        }
+
+        /// <summary>
+        /// Gives each built-in finding its rule id, then applies the Rule/Setting tables: "off" drops the finding, a level
+        /// changes its level. Other findings (AI findings, or a name no built-in rule has) pass through unchanged.
+        /// </summary>
+        /// <param name="settingOf">What the guides and the project say about a rule, by id and name (Composition.SettingOf).</param>
+        public static List<StyleFinding> Settle(IEnumerable<StyleFinding> found, Func<string, string, string> settingOf)
+        {
+            var kept = new List<StyleFinding>();
+            foreach (var f in found)
+            {
+                var rule = f.Source == "structure" ? Find(f.Rule) : null;
+                if (rule == null) { kept.Add(f); continue; }
+                f.RuleId = rule.Id;
+                var setting = settingOf(rule.Id, rule.Name);
+                if (setting == "off") continue;
+                if (setting != null && GuideLayer.Severities.Contains(setting)) f.Severity = setting;
+                kept.Add(f);
+            }
+            return kept;
+        }
+
+        /// <summary>The built-in checks as a guide layer named "structure": one rule per check, a lint row that never fires on text, so the tables can turn it off or re-level it.</summary>
+        public static GuideLayer Layer()
+        {
+            var items = new List<GuideRule>();
+            var rules = new List<LintRule>();
+            foreach (var r in Rules)
+            {
+                items.Add(new GuideRule { Id = r.Id, Layer = "structure", Section = "Structure and accessibility", Page = "Structure and accessibility", Text = r.Statement, IsLint = true });
+                rules.Add(new LintRule { Id = r.Id, LocalName = r.Name.Substring("Structure.".Length), Layer = "structure", Severity = r.Level, Action = "flag" });
+            }
+            return GuideLayer.InCode("structure", items, rules);
+        }
 
         public static List<StyleFinding> Of(IList<XmlNode> blocks)
         {

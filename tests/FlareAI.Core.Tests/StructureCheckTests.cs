@@ -90,5 +90,61 @@ namespace FlareAI.Core.Tests
                 "<h1>Pay bills</h1><p><img src=\"a.png\" alt=\"The Pay Bills page\" /></p><h2>Steps</h2>" +
                 "<table><tr><th>Name</th></tr><tr><td>A</td></tr></table><p>See <a href=\"y.htm\">Payee limits</a>.</p>")));
         }
+
+        [Fact]
+        public void Findings_CarryAStableRuleId_ForEachOfTheSixChecks()
+        {
+            var found = StructureCheck.Settle(StructureCheck.Of(Body(
+                "<h1>Pay bills</h1><p><img src=\"a.png\" /></p><h3>Skipped a level</h3><h1>Second title</h1>" +
+                "<table><tr><td>Name</td></tr></table><p><a href=\"x.htm\">click here</a> Call 800-555-0100.</p>")), (id, name) => null);
+            Assert.All(found, f => Assert.NotNull(f.RuleId));
+            Assert.Equal(new[] { "structure:alt-text", "structure:hard-coded", "structure:heading-order", "structure:link-text", "structure:one-h1", "structure:table-header" },
+                found.Select(f => f.RuleId).Distinct().OrderBy(id => id, System.StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public void Find_AcceptsIdOrNameInAnyCase()
+        {
+            Assert.Equal("structure:heading-order", StructureCheck.Find("STRUCTURE:HEADING-ORDER").Id);
+            Assert.Equal("structure:heading-order", StructureCheck.Find("structure.headingorder").Id);
+            Assert.Equal("structure:heading-order", StructureCheck.Find("Structure.HeadingOrder").Id);
+            Assert.Null(StructureCheck.Find("structure:alt-text-x"));
+            Assert.Null(StructureCheck.Find("Structure.AltTextFoo"));
+            Assert.Null(StructureCheck.Find(null));
+            Assert.Equal("structure:heading-order", StructureCheck.IdOf("Structure.HeadingOrder"));
+            Assert.Equal("structure:alt-text-x", StructureCheck.IdOf("structure:alt-text-x"));
+            Assert.Equal("Structure.AltTextFoo", StructureCheck.IdOf("Structure.AltTextFoo"));
+        }
+
+        [Fact]
+        public void Of_LeavesRuleIdNull()
+        {
+            var found = StructureCheck.Of(Body("<h1>A</h1><h3>B</h3><img src=\"a.png\" />"));
+            Assert.NotEmpty(found);
+            Assert.All(found, f => Assert.Null(f.RuleId));
+        }
+
+        [Fact]
+        public void Settle_LeavesAiFindingsAlone()
+        {
+            var ai = new FlareAI.Core.Actions.StyleFinding { Source = "ai", Rule = "Structure.HeadingOrder", Severity = "warning", Excerpt = "B" };
+            var kept = StructureCheck.Settle(new List<FlareAI.Core.Actions.StyleFinding> { ai }, (id, name) => "off");
+            Assert.Single(kept);
+            Assert.Same(ai, kept[0]);
+            Assert.Null(ai.RuleId);
+            Assert.Equal("warning", ai.Severity);
+        }
+
+        [Fact]
+        public void Settle_OffDropsTheFinding_ALevelChangesIt()
+        {
+            var found = StructureCheck.Of(Body("<h1>A</h1><h3>B</h3>"));
+            Assert.Empty(StructureCheck.Settle(found, (id, name) => id == "structure:heading-order" ? "off" : null));
+
+            var levelled = StructureCheck.Settle(StructureCheck.Of(Body("<h1>A</h1><h3>B</h3>")), (id, name) => id == "structure:heading-order" ? "error" : null);
+            var f = Assert.Single(levelled);
+            Assert.Equal("structure:heading-order", f.RuleId);
+            Assert.Equal("error", f.Severity);
+        }
     }
 }
