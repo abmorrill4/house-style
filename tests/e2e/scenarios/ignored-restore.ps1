@@ -34,7 +34,8 @@ try {
     Assert-E2E ((Send-E2E paneFocus).value.focused) "paneFocus put the focus in the issues list"
     Keys "{DELETE}"   # opens Ignore's reasons
     Send-E2E paneMenu "The suggestion is wrong" | Out-Null
-    Wait-Until { (Rows).Count -eq $rows.Count - 1 } 15 "the ignored issue to leave the list" | Out-Null
+    $want = $rows.Count - 1
+    Wait-Until { @(Rows).Count -eq $want } 15 "the ignored issue to leave the list (was $($rows.Count) rows; status: $((Get-E2EState).pane.panel.status))" | Out-Null
     $s = (Get-E2EState).pane
     Assert-E2E (@($s.buttons | Where-Object { $_.text -eq "Ignored Issues (1)" }).Count -eq 1) "Ignored Issues (1) appears in the pane (buttons: $($s.buttons.text -join ' | '))"
 

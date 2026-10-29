@@ -1042,10 +1042,14 @@ namespace FlareAI.Core.Actions
         {
             var f = Current;
             if (f == null) return;
-            if (_dismissed != null) _dismissed.Dismiss(f, _doc.SourcePath);
-            RecordFeedback(f, _doc.SourcePath, "rejected", reason);
             var next = NextAfter(f);
-            _findings.Remove(f);
+            _findings.Remove(f);   // first, so the row leaves the list even if recording the decision fails
+            try
+            {
+                if (_dismissed != null) _dismissed.Dismiss(f, _doc.SourcePath);
+                RecordFeedback(f, _doc.SourcePath, "rejected", reason);
+            }
+            catch (Exception ex) { Diagnostics.Log("Reject", ex); }
             Park(f, _doc.SourcePath);
             Sort();
             Select(next);
