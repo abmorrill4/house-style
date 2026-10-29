@@ -1,0 +1,1 @@
+- Disable Rule now offers every rule that flags the same words, in the House Style Issues pane and in Rules. It also offers to turn off Glossary terms, unticked.
