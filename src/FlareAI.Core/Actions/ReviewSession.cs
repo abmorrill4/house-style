@@ -244,19 +244,37 @@ namespace FlareAI.Core.Actions
         /// <summary>Suggestions not yet applied whose text is still there.</summary>
         public List<StyleFinding> Open() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale); }
 
+        private ReviewFilter _filter = ReviewFilter.All;
+
+        /// <summary>Which open issues the list shows (level and source). Counts on the tabs and the editor markers ignore it.</summary>
+        public ReviewFilter Filter
+        {
+            get { return _filter; }
+            set
+            {
+                _filter = value ?? ReviewFilter.All;
+                if (Current != null && !_filter.Shows(Current)) Current = null;
+                var h = ListChanged;
+                if (h != null) h();
+            }
+        }
+
+        /// <summary>Open issues the <see cref="Filter"/> shows.</summary>
+        public List<StyleFinding> Visible() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && Filter.Shows(f)); }
+
         /// <summary>Open proposals in the topic itself (not in snippets), for the editor markers.</summary>
         public List<StyleFinding> OpenTopicFindings() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && f.DocumentPath == null); }
 
         /// <summary>What "Apply all fixes" would apply: exact rule fixes in the topic (in a project report: everywhere).</summary>
         public List<StyleFinding> FixAllCandidates()
         {
-            return _findings.FindAll(f => f.CanFix && f.Kind == "mechanical" && (f.DocumentPath == null || _project));
+            return _findings.FindAll(f => Filter.Shows(f) && f.CanFix && f.Kind == "mechanical" && (f.DocumentPath == null || _project));
         }
 
         /// <summary>What "Write all as tracked changes" would write: every exact suggestion in the topic.</summary>
         public List<StyleFinding> WriteAllCandidates()
         {
-            return _findings.FindAll(f => f.CanFix && (f.Kind == "mechanical" || f.Kind == "wording") && f.DocumentPath == null);
+            return _findings.FindAll(f => Filter.Shows(f) && f.CanFix && (f.Kind == "mechanical" || f.Kind == "wording") && f.DocumentPath == null);
         }
 
         /// <summary>
@@ -266,8 +284,10 @@ namespace FlareAI.Core.Actions
         public string Summary()
         {
             if (_project) return BacklogSummary();
-            var open = Open();
-            if (open.Count == 0) return NoIssuesInTopic;
+            var all = Open();
+            if (all.Count == 0) return NoIssuesInTopic;
+            var open = Visible();
+            if (open.Count == 0) return "No issues match these filters.";
             int fixes = 0, needsYou = 0;
             var sections = new HashSet<string>();
             foreach (var f in open)
@@ -278,7 +298,8 @@ namespace FlareAI.Core.Actions
             var parts = new List<string>();
             if (fixes > 0) parts.Add(fixes + " Auto-fix");
             if (needsYou > 0) parts.Add(needsYou + " Needs you");
-            return Plural.Of(open.Count, "issue") + (sections.Count > 1 ? " in " + sections.Count + " sections" : "") + ". "
+            var count = Filter.IsAll ? Plural.Of(open.Count, "issue") : "Showing " + open.Count + " of " + all.Count + " issues";
+            return count + (sections.Count > 1 ? " in " + sections.Count + " sections" : "") + ". "
                    + Cap(string.Join(", ", parts.ToArray())) + ".";
         }
 
@@ -344,13 +365,13 @@ namespace FlareAI.Core.Actions
 
         public StyleFinding NextAfter(StyleFinding cur)
         {
-            var open = Open();
+            var open = Visible();
             if (open.Count == 0) return null;
             var start = cur == null ? -1 : _findings.IndexOf(cur);
             for (var i = 1; i <= _findings.Count; i++)
             {
                 var f = _findings[(start + i + _findings.Count) % _findings.Count];
-                if (f != cur && !f.IsFixed && !f.IsStale && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
+                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
             }
             return null;
         }
@@ -759,7 +780,7 @@ namespace FlareAI.Core.Actions
         {
             if (f == null || !RuleBacklog.IsAutomatic(f)) return new List<StyleFinding>();
             var key = RuleBacklog.KeyOf(f);
-            return FixAllCandidates().FindAll(x => RuleBacklog.KeyOf(x) == key);
+            return FixAllCandidates().FindAll(x => Filter.Shows(x) && RuleBacklog.KeyOf(x) == key);
         }
 
         /// <summary>Change All: every instance of the selected issue's rule, as tracked changes in one undo step.</summary>
@@ -787,7 +808,7 @@ namespace FlareAI.Core.Actions
             run.Finished += result =>
             {
                 foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
-                var inSnippets = _findings.FindAll(f => f.CanFix && f.DocumentPath != null && !_project).Count;
+                var inSnippets = _findings.FindAll(f => Filter.Shows(f) && f.CanFix && f.DocumentPath != null && !_project).Count;
                 if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
                 else Next();
@@ -799,6 +820,9 @@ namespace FlareAI.Core.Actions
 
         /// <summary>The rule being reviewed one by one, or null. Next, Skip and Apply stay within it.</summary>
         public string FocusRule { get; private set; }
+
+        /// <summary>True while one rule is reviewed one by one.</summary>
+        public bool WalkActive { get { return FocusRule != null; } }
 
         /// <summary>The focused rule's heading, or null.</summary>
         public string FocusTitle
@@ -814,7 +838,7 @@ namespace FlareAI.Core.Actions
         /// <summary>Open suggestions grouped under their rule, most frequent first, without the rules skipped for now.</summary>
         public List<BacklogRule> Backlog()
         {
-            return RuleBacklog.Group(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath, _runner.SourceName);
+            return RuleBacklog.Group(Visible().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath, _runner.SourceName);
         }
 
         /// <summary>The rule a key names in the backlog now, or null (fixed, turned off or skipped since).</summary>
@@ -823,13 +847,14 @@ namespace FlareAI.Core.Actions
         /// <summary>"117 suggestions in 42 files. 63 can be fixed automatically across 9 rules."</summary>
         public string BacklogSummary()
         {
-            return RuleBacklog.Summary(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _doc.SourcePath, _skippedRules.Count);
+            return RuleBacklog.Summary(Visible().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _doc.SourcePath, _skippedRules.Count,
+                Filter.IsAll ? -1 : Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))).Count);
         }
 
         /// <summary>What "Fix all automatic suggestions" writes: every exact rule fix, except rules skipped for now.</summary>
         public List<StyleFinding> AutomaticCandidates()
         {
-            return FixAllCandidates().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f)));
+            return FixAllCandidates().FindAll(f => Filter.Shows(f) && !_skippedRules.Contains(RuleBacklog.KeyOf(f)));
         }
 
         /// <summary>Fix all automatic suggestions…: every exact rule fix in every file, after the preview.</summary>
@@ -913,7 +938,7 @@ namespace FlareAI.Core.Actions
         {
             var todo = WriteAllCandidates();
             if (todo.Count == 0) return;
-            if (!_host.Confirm("Make " + Plural.Of(todo.Count, "change") + " in the topic as tracked changes?\n\n" +
+            if (!_host.Confirm((Filter.IsAll ? "Make " + Plural.Of(todo.Count, "change") + " in the topic as tracked changes?" : "Make " + Plural.Of(todo.Count, "change") + " to the issues shown as tracked changes?") + "\n\n" +
                     "You can accept them on the Review tab. One Ctrl+Z undoes them all.", "Change All Issues")) return;
             var n = Apply(todo, "House Style: " + Plural.Of(todo.Count, "change"));
             foreach (var f in todo) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "proposed", "bulk");

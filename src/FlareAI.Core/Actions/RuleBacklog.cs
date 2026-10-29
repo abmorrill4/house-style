@@ -150,10 +150,10 @@ namespace FlareAI.Core.Actions
         /// "117 suggestions in 42 files. 63 can be fixed automatically across 9 rules." — the line that heads a project
         /// check. Rules skipped for this session are left out and mentioned at the end.
         /// </summary>
-        public static string Summary(IList<StyleFinding> open, string openTopicPath, int skippedRules = 0)
+        public static string Summary(IList<StyleFinding> open, string openTopicPath, int skippedRules = 0, int unfilteredOpen = -1)
         {
             var skipped = skippedRules > 0 ? " " + Plural.Of(skippedRules, "rule") + " skipped for now." : "";
-            if (open.Count == 0) return "No issues found in this project." + skipped;
+            if (open.Count == 0) return (unfilteredOpen > 0 ? "No issues match these filters." : "No issues found in this project.") + skipped;
             var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var autoRules = new HashSet<string>(StringComparer.Ordinal);
             var auto = 0;
@@ -164,7 +164,7 @@ namespace FlareAI.Core.Actions
                 auto++;
                 autoRules.Add(KeyOf(f));
             }
-            var head = Plural.Of(open.Count, "issue") + " in " + Plural.Of(files.Count, "file") + ". ";
+            var head = (unfilteredOpen >= 0 ? "Showing " + open.Count + " of " + unfilteredOpen + " issues" : Plural.Of(open.Count, "issue")) + " in " + Plural.Of(files.Count, "file") + ". ";
             var tail = auto == 0 ? "None can be changed automatically. Review them one rule at a time."
                      : (auto == open.Count ? (auto == 1 ? "It" : "All") : auto.ToString()) + " can be changed automatically" +
                        (autoRules.Count > 1 ? " across " + autoRules.Count + " rules." : " by one rule.");
