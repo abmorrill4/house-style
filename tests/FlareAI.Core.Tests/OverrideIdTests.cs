@@ -86,5 +86,43 @@ namespace FlareAI.Core.Tests
                 try { Directory.Delete(dir, true); } catch (Exception) { }
             }
         }
+
+        [Fact]
+        public void OverridesIni_UnknownIdIsIgnoredAndLogged()
+        {
+            const string real = "google:word-list/221";
+            var longId = "zz" + new string('q', 1200);
+            var unknown = new[] { "xyz:1", @"..\..\x", longId, "ai:clarity", "request:7f3a9c" };
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-ini-" + Guid.NewGuid().ToString("N"));
+            var team = Path.Combine(dir, "TeamGuide");
+            var style = Path.Combine(team, @"Content\Resources\StyleGuide");
+            Directory.CreateDirectory(style);
+            File.WriteAllText(Path.Combine(team, "Guide.flprj"), "<CatapultProject />");
+            File.WriteAllText(Path.Combine(style, "overrides.ini"), real + " = off\r\n" + string.Join("\r\n", unknown.Select(u => u + " = off").ToArray()) + "\r\n");
+            var lines = new List<string>();
+            var oldSink = Diagnostics.Sink; var oldEnabled = Diagnostics.Enabled;
+            Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+            Diagnostics.Enabled = true;
+            try
+            {
+                var comp = new StyleEngine(new[] { team }, GuideSourceTests.Bundled).Compose(null);
+                Assert.True(comp.IsOff(real));
+                foreach (var u in unknown)
+                {
+                    Assert.Null(comp.SettingOf(u));
+                    Assert.False(comp.IsOff(u));
+                }
+                List<string> logged;
+                lock (lines) logged = lines.Where(l => l.StartsWith("Style guide", StringComparison.Ordinal)).ToList();
+                foreach (var u in unknown)
+                    Assert.Contains(logged, l => l.StartsWith("Style guide \"TeamGuide\" ", StringComparison.Ordinal) && l.Contains(OverrideIds.ForLog(u)));
+                Assert.DoesNotContain(logged, l => l.Contains(real));
+            }
+            finally
+            {
+                Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled;
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
     }
 }
