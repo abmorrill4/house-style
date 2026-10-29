@@ -159,6 +159,8 @@ namespace FlareAI.Core.Actions
             _skippedRules.Clear();
             _walkedRules.Clear();
             FocusRule = null;
+            _walk = null;
+            WalkFinished = false;
             Current = null;
         }
 
@@ -805,16 +807,30 @@ namespace FlareAI.Core.Actions
             }
             var chosen = plan.SelectedFindings;
             if (chosen.Count == 0 && plan.Skipped.Count == 0) return;
+            var walking = InWalk && !WalkFinished;
+            var before = Current;   // the place the walk is on: the batch moves on from it
             var run = BeginBatch(chosen, chosen.Count == 1 ? "House Style: " + chosen[0].Rule : "House Style: " + chosen.Count + " changes", plan);
             run.Finished += result =>
             {
                 foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
                 var inSnippets = _findings.FindAll(f => f.CanFix && f.DocumentPath != null && !_project).Count;
                 if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
+                if (walking) { WalkAfter(before); return; }
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
                 else Next();
             };
             RunBatch(run);
+        }
+
+        /// <summary>After a batch in a walk: the first open place after <paramref name="from"/>, or the finished state. The rule stays focused.</summary>
+        private void WalkAfter(StyleFinding from)
+        {
+            var after = WalkNextAfter(from);
+            if (after != null) { Select(after); return; }
+            WalkFinished = true;
+            Current = null;
+            Select(null);
+            Status = Status + "  " + WalkFinishedText;
         }
 
         // ---- the backlog: a project check, one rule at a time -----------------------------------
@@ -909,12 +925,16 @@ namespace FlareAI.Core.Actions
 
         /// <summary>True while a rule is walked place by place (also after the last place, until All Rules).</summary>
         public bool InWalk { get { return _walk != null; } }
+        /// <summary>A rule is walked place by place and has places in the walk. The view asks this before it ends the walk.</summary>
+        public bool IsWalking { get { return FocusRule != null && _walk != null && _walk.Count > 0; } }
         /// <summary>The walk went past its last place.</summary>
         public bool WalkFinished { get; private set; }
         /// <summary>Places in the walk, as counted when it started. Ignored and changed places keep their slot.</summary>
         public int WalkTotal { get { return _walk == null ? 0 : _walk.Count; } }
         /// <summary>1-based place of the selected issue in the walk; 0 when not walking.</summary>
         public int WalkPosition { get { return _walk == null || Current == null ? 0 : _walk.IndexOf(Current) + 1; } }
+        /// <summary>The "Change All (n)" count: the automatic issues of the focused rule that are still open.</summary>
+        public int WalkChangeAllCount { get { return FocusRule == null ? 0 : FixAllCandidates().FindAll(f => RuleBacklog.KeyOf(f) == FocusRule).Count; } }
 
         /// <summary>What to say when the walk is through: nothing left open, or how many places are.</summary>
         public string WalkFinishedText
@@ -932,7 +952,7 @@ namespace FlareAI.Core.Actions
             for (var i = (cur == null ? -1 : _walk.IndexOf(cur)) + 1; i < _walk.Count; i++)
             {
                 var g = _walk[i];
-                if (!g.IsFixed && _findings.Contains(g)) return g;
+                if (!g.IsFixed && !g.IsStale && _findings.Contains(g)) return g;   // a stale place keeps its slot; Next moves past it
             }
             return null;
         }

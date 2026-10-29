@@ -57,7 +57,10 @@ namespace FlareAI.Scenarios.Review
             public RuleSettingChoice ChooseRequest(RequestQuestion question) { return null; }
             public string AskText(string title, string label, string initial, bool multiline) { return null; }
             public IDocumentAdapter OpenDocument(string path) { return _ws.OpenForPlugin(path); }
-            public bool PreviewBatch(BatchPlan plan) { return true; }
+            /// <summary>What the writer answers to a preview; false is Cancel.</summary>
+            public bool PreviewAnswer { get; set; } = true;
+            public int PreviewCalls { get; private set; }
+            public bool PreviewBatch(BatchPlan plan) { PreviewCalls++; return PreviewAnswer; }
             public bool SaveAndClose(IDocumentAdapter doc)
             {
                 var d = (FlareSimDocument)doc;
@@ -203,6 +206,129 @@ namespace FlareAI.Scenarios.Review
                 Assert.DoesNotContain(unc, c.Ws.OpenedByPlugin);
                 Assert.DoesNotContain(outside, c.Ws.OpenedByPlugin);
                 Assert.False(c.Ws.IsOpen(outside));
+            }
+        }
+
+        [Fact]
+        public void Walk_ChangeAllForTheRule_PreviewsThenGoesToTheNextOpenPlace()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Automatic.Count >= 1 && r.Automatic.Count < r.Occurrences);
+                var places = rule.Findings.ToList();
+                var k = places.FindIndex(RuleBacklog.IsAutomatic);   // Change All needs the current place to be automatic
+                var count = rule.Automatic.Count;
+
+                s.ReviewRule(rule);
+                s.Select(places[k]);
+                Assert.Equal(k + 1, s.WalkPosition);
+                Assert.Equal(count, s.WalkChangeAllCount);
+
+                s.ChangeAll();
+                Assert.Equal(1, c.Host.PreviewCalls);
+                Assert.Equal(0, s.WalkChangeAllCount);
+                Assert.Equal(rule.Key, s.FocusRule);
+                Assert.Equal(places.Count, s.WalkTotal);
+
+                var next = places.Skip(k + 1).FirstOrDefault(f => !f.IsFixed && !f.IsStale);
+                if (next == null)
+                {
+                    Assert.True(s.WalkFinished);
+                    Assert.Null(s.Current);
+                    Assert.Equal(0, s.WalkPosition);
+                }
+                else
+                {
+                    Assert.False(s.WalkFinished);
+                    Assert.Same(next, s.Current);
+                    Assert.Equal(places.IndexOf(next) + 1, s.WalkPosition);
+                }
+            }
+
+            using (var c = new Check())   // Cancel: nothing is written, and the walk stays where it was
+            {
+                var s = c.Session;
+                c.Host.PreviewAnswer = false;
+                var rule = s.Backlog().First(r => r.Automatic.Count >= 1 && r.Automatic.Count < r.Occurrences);
+                var places = rule.Findings.ToList();
+                var k = places.FindIndex(RuleBacklog.IsAutomatic);
+
+                s.ReviewRule(rule);
+                s.Select(places[k]);
+                var position = s.WalkPosition;
+                var total = s.WalkTotal;
+                var count = s.WalkChangeAllCount;
+
+                s.ChangeAll();
+                Assert.Equal(1, c.Host.PreviewCalls);
+                Assert.Same(places[k], s.Current);
+                Assert.Equal(position, s.WalkPosition);
+                Assert.Equal(total, s.WalkTotal);
+                Assert.Equal(count, s.WalkChangeAllCount);
+                Assert.False(s.WalkFinished);
+                Assert.EndsWith("Nothing was changed.", s.Status);
+            }
+        }
+
+        [Fact]
+        public void Walk_StaleIssue_KeepsItsSlot_AndNextMovesOn()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+                var places = rule.Findings.ToList();
+
+                s.ReviewRule(rule);
+                s.Select(places[1]);
+                places[1].IsStale = true;   // its text changed since the check
+
+                Assert.Equal(2, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+                Assert.Equal(AcceptOutcome.Stale, s.Accept());
+                Assert.Equal(2, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+
+                s.Next();
+                Assert.Same(places[2], s.Current);
+                Assert.Equal(3, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+            }
+        }
+
+        [Fact]
+        public void Walk_SwitchViewAndBack_KeepsTheRuleAndPosition()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+
+                s.ReviewRule(rule);
+                s.Next();
+                var current = s.Current;
+                var position = s.WalkPosition;
+                var total = s.WalkTotal;
+
+                // The calls the pane makes when the view is switched, minus the end of the walk (EndRuleReview) it no longer makes.
+                for (var i = 0; i < 2; i++)   // to the other view and back
+                {
+                    s.Sort();
+                    s.Backlog();
+                    s.Summary();
+
+                    Assert.True(s.IsWalking);
+                    Assert.Equal(rule.Key, s.FocusRule);
+                    Assert.Same(current, s.Current);
+                    Assert.Equal(position, s.WalkPosition);
+                    Assert.Equal(total, s.WalkTotal);
+                    Assert.False(s.WalkFinished);
+                }
+
+                s.EndRuleReview();
+                Assert.False(s.IsWalking);
+                Assert.False(s.InWalk);
             }
         }
     }
