@@ -21,7 +21,39 @@ namespace FlareAI.Flare.UI
         public string Setting { get { return FlareAI.Core.Severity.Normalize((string)_setting.SelectedItem); } }
         /// <summary>True when the writer also wants the other rules that flag the same words turned off (same scope, setting and note).</summary>
         public bool AlsoOthers { get { return _others != null && _others.Checked; } }
+        /// <summary>The ids of the checker boxes the writer ticked (generated rules such as the glossary's); empty until ticked.</summary>
+        public IList<string> AlsoCheckers
+        {
+            get
+            {
+                var ids = new List<string>();
+                foreach (var p in _checkerBoxes) if (p.Key.Checked) ids.Add(p.Value);
+                return ids;
+            }
+        }
         public string Reason { get { return _reason.Text.Trim(); } }
+
+        private readonly List<KeyValuePair<CheckBox, string>> _checkerBoxes = new List<KeyValuePair<CheckBox, string>>();
+
+        private static string LocalName(FlareAI.Core.Style.RuleRef c)
+        {
+            var n = c.Name ?? c.Id ?? "";
+            var dot = n.LastIndexOf('.');
+            return dot >= 0 ? n.Substring(dot + 1) : n;
+        }
+
+        private static string ReadableName(FlareAI.Core.Style.RuleRef c)
+        {
+            var local = LocalName(c);
+            return local == "GlossaryTerms" ? "Glossary terms" : local;
+        }
+
+        private static string SourceName(FlareAI.Core.Style.RuleRef c)
+        {
+            var n = c.Name ?? c.Id ?? "";
+            var dot = n.LastIndexOf('.');
+            return dot > 0 ? n.Substring(0, dot) : (c.Layer ?? "");
+        }
 
         /// <param name="personalGuide">True when there is no team guide: the change goes to the writer's own style guide.</param>
         /// <param name="setting">The level to preselect (default Off).</param>
@@ -49,15 +81,37 @@ namespace FlareAI.Flare.UI
             _reason = new TextBox { Left = 12, Top = 176, Width = 496 };
             Controls.Add(_reason);
             var extra = 0;
-            if (otherRules != null && otherRules.Count > 0)
+            var plain = new List<FlareAI.Core.Style.RuleRef>();
+            var checkers = new List<FlareAI.Core.Style.RuleRef>();
+            if (otherRules != null) foreach (var r in otherRules) { if (r == null) continue; (r.IsChecker ? checkers : plain).Add(r); }
+            var disabling = setting == null || setting == "off";
+            if (plain.Count > 0)
             {
                 var names = new List<string>();
-                foreach (var r in otherRules) names.Add("•  " + (r.Name.Length > 80 ? r.Name.Substring(0, 79) + "…" : r.Name));   // one line each
-                _others = new CheckBox { Text = (setting == null || setting == "off" ? "Also disable " : "Also change ") + otherRules.Count + (otherRules.Count == 1 ? " other rule that flags" : " other rules that flag") + " the same words", Left = 12, Top = 208, Width = 496, Checked = true };
+                foreach (var r in plain) names.Add("•  " + (r.Name.Length > 80 ? r.Name.Substring(0, 79) + "…" : r.Name));   // one line each
+                _others = new CheckBox { Text = (disabling ? "Also disable " : "Also change ") + plain.Count + (plain.Count == 1 ? " other rule that flags" : " other rules that flag") + " the same words", Left = 12, Top = 208, Width = 496, Checked = true };
                 var list = new Label { Text = string.Join(Environment.NewLine, names.ToArray()), Left = 32, Top = 232, Width = 476, Height = 16 * names.Count + 4, AutoEllipsis = true };
                 Controls.Add(_others); Controls.Add(list);
                 extra = 28 + 16 * names.Count;
                 A11y.Name(_others, _others.Text, string.Join(", ", names.ToArray()));
+            }
+            foreach (var c in checkers)
+            {
+                var readable = ReadableName(c);
+                var same = 0;
+                foreach (var o in checkers) if (string.Equals(ReadableName(o), readable, StringComparison.OrdinalIgnoreCase)) same++;
+                var shown = same > 1 ? readable + " (" + SourceName(c) + ")" : readable;
+                var box = new CheckBox { Text = (disabling ? "Also disable " : "Also change ") + shown, Left = 12, Top = 208 + extra, Width = 496, Checked = false, TabStop = true };
+                var note = new Label
+                {
+                    Text = disabling ? "This disables every glossary spelling in this guide, not just this one."
+                                     : "This changes every glossary spelling in this guide, not just this one.",
+                    Left = 32, Top = 232 + extra, Width = 476, Height = 20, AutoEllipsis = true
+                };
+                Controls.Add(box); Controls.Add(note);
+                _checkerBoxes.Add(new KeyValuePair<CheckBox, string>(box, c.Id));
+                A11y.Name(box, box.Text, note.Text);
+                extra += 48;
             }
             ClientSize = new Size(520, 270 + extra);
             var ok = new Button { Text = "OK", Left = 352, Top = 228 + extra, Width = 75, DialogResult = DialogResult.OK };

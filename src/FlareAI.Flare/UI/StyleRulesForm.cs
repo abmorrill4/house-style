@@ -427,7 +427,7 @@ namespace FlareAI.Flare.UI
             if (r.Products.Count > 0) sb.Append("; products: ").Append(string.Join(", ", r.Products.ToArray()));
             sb.Append(nl);
             if (!r.ForOurProducts) sb.Append("Not used: it is for products your style guide doesn't cover.").Append(nl);
-            var others = _catalog.OverlapsOf(r);
+            var others = RuleChanges.TwinsOf(_catalog, r.Key);
             if (others.Count > 0)
             {
                 sb.Append(nl).Append("These rules flag the same words. Disabling this rule can disable them too.").Append(nl);
@@ -546,7 +546,8 @@ namespace FlareAI.Flare.UI
             var asking = RuleChanges.WillRequest(_team, r, false);
             var canTeam = _team != null && _team.GuideRoot != null;
             var canProject = _openProject != null && ProjectRules.OverridesPath(_openProject) != null;
-            var others = _catalog.OverlapsOf(r).Where(o => o.State != RuleState.Off).ToList();
+            var twins = RuleChanges.TwinsOf(_catalog, r.Key);
+            var others = twins.Where(o => o.Id != null).ToList();   // Change finds the checkers by id, from AlsoCheckers
             var setting = level ? r.Level ?? r.DefaultLevel ?? "warning" : "off";
             var described = r.Source + " · " + r.Page + ": " + r.Title;
             RuleSettingChoice choice;
@@ -565,11 +566,13 @@ namespace FlareAI.Flare.UI
             else
             {
                 using (var form = new RuleSettingForm(described, canTeam, _team != null && _team.IsPersonal,
-                                                      others.Select(o => new RuleRef { Id = o.Key, Layer = o.Origin, Name = o.Source + " · " + o.Page + ": " + o.Title }).ToList(),
+                                                      twins.Select(o => o.Id == null
+                                                          ? new RuleRef { Id = o.Key, Layer = o.Origin, Name = o.Key, IsChecker = true }
+                                                          : new RuleRef { Id = o.Key, Layer = o.Origin, Name = o.Source + " · " + o.Page + ": " + o.Title }).ToList(),
                                                       setting, canProject, level ? "Change Level" : "Disable Rule"))
                 {
                     if (form.ShowDialog(this) != DialogResult.OK) return;
-                    choice = new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers };
+                    choice = new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers, AlsoCheckers = form.AlsoCheckers };
                 }
             }
             if (choice == null) return;

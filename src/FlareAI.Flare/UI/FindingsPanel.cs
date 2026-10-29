@@ -2131,7 +2131,7 @@ namespace FlareAI.Flare.UI
             using (var form = new RuleSettingForm(ruleText, canChangeTeamGuide, personalGuide, otherRules))
             {
                 if (form.ShowDialog(this) != DialogResult.OK) return null;
-                return new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers };
+                return new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers, AlsoCheckers = form.AlsoCheckers };
             }
         }
 
