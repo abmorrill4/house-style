@@ -363,7 +363,7 @@ namespace FlareAI.Flare.Tests
             });
         }
 
-        [Fact]
+        [DesktopFact]
         public void E2EFocusList_FocusesTheList_AndSelectsTheFirstRow()
         {
             WithPane((panel, form, list) =>
@@ -498,7 +498,7 @@ namespace FlareAI.Flare.Tests
             }, width, height);
         }
 
-        [Theory]
+        [DesktopTheory]
         [InlineData(150, 640)]
         [InlineData(500, 800)]
         public void IgnoreMenu_KeepsTheFirstReason_AndMarkAsFixedSitsBetweenSeparatorsAfterSkip(int width, int height)
@@ -726,7 +726,7 @@ namespace FlareAI.Flare.Tests
             });
         }
 
-        [Fact]
+        [DesktopFact]
         public void PageDownInWhyText_KeepsTheCaretInView()
         {
             WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
@@ -1134,7 +1134,7 @@ namespace FlareAI.Flare.Tests
             });
         }
 
-        [Fact]
+        [DesktopFact]
         public void Switching_InFloatingMode_ReusesOneForm_AndUpdatesItsTitle()
         {
             PanelHost.ForceFloating = true;

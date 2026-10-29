@@ -224,7 +224,7 @@ namespace FlareAI.Flare.Tests
         }
 
         /// <summary>Tester report: the issues window closed by mistake comes back with its results (Reopen Issues).</summary>
-        [Fact]
+        [DesktopFact]
         public void AClosedIssuesWindow_Reopens_WithTheSamePanel()
         {
             Sta(() =>
