@@ -262,9 +262,8 @@ namespace FlareAI.Flare.UI
             _showSkipped = Btn(_viewBar, "Show Skipped Rules", (s, e) => _session.ShowSkippedRules());
             _showAllRules = Btn(_viewBar, "Show All Rules", (s, e) => ShowAllRules());
             _excluded = Btn(_viewBar, "Excluded Files", (s, e) => ShowExcluded());
-            _exemptions = Btn(_viewBar, "Exemptions", (s, e) => ShowExemptions());
             _export = Btn(_viewBar, "Export Issues…", (s, e) => ExportIssues());
-            _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = _exemptions.Visible = false;
+            _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
 
             // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
             // Items, groups, selection, keys, menu and tooltips are the ListView's own; only the painting is ours.
@@ -367,6 +366,7 @@ namespace FlareAI.Flare.UI
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 0) };
             _recheck = Btn(bar, "Lint Again", (s, e) => { _aiOnStart = true; _fresh = !_stopped; Start(); });   // after Stop: carry on, not start over
+            _exemptions = Btn(bar, "Exemptions", (s, e) => ShowExemptions()); _exemptions.Visible = false;   // on the main bar, so a topic lint shows it too; shown once the project has any
             _ignore = Btn(bar, "Disable Rule…", (s, e) => { var r = CurrentRule(); if (r != null) _session.TurnOffRule(r); else _session.TurnOffRule(); });
             Btn(bar, "Close", (s, e) => { var h = CloseRequested; if (h != null) h(this, EventArgs.Empty); });
 
@@ -2232,10 +2232,13 @@ namespace FlareAI.Flare.UI
                 return form.ShowDialog(owner) == DialogResult.OK ? form.Controls.OfType<TextBox>().Single().Text : null;
         }
 
+        /// <summary>A plain Form would be invisible to the end-to-end hook, which lists only this plugin's own forms.</summary>
+        private sealed class PromptForm : Form { }
+
         /// <summary>The prompt, not shown. The one text box is the only TextBox on it.</summary>
         internal static Form Build(string title, string label, string initial, bool multiline, bool required)
         {
-            var form = new Form { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font };
+            var form = new PromptForm { Text = Notify.Caption(title), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, ClientSize = new Size(520, multiline ? 190 : 150), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font };
             var text = new Label { Text = label, Left = 12, Top = 12, Width = 496, Height = 34 };
             var box = new TextBox { Left = 12, Top = 50, Width = 496, Height = multiline ? 84 : 24, Multiline = multiline, AcceptsReturn = false, Text = initial ?? "", ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None };
             var ok = new Button { Text = "OK", Left = 352, Top = form.ClientSize.Height - 36, Width = 75, DialogResult = DialogResult.OK };
