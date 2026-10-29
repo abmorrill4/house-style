@@ -1,0 +1,1 @@
+- A rule setting in a team guide or overrides.ini that names no rule is skipped, and the guide report shows it as an Error so its owner can fix the id.

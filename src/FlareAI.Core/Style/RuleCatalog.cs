@@ -288,8 +288,9 @@ namespace FlareAI.Core.Style
             if (string.IsNullOrEmpty(name)) return false;
             if (r.Id != null && string.Equals(name, r.Id, StringComparison.OrdinalIgnoreCase)) return true;
             if (r.Name == null) return false;
-            var full = name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name;
-            return string.Equals(full, r.Name, StringComparison.OrdinalIgnoreCase);
+            // A built-in check's legacy name (Structure.AltText) canonicalizes to its id, so it matches by id as well as by name.
+            var full = OverrideIds.Canonical(name);
+            return string.Equals(full, r.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(full, r.Id, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string SourceOf(GuideLayer layer, int index, bool project, Func<string, bool> isDefault)

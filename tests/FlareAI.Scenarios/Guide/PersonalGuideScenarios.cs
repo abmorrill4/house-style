@@ -97,25 +97,25 @@ namespace FlareAI.Scenarios.Guide
                 x.Load(copiedOverrides);
                 foreach (XmlNode row in x.SelectNodes("//*[local-name()='tr'][*[local-name()='td']]")) row.ParentNode.RemoveChild(row);   // no defaults yet
                 x.Save(copiedOverrides);
-                GuideOverrides.Set(mine, "google:words/2", "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
+                GuideOverrides.Set(mine, ThisPage, "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
 
                 // …when they check a topic after the plugin update
                 var findings = Check(ws, i);
 
                 // Then "this page" is not flagged, their change still applies, and their copy now holds only that change.
                 Assert.DoesNotContain(findings, f => f.RuleId == ThisPage);
-                Assert.True(i.Engine.IsOff(null, "google:words/2"));
+                Assert.True(i.Engine.IsOff(null, ThisPage));
                 Assert.True(GuideSeed.IsPersonal(mine));
                 Assert.False(File.Exists(copiedOverrides));
                 Assert.False(File.Exists(Path.Combine(mine, @"Content\Resources\StyleGuide\Company\Terminology.htm")));
                 var rows = RuleOverrides.Read(mine, "My style guide");
-                Assert.Equal("google:words/2", rows.Single().RuleId);
+                Assert.Equal(ThisPage, rows.Single().RuleId);
                 Assert.Equal("pat@example.com", rows.Single().By);
                 var backup = Directory.GetDirectories(ws.AppData, "StyleGuide.backup-*").Single();
                 Assert.True(File.Exists(Path.Combine(backup, @"Content\Resources\StyleGuide\Company\Google-overrides.htm")));
                 var log = File.ReadAllText(ws.DiagLog);
                 Assert.Contains("Upgraded your style guide", log);
-                Assert.Contains("google:words/2=off", log);
+                Assert.Contains(ThisPage + "=off", log);
             }
         }
 

@@ -206,7 +206,7 @@ namespace FlareAI.Core.Style
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
             for (var i = 0; i < guides.Count; i++) layers.Add(LoadTeam(guides[i], NameOfCopy(guides[i], originals), Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
-            var comp = new Composition(layers) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
+            var comp = new Composition(layers, notice != null ? (Func<string, bool>)null : k => { lock (_gate) return _logged.Add(k); }) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
             var onRead = GuideRead;
             if (onRead != null)
@@ -525,11 +525,24 @@ namespace FlareAI.Core.Style
         public List<GuideLayer> Layers { get; private set; }
         public List<GuideRule> Items { get; private set; }
         public List<LintRule> Rules { get; private set; }
+        /// <summary>Every id and rule name here, ignoring case: guide items' ids, rules' ids, checker names and bare names. See <see cref="OverrideIds.IsKnown"/>.</summary>
+        internal HashSet<string> KnownNames { get; private set; }
         private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        public Composition(List<GuideLayer> layers)
+        private const int MaxIgnoredLines = 20;
+
+        public Composition(List<GuideLayer> layers) : this(layers, null)
+        {
+        }
+
+        /// <param name="firstTime">
+        /// Called with a key (guide|id) before an ignored override row is logged: true when this engine hasn't logged it yet.
+        /// Null logs nothing (the rows are still ignored).
+        /// </param>
+        internal Composition(List<GuideLayer> layers, Func<string, bool> firstTime)
         {
             Layers = layers;
+            // First pass: name every layer and know every rule, so a row in an earlier layer may name a later layer's rule.
             var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var l in layers)
             {
@@ -537,11 +550,38 @@ namespace FlareAI.Core.Style
                 while (!taken.Add(name)) name = b + i++;
                 l.Style = name;
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
-                foreach (var o in l.Overrides) _overrides[StructureCheck.IdOf(o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
             }
             Items = layers.SelectMany(l => l.Items).ToList();
             Rules = layers.SelectMany(l => l.Rules).ToList();
+            KnownNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in Items) if (g.Id != null) KnownNames.Add(g.Id);
+            foreach (var r in Rules) foreach (var n in new[] { r.Id, r.Name, r.LocalName }) if (n != null) KnownNames.Add(n);
             OurProducts = new HashSet<string>(layers.Skip(1).SelectMany(l => l.ProductTags), StringComparer.OrdinalIgnoreCase);
+
+            // Second pass: only a row that names a rule counts. Later layers win; a built-in check's legacy name is stored as its id.
+            var written = 0;
+            foreach (var l in layers)
+            {
+                var guide = OverrideIds.ForLog(GuideName(l));
+                var more = 0;
+                foreach (var o in l.Overrides)
+                {
+                    if (OverrideIds.IsKnown(this, o.Key)) { _overrides[StructureCheck.IdOf(OverrideIds.Canonical(o.Key))] = o.Value; continue; }
+                    if (firstTime == null) continue;
+                    if (written >= MaxIgnoredLines) { more++; continue; }
+                    if (!firstTime(guide + "|" + o.Key)) continue;
+                    written++;
+                    Diagnostics.Log("Style guide " + guide + " has a rule setting for " + OverrideIds.ForLog(o.Key) + " that names no rule, so it was ignored.");
+                }
+                if (more > 0) Diagnostics.Log("and " + more + " more in " + guide);
+            }
+        }
+
+        /// <summary>The guide's folder name (never its full path), else the layer's name.</summary>
+        private static string GuideName(GuideLayer l)
+        {
+            var folder = string.IsNullOrEmpty(l.Path) ? null : System.IO.Path.GetFileName(l.Path.TrimEnd('\\', '/'));
+            return string.IsNullOrEmpty(folder) ? l.Name : folder;
         }
 
         /// <param name="include">Which rules to include (null = all).</param>
@@ -590,7 +630,7 @@ namespace FlareAI.Core.Style
         {
             string v;
             if (ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v)) return v;
-            if (name != null && _overrides.TryGetValue(StructureCheck.IdOf(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name), out v)) return v;
+            if (name != null && _overrides.TryGetValue(OverrideIds.Canonical(name), out v)) return v;
             return null;
         }
 
@@ -877,12 +917,10 @@ namespace FlareAI.Core.Style
                 }
             }
             // Override tables must name rules that exist.
-            var known = new HashSet<string>(Rules.Select(r => r.Id).Where(x => x != null).Concat(Rules.Select(r => r.Name)).Concat(Items.Select(x => x.Id)), StringComparer.OrdinalIgnoreCase);
             foreach (var l in Layers.Where(x => !x.OverridesOnly))   // the shipped defaults aren't the guide owner's to fix
                 foreach (var o in l.Overrides)
                 {
-                    var key = o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key;
-                    if (!known.Contains(key))
+                    if (!OverrideIds.IsKnown(this, o.Key))
                         report.Issues.Add(new GuideIssue { Level = "error", Layer = l.Name, File = "", Location = "override " + o.Key, Message = "No rule '" + o.Key + "': use a rule's reference from the guide, for example google:numbers/3." });
                 }
             // Rules without a permanent key: their ids would shift when rules are added or moved.
