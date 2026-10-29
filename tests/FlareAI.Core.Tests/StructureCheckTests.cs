@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Xml;
 using FlareAI.Core.Style;
@@ -6,8 +8,51 @@ using Xunit;
 
 namespace FlareAI.Core.Tests
 {
-    public class StructureCheckTests
+    public class StructureCheckTests : IDisposable
     {
+        private readonly string _temp = Path.Combine(Path.GetTempPath(), "flareai-structure-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_temp, true); } catch (Exception) { }
+        }
+
+        private static string Repo
+        {
+            get
+            {
+                var d = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+                while (d != null && !File.Exists(Path.Combine(d.FullName, "FlareAI.sln"))) d = d.Parent;
+                return d.FullName;
+            }
+        }
+
+        private static string Guide { get { return Path.Combine(Repo, "styleguide"); } }
+
+        private static void Write(string root, string rel, string text)
+        {
+            var p = Path.Combine(root, rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(p));
+            File.WriteAllText(p, text);
+        }
+
+        /// <summary>A team guide folder (a Flare project shape) with one table row, so it has a rule of its own.</summary>
+        private static string TeamGuide(string folder)
+        {
+            Write(folder, "Team.flprj", "<CatapultProject />");
+            Write(folder, @"Content\Resources\StyleGuide\Words.htm", "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Words</h1>" +
+                "<table><tr><th>Avoid</th><th>Use</th><th>Example</th></tr><tr><td>kick off</td><td>start</td><td>Kick off the import.</td></tr></table></body></html>");
+            return folder;
+        }
+
+        /// <summary>The built-in checks are listed once, in order, as the second source (after Google), and nowhere else.</summary>
+        private static void AssertBuiltInListed(StyleEngine engine)
+        {
+            var cat = RuleCatalog.Build(engine.Compose(null), r => false);
+            Assert.Equal("Built-in checks", cat.Sources[1]);
+            Assert.Equal(StructureCheck.Rules.Select(r => r.Id).ToList(), cat.Rules.Where(r => r.Source == "Built-in checks").Select(r => r.Id).ToList());
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
@@ -133,6 +178,34 @@ namespace FlareAI.Core.Tests
             Assert.Same(ai, kept[0]);
             Assert.Null(ai.RuleId);
             Assert.Equal("warning", ai.Severity);
+        }
+
+        [Fact]
+        public void Rules_ListsTheSixBuiltInChecks_InEveryComposition()
+        {
+            var mine = Path.Combine(_temp, @"AppData\FlareAI\StyleGuide");
+            GuideSeed.Ensure(Guide, mine);
+            Assert.True(GuideSeed.IsPersonal(mine));
+            AssertBuiltInListed(new StyleEngine(new[] { Guide, mine }, Guide));                                    // a personal guide
+            AssertBuiltInListed(new StyleEngine(new[] { TeamGuide(Path.Combine(_temp, "TeamGuide")) }, Guide));   // a team guide only
+            AssertBuiltInListed(new StyleEngine(new[] { Path.Combine(_temp, "Unreachable") }, Guide) { Fallback = () => new[] { Guide } });   // an unreadable guide folder
+        }
+
+        [Fact]
+        public void Compose_RenamesATeamLayerNamedStructure()
+        {
+            var team = TeamGuide(Path.Combine(_temp, "structure"));
+            var comp = new StyleEngine(new[] { team }, Guide).Compose(null);
+            Assert.Contains(comp.Layers, l => l.Name == "structure-guide");
+            Assert.DoesNotContain(comp.Layers, l => !l.IsBuiltIn && l.Name == "structure");
+
+            var cat = RuleCatalog.Build(comp, r => false);
+            Assert.Equal(cat.Rules.Count, cat.Rules.Select(r => r.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count());   // no id collision
+            Assert.Equal("Structure.HeadingOrder", cat.Find("structure:heading-order").Name);
+            var teamRules = cat.Rules.Where(r => r.Source == "Team style guide (structure)").ToList();
+            Assert.NotEmpty(teamRules);
+            Assert.All(teamRules, r => Assert.StartsWith("StructureGuide.", r.Name));
+            Assert.Equal(6, cat.Rules.Count(r => r.Source == "Built-in checks"));
         }
 
         [Fact]

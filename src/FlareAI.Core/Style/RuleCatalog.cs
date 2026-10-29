@@ -178,6 +178,7 @@ namespace FlareAI.Core.Style
             var changes = new List<KeyValuePair<RuleOverride, bool>>();
             for (var i = 1; i < layers.Count; i++)
             {
+                if (layers[i].IsBuiltIn) continue;   // no folder, so no changes to read
                 var root = layers[i].Path;
                 var project = i == projectIndex;
                 var def = !project && (layers[i].OverridesOnly || isDefault != null && isDefault(root));
@@ -294,6 +295,7 @@ namespace FlareAI.Core.Style
         private static string SourceOf(GuideLayer layer, int index, bool project, Func<string, bool> isDefault)
         {
             if (index == 0) return "Google";
+            if (layer.IsBuiltIn) return "Built-in checks";
             var folder = Path.GetFileName((layer.Path ?? "").TrimEnd('\\', '/'));
             if (project) return "Project " + folder;
             if (layer.OverridesOnly) return RuleOverrides.DefaultScope;
