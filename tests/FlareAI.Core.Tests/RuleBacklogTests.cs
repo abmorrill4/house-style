@@ -34,6 +34,26 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void NextAfter_SkipsEveryWalkedRule_NotOnlyTheLastOne()
+        {
+            var backlog = RuleBacklog.Group(new[] { Hit("A", "t.htm", true), Hit("A", "u.htm", true), Hit("A", "v.htm", true), Hit("B", "t.htm", true), Hit("B", "u.htm", true), Hit("C", "t.htm", true) }, null, null);
+            Assert.Equal(new[] { "A", "B", "C" }, backlog.Select(r => r.Key));
+            Assert.True(backlog[0].Occurrences > 0);   // A still has open issues, and is still skipped
+
+            var next = RuleBacklog.NextAfter(backlog, new[] { "A", "B" });
+
+            Assert.Equal("C", next.Key);
+        }
+
+        [Fact]
+        public void NextAfter_NoneLeft_IsNull()
+        {
+            var backlog = RuleBacklog.Group(new[] { Hit("A", "t.htm", true), Hit("B", "t.htm", true) }, null, null);
+
+            Assert.Null(RuleBacklog.NextAfter(backlog, new[] { "A", "B" }));
+        }
+
+        [Fact]
         public void Summary_EdgeCases()
         {
             Assert.Equal("No issues found in this project.", RuleBacklog.Summary(new List<StyleFinding>(), null));
