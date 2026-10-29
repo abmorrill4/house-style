@@ -326,6 +326,30 @@ namespace FlareAI.Core.Tests
             }
         }
 
+        [Fact]
+        public void BundledGuide_HasNoIgnoredRows()
+        {
+            // The shipped guide (the same files PluginSettings.BundledGuide copies) must name only rules that exist.
+            var lines = new List<string>();
+            var oldSink = Diagnostics.Sink; var oldEnabled = Diagnostics.Enabled;
+            Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+            Diagnostics.Enabled = true;
+            try
+            {
+                var comp = new StyleEngine(new[] { GuideSourceTests.Bundled }, GuideSourceTests.Bundled).Compose(null);
+                foreach (var layer in comp.Layers)
+                    foreach (var o in layer.Overrides)
+                        Assert.True(OverrideIds.IsKnown(comp, o.Key), layer.Name + " names no rule for " + OverrideIds.ForLog(o.Key));
+                List<string> logged;
+                lock (lines) logged = lines.Where(l => l.StartsWith("Style guide", StringComparison.Ordinal) && l.Contains("names no rule")).ToList();
+                Assert.Empty(logged);
+            }
+            finally
+            {
+                Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled;
+            }
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
