@@ -49,6 +49,7 @@ $st = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk -and $s.pane.panel.
 Assert-E2E ($st.pane.panel.walk.total -ge 2) "the walk has 2 places or more (total: $($st.pane.panel.walk.total))"
 $firstFile = CardFile
 Assert-E2E ((Leaf $st.editor.path) -eq $firstFile) "the editor shows the first place's file (editor: $(Leaf $st.editor.path), card: $firstFile)"
+$st = Wait-Until { $s = Get-E2EState; if ($s.editor.selection.Length -gt 0) { $s } } 10 "the editor to select the first place's words"   # the selection lands a beat after the walk position
 Assert-E2E ($st.editor.selection.Length -gt 0) "the editor selects the first place's words"
 
 # 4. N goes on until the editor is in another file; the list keeps the focus and the walk follows.
@@ -60,15 +61,15 @@ AssertProject "after N to another file"
 $pos4 = $s4.pane.panel.walk.position
 $sel4 = $s4.editor.selection
 Press "n"
-$s4b = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk.position -gt $pos4) { $s } } 15 "N to move to the next place"
+$s4b = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk.position -gt $pos4 -and $s.editor.selection.Length -gt 0 -and $s.editor.selection -ne $sel4) { $s } } 15 "N to move to the next place and select its words"
 Assert-E2E ($s4b.editor.selection.Length -gt 0 -and $s4b.editor.selection -ne $sel4) "N selects the next place's words"
 
-# 5. I ignores the place. On a clean profile the first I opens Ignore's reasons, so that one is answered here.
+# 5. I ignores the place. On a clean profile the first I opens Ignore's reasons, so one is picked by its text.
 $p5 = $s4b.pane.panel.walk
 Press "+i"
-Keys "{DOWN}"
-Keys "{ENTER}"
-$s5 = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk -and $s.pane.panel.walk.position -eq $p5.position + 1) { $s } } 15 "Ignore to move the walk to the next place"
+# The first I on a profile opens Ignore's reasons (picked by text: Exempt This Text sits in that menu too); a profile that remembers a reason ignores at once.
+try { Send-E2E paneMenu "The suggestion is wrong" | Out-Null } catch { if ("$_" -notlike "*No open menu*") { throw } }
+$s5 = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk -and $s.pane.panel.walk.position -eq $p5.position + 1) { $s } } 15 "Ignore to move the walk to the next place (was $($p5.position) of $($p5.total))"
 Assert-E2E ($s5.pane.panel.walk.total -eq $p5.total) "Ignore leaves the walk's total unchanged (was $($p5.total))"
 AssertProject "after Ignore"
 
