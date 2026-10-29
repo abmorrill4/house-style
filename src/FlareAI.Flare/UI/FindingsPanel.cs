@@ -54,6 +54,12 @@ namespace FlareAI.Flare.UI
         private readonly ToolTip _ignoreTip;
         // project check: by rule / by file, the rule card's actions, and batches with progress
         private readonly FlowLayoutPanel _viewBar, _actions, _ruleActions;
+        private readonly Label _viewLabel;
+        private readonly ComboBox _levelBox, _sourceBox;
+        private readonly Button _clearFilters;
+        private readonly ToolTip _filterTip;
+        private ReviewSource _savedSource;   // the Source the writer chose; a project report shows both sources but keeps this
+        private bool _syncingFilter;
         private readonly RadioButton _byRule, _byFile;
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
@@ -217,6 +223,12 @@ namespace FlareAI.Flare.UI
         {
             _runner = runner; _doc = doc; _newRunner = newRunner; _open = open; _cache = cache; _aiOnStart = aiOnStart; _files = files;
             _session = new ReviewSession(runner, doc, this, Dismissed, files != null);
+            // The remembered level and source, applied before the first Rebuild (no handler yet). A project report has no AI
+            // issues, so it always shows both sources and keeps the saved Source as it was.
+            ReviewLevel savedLevel; ReviewSource savedSource;
+            ReviewViewPrefs.Load(out savedLevel, out savedSource);
+            _savedSource = savedSource;
+            _session.Filter = new ReviewFilter(savedLevel, files != null ? ReviewSource.RulesAndAi : savedSource);
             _session.ListChanged += Rebuild;
             _session.SelectRequested += Select;
             _session.StatusChanged += text => _status.Text = text;
@@ -249,13 +261,40 @@ namespace FlareAI.Flare.UI
             _session.RunBatch = RunBatchInPane;
 
             // Lint Project: one row per rule (most frequent first) or the issues file by file. Remembered.
-            _viewBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = files != null };
-            _viewBar.Controls.Add(new Label { Text = "View:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
+            _viewBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = true };
+            _viewLabel = new Label { Text = "View:", AutoSize = true, Margin = new Padding(0, 6, 4, 0), Visible = files != null };
+            _viewBar.Controls.Add(_viewLabel);
             var byFile = files != null && FlareAI.Core.Settings.PluginSettings.Load().ProjectViewByFile;
             _byRule = new RadioButton { Text = "By &rule", AutoSize = true, Checked = !byFile, Margin = new Padding(0, 3, 8, 0) };
             _byFile = new RadioButton { Text = "By &file", AutoSize = true, Checked = byFile, Margin = new Padding(0, 3, 12, 0) };
             _viewBar.Controls.Add(_byRule);
             _viewBar.Controls.Add(_byFile);
+            _byRule.Visible = _byFile.Visible = files != null;
+            _viewBar.SetFlowBreak(_byFile, true);
+
+            // Level and Source: which issues the list shows. Remembered; locked during Review One by One.
+            _filterTip = new ToolTip();
+            var levelLabel = new Label { Text = "Level:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) };
+            _levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Level", Width = 130, MaximumSize = new Size(140, 0), Margin = new Padding(0, 2, 8, 4) };
+            _levelBox.Items.AddRange(new object[] { "All Levels", "Errors", "Warnings", "Suggestions" });
+            var sourceLabel = new Label { Text = "Source:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) };
+            _sourceBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Source", Width = 130, MaximumSize = new Size(140, 0), Margin = new Padding(0, 2, 8, 4) };
+            _sourceBox.Items.AddRange(new object[] { "Rules and AI", "Rules Only", "AI Only" });
+            _levelBox.SelectedIndex = (int)_session.Filter.Level;
+            _sourceBox.SelectedIndex = (int)_session.Filter.Source;
+            _viewBar.Controls.Add(levelLabel);
+            _viewBar.SetFlowBreak(levelLabel, true);
+            _viewBar.Controls.Add(_levelBox);
+            _viewBar.SetFlowBreak(_levelBox, true);
+            _viewBar.Controls.Add(sourceLabel);
+            _viewBar.SetFlowBreak(sourceLabel, true);
+            _viewBar.Controls.Add(_sourceBox);
+            _viewBar.SetFlowBreak(_sourceBox, true);
+            _levelBox.SelectedIndexChanged += (s, e) => Safe.Run("Filter level", ApplyFilterChoice);
+            _sourceBox.SelectedIndexChanged += (s, e) => Safe.Run("Filter source", ApplyFilterChoice);
+            _clearFilters = Btn(_viewBar, "Clear Filters", (s, e) => ClearFilters());
+            _filterTip.SetToolTip(_clearFilters, "Show every issue again.");
+            _clearFilters.Visible = !_session.Filter.IsAll;
             _byRule.CheckedChanged += (s, e) => Safe.Run("View by rule", () => { if (_byRule.Checked) SwitchView(false); });
             _byFile.CheckedChanged += (s, e) => Safe.Run("View by file", () => { if (_byFile.Checked) SwitchView(true); });
             _backToRules = Btn(_viewBar, "All Rules", (s, e) => _session.EndRuleReview());
@@ -1142,7 +1181,7 @@ namespace FlareAI.Flare.UI
             }
             var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
         }
 
         /// <summary>
@@ -1443,6 +1482,7 @@ namespace FlareAI.Flare.UI
         /// <summary>Redraws the list in the session's order (it changed), keeping the selection.</summary>
         private void Rebuild()
         {
+            RefreshFilterBar();
             if (_files != null)
             {
                 var reviewing = _session.FocusRule != null;
@@ -1464,6 +1504,7 @@ namespace FlareAI.Flare.UI
                 foreach (var f in new List<StyleFinding>(_session.Findings))   // a snapshot: the session's list is never read while it changes
                 {
                     if (focus != null && RuleBacklog.KeyOf(f) != focus) continue;
+                    if (!_session.Filter.IsAll && !_session.Filter.Shows(f)) continue;
                     var item = new ListViewItem(new[] { A11y.SeverityGlyph(f.Severity) + " " + ProposalText(f), LayerLabel(f) }) { Tag = f, Group = GroupFor(f) };
                     item.ToolTipText = A11y.SeverityLabel(f.Severity) + ". " + A11y.SeverityHelp(f.Severity) + "\n" + LayerLabel(f) + " · " + ReadableRule(f) + "\n" + f.Suggestion;
                     Restyle(item);
@@ -1524,6 +1565,52 @@ namespace FlareAI.Flare.UI
             ShowCard();
             var changed = Changed;
             if (changed != null) try { changed(this); } catch (Exception ex) { Diagnostics.Log("markers", ex); }
+        }
+
+        /// <summary>A combo changed: the session shows the new choice, and the choice is remembered.</summary>
+        private void ApplyFilterChoice()
+        {
+            if (_syncingFilter) return;
+            var level = (ReviewLevel)Math.Max(0, _levelBox.SelectedIndex);
+            if (_files == null) _savedSource = (ReviewSource)Math.Max(0, _sourceBox.SelectedIndex);
+            _session.Filter = new ReviewFilter(level, _files != null ? ReviewSource.RulesAndAi : _savedSource);
+            ReviewViewPrefs.Save(level, _savedSource);
+            Diagnostics.Log("filter: " + _levelBox.Text + ", " + _sourceBox.Text);
+        }
+
+        private void ClearFilters()
+        {
+            _syncingFilter = true;
+            try
+            {
+                _levelBox.SelectedIndex = 0;
+                _sourceBox.SelectedIndex = 0;
+            }
+            finally { _syncingFilter = false; }
+            if (_files == null) _savedSource = ReviewSource.RulesAndAi;
+            _session.Filter = ReviewFilter.All;
+            ReviewViewPrefs.Save(ReviewLevel.All, _savedSource);
+            _levelBox.Focus();
+        }
+
+        /// <summary>The combos and Clear Filters show the session's filter; the combos are locked during a walk (and Source in a project).</summary>
+        private void RefreshFilterBar()
+        {
+            _syncingFilter = true;
+            try
+            {
+                var filter = _session.Filter;
+                if ((int)filter.Level != _levelBox.SelectedIndex) _levelBox.SelectedIndex = (int)filter.Level;
+                if ((int)filter.Source != _sourceBox.SelectedIndex) _sourceBox.SelectedIndex = (int)filter.Source;
+                _clearFilters.Visible = !filter.IsAll;
+            }
+            finally { _syncingFilter = false; }
+            var walking = _session.WalkActive;
+            _levelBox.Enabled = !walking;
+            _sourceBox.Enabled = !walking && _files == null;
+            var tip = walking ? "Finish Review One by One to change the filters." : "";
+            _filterTip.SetToolTip(_levelBox, tip);
+            _filterTip.SetToolTip(_sourceBox, tip);
         }
 
         private void SwitchView(bool byFile)
@@ -2158,6 +2245,7 @@ namespace FlareAI.Flare.UI
             var r = CurrentRule();
             _ignore.Enabled = (f != null || r != null) && !busy;
             _viewBar.Enabled = !busy;
+            RefreshFilterBar();
             _tabs.Enabled = !busy;
             _actions.Enabled = !busy;
             _ruleActions.Enabled = !busy;
