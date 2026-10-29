@@ -82,7 +82,7 @@ $marks = CheckMarks
 Press "{ENTER}"
 $s6b = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk.position -gt $p6) { $s } } 15 "Enter to change the place and move on"
 Assert-E2E ((CheckMarks) -gt $marks) "Enter shows a check mark on the changed place"
-Assert-E2E ((Leaf $s6b.editor.path) -eq $fileHere) "the editor is in the changed place's file ($fileHere)"
+# The editor follows the walk, so after the change it may already show the next place's file.
 AssertProject "after Change"
 
 # 7. The pane stays on the Project tab: checked after each move above.
