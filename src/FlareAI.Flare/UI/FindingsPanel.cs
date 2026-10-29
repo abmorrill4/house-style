@@ -58,7 +58,7 @@ namespace FlareAI.Flare.UI
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
         private readonly TabRadio _tabTopic, _tabProject;
-        private readonly Button _excluded, _exemptions, _export;
+        private readonly Button _excluded, _ignoredBtn, _exemptions, _export;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
@@ -220,6 +220,7 @@ namespace FlareAI.Flare.UI
             _session.ListChanged += Rebuild;
             _session.SelectRequested += Select;
             _session.StatusChanged += text => _status.Text = text;
+            _session.IgnoredChanged += OnIgnoredChanged;
             _session.BatchReported += ShowResult;
             _session.Happened += OnHappened;
             _session.IsShown = () => PanelHost.Current == this;
@@ -367,6 +368,7 @@ namespace FlareAI.Flare.UI
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 0) };
             _recheck = Btn(bar, "Lint Again", (s, e) => { _aiOnStart = true; _fresh = !_stopped; Start(); });   // after Stop: carry on, not start over
             _exemptions = Btn(bar, "Exemptions", (s, e) => ShowExemptions()); _exemptions.Visible = false;   // on the main bar, so a topic lint shows it too; shown once the project has any
+            _ignoredBtn = Btn(_files != null ? _viewBar : bar, "Ignored Issues", (s, e) => ShowIgnored()); _ignoredBtn.Visible = false;   // the view bar in Lint Project, else the main bar
             _ignore = Btn(bar, "Disable Rule…", (s, e) => { var r = CurrentRule(); if (r != null) _session.TurnOffRule(r); else _session.TurnOffRule(); });
             Btn(bar, "Close", (s, e) => { var h = CloseRequested; if (h != null) h(this, EventArgs.Empty); });
 
@@ -395,6 +397,7 @@ namespace FlareAI.Flare.UI
             tips.SetToolTip(_export, "Save the issues to a file you can open in Excel.");
             tips.SetToolTip(_recheck, "Lint this topic again.");
             tips.SetToolTip(_legend, "Show what the symbols and buttons mean.");
+            tips.SetToolTip(_ignoredBtn, "Show the issues you ignored. They stay hidden each time you lint.");
             _ignoreTip = tips;
 
             // The last notice (a toast vanishes by itself) stays reachable here, with its action as a focusable link.
@@ -642,6 +645,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_acceptAll.Parent, "Actions for all issues"); A11y.Name(_recheck.Parent, "Pane actions"); A11y.Name(_accept.Parent, "Decision for the selected issue");
             A11y.Name(_viewBar, "Project report", "List the project's issues by rule or by file, or save them to a file.");
             A11y.Name(_exemptions, "Exemptions", "The text exempted from lint for this project. Opens a dialog.");
+            A11y.Name(_ignoredBtn, "Ignored Issues", "Show the issues you ignored. They stay hidden each time you lint.");
             A11y.Name(_export, "Export Issues", "Save the issues to a file you can open in Excel. Opens a dialog.");
             A11y.Name(_ruleActions, "Actions for the selected rule");
             A11y.Name(_fixRule, "Change All", "Replace every instance of this issue in every file. Opens a preview.");
@@ -1087,6 +1091,27 @@ namespace FlareAI.Flare.UI
             _excluded.Text = "Excluded Files (" + n + ")";
         }
 
+        /// <summary>The issues the writer ignored, to restore. The count and the status line follow the restore.</summary>
+        private void ShowIgnored()
+        {
+            using (var f = new IgnoredIssuesForm(_session)) f.ShowDialog(FindForm());
+            UpdateIgnored();
+        }
+
+        private void OnIgnoredChanged()
+        {
+            if (IsDisposed) return;
+            if (InvokeRequired) { BeginInvoke((Action)OnIgnoredChanged); return; }
+            UpdateIgnored();
+        }
+
+        private void UpdateIgnored()
+        {
+            var n = _session.Ignored.Count;
+            _ignoredBtn.Visible = n > 0;
+            _ignoredBtn.Text = "Ignored Issues (" + n + ")";
+        }
+
         /// <summary>The project's exempted text, to review or remove.</summary>
         private void ShowExemptions()
         {
@@ -1268,7 +1293,7 @@ namespace FlareAI.Flare.UI
         private void Start()
         {
             if (_worker != null && _worker.IsBusy) return;
-            _session.Clear(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
+            _session.Clear(); UpdateIgnored(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
             _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiHidden = false; _aiOffNote.Visible = false;
             _reviewing = true; _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee; _status.Text = "Linting…";
             _result.Visible = false; _stop.Visible = false; _stop.Enabled = true; _stopped = false; _unitCount = 0; _doneUnits = 0;
@@ -1370,6 +1395,7 @@ namespace FlareAI.Flare.UI
                 if (team != null && team.Status != null && team.Status.Behind > 0) _status.Text += "  " + team.Status;
                 if (_list.SelectedItems.Count == 0) _session.Next();
                 UpdateExemptions();
+                UpdateIgnored();
                 UpdateButtons();
                 UpdateChecklist();
                 GettingStarted.Did(TourEvent.TopicLinted);
@@ -1419,6 +1445,7 @@ namespace FlareAI.Flare.UI
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
                     UpdateExemptions();
+                    UpdateIgnored();
                 }
                 UpdateButtons();
                 UpdateChecklist();

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 using FlareAI.Core.Actions;
@@ -27,10 +28,14 @@ namespace FlareAI.Flare.Tests
         {
             Directory.CreateDirectory(_dir);
             _dismissedPath = Path.Combine(_dir, "dismissed.json");
+            // The pane's own dismissals and feedback go to a temp folder, never to %APPDATA% (as NarrowPaneTests does).
+            FlareAI.Core.Paths.Root = _dir;
+            FlareAI.Core.Settings.GuidedTour.Stop();
         }
 
         public void Dispose()
         {
+            FlareAI.Core.Paths.Root = null;
             try
             {
                 if (File.Exists(_dismissedPath)) File.SetAttributes(_dismissedPath, FileAttributes.Normal);
@@ -149,6 +154,32 @@ namespace FlareAI.Flare.Tests
                     }
                 }
                 finally { IgnoredIssuesForm.ShowSaveFailed = old; }
+            });
+        }
+
+        [Fact]
+        public void IgnoredButton_ShowsCount_HiddenAtZero()
+        {
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(Topic);
+                var runner = new ActionRunner(new ScriptedLlmClient(), new PromptBuilder(null), 1024);
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, false);
+                var button = All(panel).OfType<Button>().Single(b => b.AccessibleName == "Ignored Issues");
+                var session = (ReviewSession)typeof(FindingsPanel).GetField("_session", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(panel);
+                session.RecordFeedback = (f, topic, decision, reason) => null;
+                session.IgnoredAiRules = p => new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                Assert.False(button.Visible, "no ignored issues yet");
+
+                session.Add(new List<StyleFinding> { Issue("utilize", "Please ") });
+                session.Current = session.Findings[0];
+                session.Reject("wrong");
+                Assert.True(button.Visible);
+                Assert.Equal("Ignored Issues (1)", button.Text);
+
+                session.Restore(new List<StyleFinding> { session.Ignored[0] });
+                Assert.False(button.Visible, "hidden again at zero");
+                Assert.Equal("Ignored Issues (0)", button.Text);
             });
         }
 
