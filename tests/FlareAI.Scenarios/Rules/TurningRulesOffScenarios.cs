@@ -16,7 +16,8 @@ namespace FlareAI.Scenarios.Rules
     /// <summary>
     /// Turning rules off: for the team, for one project, with the rules that flag the same words, by someone who is not an owner,
     /// from a read-only install folder, and a company rule that overrides Google. The #34 ("turned off, still flagged"), #54
-    /// (same-span twins) and #36 (save under Program Files) regressions live here. Each story names the TEST-PLAN case it automates.
+    /// (same-span twins), #127 (partly overlapping twins, the glossary checker) and #36 (save under Program Files) regressions
+    /// live here. Each story names the TEST-PLAN case it automates.
     /// </summary>
     public class TurningRulesOffScenarios
     {
@@ -43,17 +44,21 @@ namespace FlareAI.Scenarios.Rules
                 return Create(ws, topic, who, owners, feedbackFolder);
             }
 
-            public static Team_ OnTopic(string bodyXml, string who = Pat, string[] owners = null, bool feedbackFolder = false)
+            public static Team_ OnTopic(string bodyXml, string who = Pat, string[] owners = null, bool feedbackFolder = false, string teamWords = null, bool glossary = false)
             {
                 var ws = FakeWorkspace.Empty();
                 ws.WriteFile("Content/topic.htm", string.Format(ReviewFixture.Wrapper, bodyXml));
-                return Create(ws, "Content/topic.htm", who, owners, feedbackFolder);
+                return Create(ws, "Content/topic.htm", who, owners, feedbackFolder, teamWords, glossary);
             }
 
-            private static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder)
+            /// <summary>teamWords: the team guide's own rule page (Content\Resources\StyleGuide\Team-words.htm), or null for none.
+            /// glossary: the team guide also gets the bundled Project glossary, which is what makes the glossary checker.</summary>
+            private static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder, string teamWords = null, bool glossary = false)
             {
                 var t = new Team_ { Who = who };
                 t.Guide = Files.TeamGuide(ws.Root, null, owners ?? new string[0]);
+                if (teamWords != null) File.WriteAllText(Path.Combine(t.Guide, @"Content\Resources\StyleGuide\Team-words.htm"), teamWords);
+                if (glossary) Files.Copy(Path.Combine(Repo.StyleGuide, "Project"), Path.Combine(t.Guide, "Project"));
                 if (feedbackFolder) { t.Feedback = Path.Combine(ws.Root, "Feedback"); Directory.CreateDirectory(t.Feedback); }
                 var guide = t.Guide;
                 t.Fx = new ReviewFixture(null, topic, null, false, ws, () => new StyleEngine(new[] { guide }, Repo.StyleGuide));
@@ -441,6 +446,108 @@ namespace FlareAI.Scenarios.Rules
                 GuideOverrides.Set(guide, EMail, "off", Reason, Pat, DateTime.Now);   // GuideOverrides reads and writes this layout fine
 
                 Assert.True(engine.IsOff(null, EMail));                                // …but the engine in the running plugin never reloads it
+            }
+        }
+
+        // ---- 24 · TEST-PLAN D6, #127 ------------------------------------------------------------------------------
+
+        private const string SingleSignOn = "company:terminology/6", IdentityProvider = "company:terminology/7";
+        private const string GlossaryChecker = "Company.GlossaryTerms", TeamWord = "company:team-words/k1";
+        // "Saml 2.0" is a glossary spelling no bundled rule flags, so the glossary's issue on it reaches the pane by itself.
+        private const string SignOnElsewhere = "<h1>Tips</h1><p>Enable Single Sign On for your team.</p><p>Map Saml 2.0 to your directory.</p>";
+
+        [Fact]
+        public void Story24a_PartlyOverlappingTwin_IsOfferedAndTurnedOffTogether()
+        {
+            // #127: the team's "sign-on first" shares only "Sign-On first" with rule 6's match "Single Sign-On". It is still a twin.
+            var teamWords = string.Format(ReviewFixture.Wrapper, "<h1>Team words</h1><table><tr><th>Avoid</th><th>Use</th><th>Severity</th><th>Example</th></tr>" +
+                "<tr id=\"rule-k1\"><td>sign-on first</td><td>sign in first</td><td>warning</td><td>Enable Single Sign-On first.</td></tr></table>");
+            using (var t = Team_.OnTopic("<h1>Tips</h1><p>Enable Single Sign-On first.</p>", teamWords: teamWords))
+            {
+                t.Fx.Check();
+                var f = t.Fx.Find(SingleSignOn, "Single Sign-On");
+                t.Fx.Session.Select(f);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason, AlsoOthers = true };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.Contains(t.Fx.Host.Offered, o => o.Id == TeamWord);                                  // offered in the pane
+                var rows = GuideOverrides.Read(t.Guide).Select(o => o.RuleId).ToList();
+                Assert.Contains(SingleSignOn, rows);
+                Assert.Contains(TeamWord, rows);                                                            // and turned off with it
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SingleSignOn || x.RuleId == TeamWord || x.Excerpt.Contains("Sign-On"));
+                t.Restart();
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SingleSignOn || x.RuleId == TeamWord || x.Excerpt.Contains("Sign-On"));
+            }
+        }
+
+        [Theory]
+        [InlineData("<h1>Tips</h1><p>Enable Single Sign-On first.</p>", "Single Sign-On")]   // the glossary flags the example's words
+        [InlineData("<h1>Tips</h1><p>Enable Single Sign On for your team.</p>", "Single Sign On")]   // …and words the example doesn't have
+        public void Story24b_RulesBrowserAndPaneOfferTheSameTwins(string body, string span)
+        {
+            using (var t = Team_.OnTopic(body, glossary: true))
+            {
+                t.Fx.Check();
+                var f = t.Fx.Find(SingleSignOn, span);
+                var catalog = RuleCatalog.Build(t.Fx.Style.Compose(t.Fx.Doc.SourcePath));
+                var browser = RuleChanges.TwinsOf(catalog, SingleSignOn).Select(r => r.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+                Assert.Contains(GlossaryChecker, browser);
+
+                t.Fx.Session.Select(f);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Not for this project." };
+                t.Fx.Session.TurnOffRule();
+
+                var offered = t.Fx.Host.Offered.Select(o => o.Id).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+                Assert.Equal(browser, offered);                                                             // the same rules, glossary checker included
+                Assert.All(f.AlsoRules, a => Assert.Contains(a.Id, browser));                              // every merged rule is a twin
+            }
+        }
+
+        [Fact]
+        public void Story24c_GlossaryChecker_IsOfferedUnticked_DefaultsLeaveGlossaryIssuesElsewhere()
+        {
+            using (var t = Team_.OnTopic(SignOnElsewhere, glossary: true))
+            {
+                t.Fx.Check();
+                var f = t.Fx.Find(SingleSignOn, "Single Sign On");
+                Func<bool> glossaryElsewhere = () => t.Fx.Session.Findings.Any(x => x.RuleId == null && x.Rule == GlossaryChecker && x.Excerpt.StartsWith("Saml"));
+                Assert.True(glossaryElsewhere());
+                t.Fx.Session.Select(f);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason };   // AlsoCheckers left empty
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.Contains(t.Fx.Host.Offered, o => o.Id == GlossaryChecker && o.IsChecker);               // offered as a checker entry
+                Assert.DoesNotContain(GuideOverrides.Read(t.Guide).Select(o => o.RuleId), id => id == GlossaryChecker);
+                Assert.True(glossaryElsewhere());                                                           // still in the pane
+                t.Fx.Check();
+                Assert.True(glossaryElsewhere());
+            }
+        }
+
+        [Fact]
+        public void Story24d_TickedGlossaryChecker_ClearsEveryGlossaryIssueFromThePane()
+        {
+            using (var t = Team_.OnTopic(SignOnElsewhere, glossary: true))
+            {
+                t.Fx.Check();
+                var f = t.Fx.Find(SingleSignOn, "Single Sign On");
+                Assert.Contains(t.Fx.Session.Findings, x => x.RuleId == null && x.Rule == GlossaryChecker && x.Excerpt.StartsWith("Saml"));
+                t.Fx.Session.Select(f);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason, AlsoCheckers = new List<string> { GlossaryChecker } };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.Rule == GlossaryChecker);                // gone from the pane, no new lint needed
+                Assert.Contains(GuideOverrides.Read(t.Guide), o => o.RuleId == GlossaryChecker && o.Setting == "off");
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.Rule == GlossaryChecker || x.RuleId == GlossaryChecker);
+                t.Restart();
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.Rule == GlossaryChecker || x.RuleId == GlossaryChecker);
             }
         }
 
