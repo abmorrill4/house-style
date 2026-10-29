@@ -219,5 +219,38 @@ namespace FlareAI.Core.Tests
             Assert.Equal("structure:heading-order", f.RuleId);
             Assert.Equal("error", f.Severity);
         }
+
+        /// <summary>A team guide whose overrides.ini holds these lines, and the engine that reads it.</summary>
+        private StyleEngine EngineWithOverrides(string folder, string ini)
+        {
+            var team = TeamGuide(folder);
+            Write(team, @"Content\Resources\StyleGuide\overrides.ini", ini);
+            return new StyleEngine(new[] { team }, Guide);
+        }
+
+        [Fact]
+        public void StructureFindings_DropsAnOffRule_ByIdAndByLegacyName()
+        {
+            var headings = "<h1>A</h1><h3>B</h3>";
+            var legacy = EngineWithOverrides(Path.Combine(_temp, "Legacy"), "Structure.HeadingOrder = NO\n");
+            var byId = EngineWithOverrides(Path.Combine(_temp, "ById"), "structure:heading-order = off\n");
+            var none = EngineWithOverrides(Path.Combine(_temp, "None"), "");
+
+            Assert.Single(none.StructureFindings(null, Body(headings)));   // the control: the rule fires without an override
+            Assert.Empty(legacy.StructureFindings(null, Body(headings)));
+            Assert.Empty(byId.StructureFindings(null, Body(headings)));
+        }
+
+        [Fact]
+        public void StructureFindings_TakeTheOverrideLevel()
+        {
+            var byId = EngineWithOverrides(Path.Combine(_temp, "LevelById"), "structure:heading-order = suggestion\n");
+            var f = Assert.Single(byId.StructureFindings(null, Body("<h1>A</h1><h3>B</h3>")));
+            Assert.Equal("structure:heading-order", f.RuleId);
+            Assert.Equal("suggestion", f.Severity);
+
+            var legacy = EngineWithOverrides(Path.Combine(_temp, "LevelLegacy"), "Structure.HeadingOrder = suggestion\n");
+            Assert.Equal("suggestion", Assert.Single(legacy.StructureFindings(null, Body("<h1>A</h1><h3>B</h3>"))).Severity);
+        }
     }
 }

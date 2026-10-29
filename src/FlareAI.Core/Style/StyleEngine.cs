@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml;
 
 namespace FlareAI.Core.Style
 {
@@ -448,6 +449,16 @@ namespace FlareAI.Core.Style
 
         public bool IsOff(string project, string ruleId) { return Compose(project).IsOff(ruleId); }
 
+        /// <summary>
+        /// The built-in structure checks of a topic (<see cref="StructureCheck.Of"/>), with the guides' and the project's rule
+        /// tables applied: a rule turned off drops its findings, a level changes them.
+        /// </summary>
+        public IList<Actions.StyleFinding> StructureFindings(string project, IList<XmlNode> blocks)
+        {
+            var comp = Compose(project);
+            return StructureCheck.Settle(StructureCheck.Of(blocks), comp.SettingOf);
+        }
+
         public IList<GuideExample> Examples(string project)
         {
             return Compose(project).Layers.Where(l => !l.IsBuiltIn).SelectMany(l => l.Items).Where(i => i.Bad.Length > 0 || i.Good.Length > 0)
@@ -526,7 +537,7 @@ namespace FlareAI.Core.Style
                 while (!taken.Add(name)) name = b + i++;
                 l.Style = name;
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
-                foreach (var o in l.Overrides) _overrides[o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key] = o.Value;   // later layers win
+                foreach (var o in l.Overrides) _overrides[StructureCheck.IdOf(o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
             }
             Items = layers.SelectMany(l => l.Items).ToList();
             Rules = layers.SelectMany(l => l.Rules).ToList();
@@ -559,7 +570,7 @@ namespace FlareAI.Core.Style
         public bool IsOff(string ruleId)
         {
             string v;
-            return ruleId != null && _overrides.TryGetValue(ruleId, out v) && v == "off";
+            return ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v) && v == "off";
         }
 
         /// <summary>The open Flare project when it is the last of <see cref="Layers"/> (its own rules and exceptions), else null.</summary>
@@ -578,8 +589,8 @@ namespace FlareAI.Core.Style
         public string SettingOf(string ruleId, string name = null)
         {
             string v;
-            if (ruleId != null && _overrides.TryGetValue(ruleId, out v)) return v;
-            if (name != null && _overrides.TryGetValue(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name, out v)) return v;
+            if (ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v)) return v;
+            if (name != null && _overrides.TryGetValue(StructureCheck.IdOf(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name), out v)) return v;
             return null;
         }
 
@@ -594,7 +605,7 @@ namespace FlareAI.Core.Style
         private string Override(LintRule r)
         {
             string v;
-            if (!(r.Id != null && _overrides.TryGetValue(r.Id, out v)) && !_overrides.TryGetValue(r.Name, out v)) return null;
+            if (!(r.Id != null && _overrides.TryGetValue(StructureCheck.IdOf(r.Id), out v)) && !_overrides.TryGetValue(StructureCheck.IdOf(r.Name), out v)) return null;
             return v == "on" ? null : v;
         }
 
