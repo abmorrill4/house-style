@@ -7,9 +7,14 @@ $topic = Join-Path $run.Project "Content\structure\heading-order.htm"
 New-Item -ItemType Directory -Force (Split-Path $topic) | Out-Null
 Set-Content $topic -Encoding UTF8 @"
 <?xml version="1.0" encoding="utf-8"?>
-<html><body><h2>Sign in</h2>
-<h4>Start a session</h4><p>Sign in with your work account.</p>
-</body></html>
+<html xmlns:MadCap="http://www.madcapsoftware.com/Schemas/MadCap.xsd">
+    <head><title>Heading order</title></head>
+    <body>
+        <h2>Sign in</h2>
+        <h4>Start a session</h4>
+        <p>Sign in with your work account.</p>
+    </body>
+</html>
 "@
 $ini = Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini"
 # The app creates overrides.ini when the rule is turned off; make sure its folder exists.
@@ -27,7 +32,7 @@ $i = (0..($pane.rows.Count - 1) | Where-Object { $pane.rows[$_].rule -eq "Struct
 Send-E2E rowMenu "(select only)" -Extra @{ index = $i } | Out-Null
 Send-E2E click "Disable Rule" -NoWait
 $d = Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" } } 15 "the Disable Rule dialog"
-Assert-E2E ($d.text -like "*Headings go down one level at a time.*") "the Disable Rule dialog explains the rule (text: $($d.text))"
+Assert-E2E ((@($d.text) -join " ") -like "*Headings go down one level at a time.*") "the Disable Rule dialog explains the rule (text: $($d.text))"
 Send-E2E dialogClick "For this project only" -Extra @{ title = "Disable Rule" } | Out-Null
 Send-E2E dialogType "Our style allows h4 under h2 in glossaries." -Extra @{ title = "Disable Rule"; name = "Reason" } | Out-Null
 Send-E2E dialogClick "OK" -Extra @{ title = "Disable Rule" } | Out-Null

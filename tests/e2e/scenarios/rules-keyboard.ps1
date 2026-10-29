@@ -57,7 +57,7 @@ while ((Focused) -ne "Disable Rule" -and $tabs -lt 5) { Keys "{TAB}"; $tabs++ }
 Assert-E2E ((Focused) -eq "Disable Rule") "Tab reaches Disable Rule for a built-in check (focus: $(Focused))"
 Keys "{ENTER}"
 $dis = Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" } } 15 "Enter on Disable Rule to open its dialog"
-Assert-E2E ($dis.text -like "Built-in checks*") "the Disable Rule dialog starts with Built-in checks (text: $($dis.text))"
+Assert-E2E ((@($dis.text) -join " ") -like "*Built-in checks*") "the Disable Rule dialog starts with Built-in checks (text: $($dis.text))"
 Keys "{ESC}"
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" }) } 15 "Esc to close Disable Rule" | Out-Null
 
