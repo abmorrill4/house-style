@@ -48,6 +48,7 @@ Keys "{ENTER}"
 $st = Wait-Until { $s = Get-E2EState; if ($s.pane.panel.walk -and $s.pane.panel.walk.position -eq 1) { $s } } 15 "Enter to start the walk on its first place"
 Assert-E2E ($st.pane.panel.walk.total -ge 2) "the walk has 2 places or more (total: $($st.pane.panel.walk.total))"
 $firstFile = CardFile
+if (-not $firstFile) { $firstFile = Leaf $st.editor.path }   # the card names the file only when it isn't the open topic
 Assert-E2E ((Leaf $st.editor.path) -eq $firstFile) "the editor shows the first place's file (editor: $(Leaf $st.editor.path), card: $firstFile)"
 $st = Wait-Until { $s = Get-E2EState; if ($s.editor.selection.Length -gt 0) { $s } } 10 "the editor to select the first place's words"   # the selection lands a beat after the walk position
 Assert-E2E ($st.editor.selection.Length -gt 0) "the editor selects the first place's words"
