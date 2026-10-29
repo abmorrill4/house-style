@@ -61,6 +61,7 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
+        private List<StyleFinding> _walk;
         private bool _watching, _offThreadLogged;
         private int _uiThread, _pendingMarked, _pendingReopened;
 
@@ -309,6 +310,13 @@ namespace FlareAI.Core.Actions
         /// </summary>
         public void Next()
         {
+            if (InWalk)
+            {
+                if (WalkFinished) return;
+                var after = WalkNextAfter(Current);
+                if (after == null) FinishWalk(); else Select(after);
+                return;
+            }
             var next = NextAfter(Current);
             if (next == null && FocusRule != null)
             {
@@ -841,8 +849,51 @@ namespace FlareAI.Core.Actions
             FocusRule = rule.Key;
             var h = ListChanged;
             if (h != null) h();
-            Select(rule.Findings[0]);
-            Status = rule.Title + " · " + rule.Counts() + ". Change or skip each issue for this rule.";
+            _walk = rule.Findings.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f));
+            if (_walk.Count == 0) _walk = new List<StyleFinding>(rule.Findings);
+            WalkFinished = false;
+            Select(_walk[0]);
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in _walk) paths.Add(f.DocumentPath ?? "");
+            Status = rule.Title + ", " + _walk.Count + " places in " + (_project ? paths.Count : 1) + " files.";
+        }
+
+        /// <summary>True while a rule is walked place by place (also after the last place, until All Rules).</summary>
+        public bool InWalk { get { return _walk != null; } }
+        /// <summary>The walk went past its last place.</summary>
+        public bool WalkFinished { get; private set; }
+        /// <summary>Places in the walk, as counted when it started. Ignored and changed places keep their slot.</summary>
+        public int WalkTotal { get { return _walk == null ? 0 : _walk.Count; } }
+        /// <summary>1-based place of the selected issue in the walk; 0 when not walking.</summary>
+        public int WalkPosition { get { return _walk == null || Current == null ? 0 : _walk.IndexOf(Current) + 1; } }
+
+        /// <summary>What to say when the walk is through: nothing left open, or how many places are.</summary>
+        public string WalkFinishedText
+        {
+            get
+            {
+                var open = _walk == null ? 0 : _walk.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f)).Count;
+                if (open == 0) return "You've reviewed every place this rule applies.";
+                return "You've been through this rule. " + (open == 1 ? "1 place is" : open + " places are") + " still open.";
+            }
+        }
+
+        private StyleFinding WalkNextAfter(StyleFinding cur)
+        {
+            for (var i = (cur == null ? -1 : _walk.IndexOf(cur)) + 1; i < _walk.Count; i++)
+            {
+                var g = _walk[i];
+                if (!g.IsFixed && _findings.Contains(g)) return g;
+            }
+            return null;
+        }
+
+        private void FinishWalk()
+        {
+            WalkFinished = true;
+            Current = null;
+            Select(null);
+            Status = WalkFinishedText;
         }
 
         /// <summary>Back to all rules (Review one by one ends).</summary>
@@ -850,6 +901,8 @@ namespace FlareAI.Core.Actions
         {
             if (FocusRule == null) return;
             FocusRule = null;
+            _walk = null;
+            WalkFinished = false;
             Current = null;
             var h = ListChanged;
             if (h != null) h();
@@ -861,7 +914,7 @@ namespace FlareAI.Core.Actions
         {
             if (rule == null) return;
             _skippedRules.Add(rule.Key);
-            if (FocusRule == rule.Key) FocusRule = null;
+            if (FocusRule == rule.Key) { FocusRule = null; _walk = null; WalkFinished = false; }
             if (Current != null && RuleBacklog.KeyOf(Current) == rule.Key) Current = null;
             var h = ListChanged;
             if (h != null) h();
@@ -992,10 +1045,12 @@ namespace FlareAI.Core.Actions
             if (f == null) return;
             if (_dismissed != null) _dismissed.Dismiss(f, _doc.SourcePath);
             RecordFeedback(f, _doc.SourcePath, "rejected", reason);
-            var next = NextAfter(f);
+            var walking = InWalk && !WalkFinished;
+            var next = walking ? WalkNextAfter(f) : NextAfter(f);
             _findings.Remove(f);
             Sort();
             Select(next);
+            if (walking && next == null) { FinishWalk(); return; }
             Status = Summary() + "  Ignored. It stays hidden for this text.";
         }
 
