@@ -111,9 +111,33 @@ namespace FlareAI.Core.Actions
             using (var r = new StreamReader(s)) return r.ReadToEnd().Split('\n');
         }
 
+        /// <summary>
+        /// A "restored" record cancels the latest earlier reject of the same issue (same writer, file, rule and excerpt) that is
+        /// still standing, and is dropped itself: it counts neither as a reject nor as anything else. No match: nothing happens.
+        /// </summary>
+        private static List<Decision> CancelRestored(IEnumerable<Decision> decisions)
+        {
+            var kept = new List<Decision>();
+            foreach (var d in decisions)
+            {
+                if (d.Verdict != "restored") { kept.Add(d); continue; }
+                for (var i = kept.Count - 1; i >= 0; i--)
+                {
+                    var r = kept[i];
+                    if (r.IsReject && StringComparer.OrdinalIgnoreCase.Equals(r.Writer, d.Writer) && r.File == d.File && r.Key == d.Key && r.Excerpt == d.Excerpt)
+                    {
+                        kept.RemoveAt(i);
+                        break;
+                    }
+                }
+            }
+            return kept;
+        }
+
         public static List<TuneItem> Analyze(IList<Decision> decisions, int minDecisions = 8, int minWriters = 2, double rejectRate = 0.4)
         {
             var items = new List<TuneItem>();
+            decisions = CancelRestored(decisions);
             foreach (var g in decisions.Where(d => d.IsAccept || d.IsReject).GroupBy(d => d.Key))
             {
                 // Only decisions about the rule as it reads now (the wording of its latest decision): a rewritten rule

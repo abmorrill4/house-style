@@ -105,5 +105,36 @@ namespace FlareAI.Core.Tests
             }
             finally { Directory.Delete(dir, true); }
         }
+
+        [Fact]
+        public void RestoredAfterRejected_IsNotCountedAsReject()
+        {
+            var ds = Enumerable.Range(0, 8).Select(i => D("pat", "accepted")).ToList();
+            ds.Add(D("pat", "rejected"));
+            ds.Add(D("pat", "restored"));
+            var item = FeedbackStats.Analyze(ds).Single(i => i.Kind == "working");
+            Assert.Equal(8, item.Accepted);
+            Assert.Equal(0, item.Rejected);
+        }
+
+        [Fact]
+        public void RestoreByAnotherWriter_DoesNotCancelTheReject()
+        {
+            var ds = Enumerable.Range(0, 8).Select(i => D("pat", "rejected")).ToList();
+            ds.Add(D("sam", "accepted"));
+            ds.Add(D("sam", "restored"));
+            var item = FeedbackStats.Analyze(ds).Single(i => i.Kind == "review");
+            Assert.Equal(8, item.Rejected);
+        }
+
+        [Fact]
+        public void RestoreWithNoEarlierReject_DoesNothing()
+        {
+            var ds = Enumerable.Range(0, 8).Select(i => D("pat", "accepted")).ToList();
+            ds.Add(D("pat", "restored"));
+            var item = FeedbackStats.Analyze(ds).Single(i => i.Kind == "working");
+            Assert.Equal(8, item.Accepted);
+            Assert.Equal(0, item.Rejected);
+        }
     }
 }
