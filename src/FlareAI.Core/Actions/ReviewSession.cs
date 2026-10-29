@@ -961,7 +961,7 @@ namespace FlareAI.Core.Actions
             WalkFinished = false;
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in _walk) paths.Add(f.DocumentPath ?? "");
-            Status = rule.Title + ", " + _walk.Count + " places in " + (_project ? paths.Count : 1) + " files.";
+            Status = rule.Title + ", " + Plural.Of(_walk.Count, "place") + " in " + Plural.Of(_project ? paths.Count : 1, "file") + ".";
             Select(_walk[0]);   // after the status: a first place that can't be opened says so
         }
 

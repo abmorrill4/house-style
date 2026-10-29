@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using FlareAI.Core;
 using FlareAI.Core.Actions;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Style;
@@ -86,7 +87,7 @@ namespace FlareAI.Scenarios.Review
                 Assert.False(s.WalkFinished);
                 Assert.Equal(n, s.WalkTotal);
                 Assert.Equal(1, s.WalkPosition);
-                Assert.Contains(n + " places in ", s.Status);
+                Assert.Contains(Plural.Of(n, "place") + " in ", s.Status);
 
                 s.Accept();                                  // Change
                 Assert.Equal(2, s.WalkPosition);
