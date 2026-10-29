@@ -52,6 +52,8 @@ namespace FlareAI.Core.Style
         /// <summary>True for a layer of override rows only: a read-only guide's defaults (<see cref="LoadOverrides"/>).</summary>
         public bool OverridesOnly { get; private set; }
         public string Path { get; private set; }
+        /// <summary>True for a layer built in code (<see cref="InCode"/>): the built-in structure checks, which have no folder.</summary>
+        public bool IsBuiltIn { get; private set; }
         /// <summary>The style name used in rule names ("Google", "Company"), unique within a composition.</summary>
         public string Style { get; set; }
         public List<GuideRule> Items = new List<GuideRule>();
@@ -151,6 +153,18 @@ namespace FlareAI.Core.Style
             foreach (var t in Directory.GetFiles(folder, "*.htm", SearchOption.AllDirectories)
                          .Where(f => !f.StartsWith(google, StringComparison.OrdinalIgnoreCase)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
                 layer.Overrides.AddRange(OverrideRows(t, name));
+            return layer;
+        }
+
+        /// <summary>
+        /// A layer built in code, with no folder and no guide text (the built-in structure checks): exactly the rules given,
+        /// so Guide() prints none of them.
+        /// </summary>
+        public static GuideLayer InCode(string name, IEnumerable<GuideRule> items, IEnumerable<LintRule> rules)
+        {
+            var layer = new GuideLayer { Name = name, IsBuiltIn = true };
+            layer.Items.AddRange(items);
+            layer.Rules.AddRange(rules);
             return layer;
         }
 

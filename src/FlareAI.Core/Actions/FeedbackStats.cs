@@ -54,13 +54,14 @@ namespace FlareAI.Core.Actions
                 if (!File.Exists(file)) continue;
                 string[] lines;
                 try { lines = ReadShared(file); } catch (Exception ex) { Diagnostics.Log("feedback " + file, ex); continue; }
+                var fileDecisions = new List<Decision>();
                 foreach (var line in lines)
                 {
                     if (line.Trim().Length == 0) continue;
                     try
                     {
                         var o = JObject.Parse(line);
-                        list.Add(new Decision
+                        fileDecisions.Add(new Decision
                         {
                             At = (DateTime?)o["at"] ?? DateTime.MinValue, Writer = (string)o["writer"] ?? Path.GetFileNameWithoutExtension(file),
                             Verdict = (string)o["decision"], Reason = (string)o["reason"], Rule = (string)o["rule"], RuleId = (string)o["rule_id"], RuleHash = (string)o["rule_hash"],
@@ -69,8 +70,34 @@ namespace FlareAI.Core.Actions
                     }
                     catch (Exception) { } // a torn last line while a writer appends: skip it
                 }
+                list.AddRange(WithoutRestoredRejects(fileDecisions));
             }
             return list;
+        }
+
+        /// <summary>
+        /// A 'restored' record takes back one earlier 'rejected' record from the same file with the same writer, file, rule and
+        /// excerpt: the latest such reject is cancelled, and both records are dropped. A restore with no match stays, and does nothing.
+        /// </summary>
+        private static List<Decision> WithoutRestoredRejects(List<Decision> fileDecisions)
+        {
+            var cancelled = new HashSet<Decision>();
+            for (int i = 0; i < fileDecisions.Count; i++)
+            {
+                var restore = fileDecisions[i];
+                if (restore.Verdict != "restored") continue;
+                for (int j = i - 1; j >= 0; j--)
+                {
+                    var reject = fileDecisions[j];
+                    if (cancelled.Contains(reject) || reject.Verdict != "rejected") continue;
+                    if (!string.Equals(reject.Writer, restore.Writer, StringComparison.OrdinalIgnoreCase) || reject.File != restore.File
+                        || reject.Key != restore.Key || reject.Excerpt != restore.Excerpt) continue;
+                    cancelled.Add(reject);
+                    cancelled.Add(restore);
+                    break;
+                }
+            }
+            return fileDecisions.Where(d => !cancelled.Contains(d)).ToList();
         }
 
         /// <summary>

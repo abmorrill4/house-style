@@ -375,6 +375,14 @@ namespace FlareAI.Flare.UI
             catch (Exception ex) { Diagnostics.Log("tune: rule source", ex); return ReviewSession.SourceName(rule.Layer); }
         }
 
+        /// <summary>True for a built-in check: its layer is the one built in code (IsBuiltIn), found in the composition. Its level
+        /// can change, but its words are in code, so Tune offers no wording change for it.</summary>
+        private bool IsBuiltIn(GuideRule rule)
+        {
+            var engine = _style as StyleEngine;
+            return engine != null && engine.Compose(_project).Layers.Any(l => l.IsBuiltIn && string.Equals(l.Name, rule.Layer, StringComparison.OrdinalIgnoreCase));
+        }
+
         /// <summary>A writer (or an owner who can't write to the guide) asks the owners to change the selected rule.</summary>
         private void RequestRuleChange()
         {
@@ -386,7 +394,7 @@ namespace FlareAI.Flare.UI
                 RuleText = SourceOf(rule) + " · " + rule.Section + ": " + rule.Display,
                 Notice = "This goes to the style guide owners (" + _team.OwnerNames + "). You see their answer the next time you lint." +
                          (_team.AccessNotice == null ? "" : Environment.NewLine + _team.AccessNotice),
-                CanAskTeam = true, CanAskProject = false, Wording = rule.Layer != "google" ? rule.Text : null
+                CanAskTeam = true, CanAskProject = false, Wording = rule.Layer != "google" && !IsBuiltIn(rule) ? rule.Text : null
             });
             if (choice == null) return;
             var kind = choice.Wording != null ? RequestKinds.Wording : choice.Setting == "off" ? RequestKinds.TurnOff : RequestKinds.Severity;

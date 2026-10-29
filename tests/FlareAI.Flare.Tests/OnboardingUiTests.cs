@@ -25,6 +25,7 @@ namespace FlareAI.Flare.Tests
     public class OnboardingUiTests : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "hs-ui-" + Guid.NewGuid().ToString("N"));
+        private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
 
         public OnboardingUiTests()
         {
@@ -36,7 +37,7 @@ namespace FlareAI.Flare.Tests
         public void Dispose()
         {
             GuidedTour.Stop();
-            Paths.Root = null;
+            Paths.Root = _prevRoot;
             try { Directory.Delete(_root, true); } catch (Exception) { }
         }
 
@@ -535,7 +536,7 @@ namespace FlareAI.Flare.Tests
             try
             {
                 t.Start();
-                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+                if (!t.Join(180000)) throw new TimeoutException("The UI test didn't finish in 180 s.");   // a loaded CI runner took the suite from 50 s to 2 min (2026-10-29)
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);

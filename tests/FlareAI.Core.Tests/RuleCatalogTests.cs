@@ -89,7 +89,7 @@ namespace FlareAI.Core.Tests
             Assert.Equal(ids.Count + generated.Count, cat.Rules.Count);
             foreach (var id in ids) Assert.NotNull(cat.Find(id));
             foreach (var l in comp.Rules) Assert.True(cat.Find(l.Id ?? l.Name) != null, (l.Id ?? l.Name) + " is missing");
-            Assert.Equal(new[] { "Google", "Starter rules", "Team style guide (TeamGuide)", "My style guide", "Project Docs" }, cat.Sources.ToArray());
+            Assert.Equal(new[] { "Google", "Built-in checks", "Starter rules", "Team style guide (TeamGuide)", "My style guide", "Project Docs" }, cat.Sources.ToArray());
             foreach (var s in cat.Sources) Assert.Contains(cat.Rules, r => r.Source == s);
 
             var k1 = cat.Find(Team1);
