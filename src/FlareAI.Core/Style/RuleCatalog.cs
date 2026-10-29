@@ -240,7 +240,7 @@ namespace FlareAI.Core.Style
                 if (req != null) { r.OpenRequest = req; r.RequestIsMine = isMine != null && isMine(req); }
             }
 
-            Group(cat, r => { LintRule l; return r.Id != null && lintById.TryGetValue(r.Id, out l) ? l : null; });
+            Group(cat, r => { LintRule l; return r.Id != null ? (lintById.TryGetValue(r.Id, out l) ? l : null) : comp.Rules.FirstOrDefault(x => x.Name == r.Name); });
             foreach (var r in cat.Rules) r.Haystack = Haystack(r);
             cat.Sources = cat.Rules.OrderBy(r => r.SourceIndex).Select(r => r.Source).Distinct().ToList();
             cat.ContentTags = cat.Rules.SelectMany(r => r.Content).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
@@ -322,7 +322,7 @@ namespace FlareAI.Core.Style
         /// </summary>
         private static void Group(RuleCatalog cat, Func<CatalogRule, LintRule> lint)
         {
-            var table = cat.Rules.Where(r => r.IsTable && r.Id != null).ToList();
+            var table = cat.Rules.Where(r => r.IsTable).ToList();
             // Direct neighbours only (what one finding can stand for), not chains: "please" and "please note that" share
             // words, "note that" and "please note that" too, but "please" and "note that" never flag the same words.
             var near = table.ToDictionary(r => r, r => new HashSet<CatalogRule>());

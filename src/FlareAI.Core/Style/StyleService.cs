@@ -33,7 +33,7 @@ namespace FlareAI.Core.Style
             get
             {
                 var ids = new List<string>();
-                if (RuleId != null) ids.Add(RuleId);
+                if ((RuleId ?? Rule) != null) ids.Add(RuleId ?? Rule);
                 foreach (var r in AlsoRules) if (!ids.Contains(r.Id)) ids.Add(r.Id);
                 return ids;
             }
@@ -41,17 +41,17 @@ namespace FlareAI.Core.Style
 
         /// <summary>
         /// Records the rule of <paramref name="other"/>, which this hit replaces, and the rules <paramref name="other"/> already
-        /// stood for, unless they have no id, are this rule or are listed.
+        /// stood for, unless they have neither id nor checker name, are this rule or are listed.
         /// </summary>
         internal void AlsoFlaggedBy(LintHit other)
         {
-            Also(new RuleRef { Id = other.RuleId, Name = other.Rule, Layer = other.Layer });
+            Also(new RuleRef { Id = other.RuleId ?? other.Rule, Name = other.Rule, Layer = other.Layer });
             foreach (var r in other.AlsoRules) Also(r);
         }
 
         private void Also(RuleRef r)
         {
-            if (r.Id == null || r.Id == RuleId || AlsoRules.Any(x => x.Id == r.Id)) return;
+            if (r.Id == null || r.Id == (RuleId ?? Rule) || AlsoRules.Any(x => x.Id == r.Id)) return;
             AlsoRules.Add(r);
         }
     }
@@ -62,6 +62,8 @@ namespace FlareAI.Core.Style
         public string Id { get; set; }
         public string Name { get; set; }
         public string Layer { get; set; }
+        /// <summary>True for a generated checker with no guide id (the glossary), named by its checker name.</summary>
+        public bool IsChecker { get; set; }
     }
 
     /// <summary>What a unit of text is, for choosing its rules: its content (Content tags) and its words (Term/Rule rows).</summary>
