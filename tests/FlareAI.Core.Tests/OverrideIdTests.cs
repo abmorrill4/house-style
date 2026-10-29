@@ -187,6 +187,49 @@ namespace FlareAI.Core.Tests
             }
         }
 
+        [Fact]
+        public void RowInEarlierLayerNamingLaterLayerRule_IsKept()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-later-" + Guid.NewGuid().ToString("N"));
+            var alpha = Path.Combine(dir, "Alpha");
+            var beta = Path.Combine(dir, "Beta");
+            try
+            {
+                // Beta, the later layer, defines the rule; Alpha, the earlier layer, turns it off.
+                var betaStyle = Path.Combine(beta, @"Content\Resources\StyleGuide");
+                Directory.CreateDirectory(betaStyle);
+                File.WriteAllText(Path.Combine(beta, "Guide.flprj"), "<CatapultProject />");
+                File.WriteAllText(Path.Combine(betaStyle, "Words.htm"), "<html><body><h1>Words</h1><table><tr><th>Avoid</th><th>Use</th><th>Example</th></tr>" +
+                                                                       "<tr><td>frobnicate</td><td>adjust</td><td>We frobnicate it.</td></tr></table></body></html>");
+                var id = new StyleEngine(new[] { beta }, GuideSourceTests.Bundled).Compose(null).Rules.First(r => r.Avoid.Contains("frobnicate")).Id;
+                var alphaStyle = Path.Combine(alpha, @"Content\Resources\StyleGuide");
+                Directory.CreateDirectory(alphaStyle);
+                File.WriteAllText(Path.Combine(alpha, "Guide.flprj"), "<CatapultProject />");
+                File.WriteAllText(Path.Combine(alphaStyle, "overrides.ini"), id + " = off\r\n");
+                var lines = new List<string>();
+                var oldSink = Diagnostics.Sink; var oldEnabled = Diagnostics.Enabled;
+                Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+                Diagnostics.Enabled = true;
+                try
+                {
+                    var comp = new StyleEngine(new[] { alpha, beta }, GuideSourceTests.Bundled).Compose(null);
+                    Assert.Equal("off", comp.SettingOf(id));
+                    Assert.True(comp.IsOff(id));
+                    List<string> logged;
+                    lock (lines) logged = lines.Where(l => l.StartsWith("Style guide", StringComparison.Ordinal) && l.Contains(id)).ToList();
+                    Assert.Empty(logged);
+                }
+                finally
+                {
+                    Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled;
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
