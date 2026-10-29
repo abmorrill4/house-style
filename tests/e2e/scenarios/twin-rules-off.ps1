@@ -2,7 +2,18 @@
 # glossary checker as "Also disable Glossary terms", unticked with its warning. Turning off company:terminology/6 for
 # this project leaves the glossary row in the other paragraph, and the project's overrides.ini has the rule, not the checker.
 param($Fixture)
-$run = Start-FlareE2E -Fixture $Fixture -Force
+# The company terminology rules and the glossary come from the starter guide, so the run points at a copy of it.
+$repo = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
+$guide = Join-Path (Get-E2ERoot) ("twin-guide-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+$starter = Join-Path $repo "styleguide"
+foreach ($f in Get-ChildItem $starter -Recurse -File) {
+    $rel = $f.FullName.Substring($starter.Length + 1)
+    if ($rel -like "Content\Resources\StyleGuide\Google\*") { continue }
+    $dest = Join-Path $guide $rel
+    New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+    Copy-Item $f.FullName $dest
+}
+$run = Start-FlareE2E -Fixture $Fixture -Force -Settings @{ StyleLayers = $guide }
 $topic = Join-Path $run.Project "Content\billpay\twin-rules.htm"
 Set-Content $topic -Encoding UTF8 @"
 <?xml version="1.0" encoding="utf-8"?>
