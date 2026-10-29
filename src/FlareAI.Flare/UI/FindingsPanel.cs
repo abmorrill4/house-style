@@ -59,6 +59,7 @@ namespace FlareAI.Flare.UI
         private readonly Button _clearFilters;
         private readonly ToolTip _filterTip;
         private ReviewSource _savedSource;   // the Source the writer chose; a project report shows both sources but keeps this
+        private ReviewFilter _guidedSaved;   // the filter the guided first check set aside (it lints with every issue shown)
         private bool _syncingFilter;
         private readonly RadioButton _byRule, _byFile;
         // tab bar: This Topic and Project tabs
@@ -592,7 +593,8 @@ namespace FlareAI.Flare.UI
             var show = false;
             try
             {
-                if (!_reviewing && _list.Items.Count == 0)
+                // A list the filter emptied shows the empty line and Clear Filters, never the checklist.
+                if (!_reviewing && _list.Items.Count == 0 && (_session.Open().Count == 0 || _session.Filter.IsAll))
                 {
                     var o = GettingStarted.Load();
                     var aiOn = !FlareAI.Core.Settings.PluginSettings.Load().AiOff;
@@ -1307,6 +1309,12 @@ namespace FlareAI.Flare.UI
         private void Start()
         {
             if (_worker != null && _worker.IsBusy) return;
+            // The guided first check shows every issue, whatever filter the writer saved: the saved one comes back when it ends.
+            if (_files == null && GuidedTour.Current != null && GuidedTour.Current.Step == TourStep.LintTopic && !_session.Filter.IsAll)
+            {
+                _guidedSaved = _session.Filter;
+                _session.Filter = ReviewFilter.All;   // in memory only: ReviewViewPrefs is not saved
+            }
             _session.Clear(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
             _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiHidden = false; _aiOffNote.Visible = false;
             _reviewing = true; _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee; _status.Text = "Linting…";
@@ -1376,6 +1384,7 @@ namespace FlareAI.Flare.UI
             _worker.RunWorkerCompleted += (s, e) =>
             {
                 if (IsDisposed) return;
+                RestoreGuidedFilter();
                 _reviewing = false; _progress.Visible = false; _stop.Visible = false;
                 _cost.Text = AiCost.Session();
                 if (e.Cancelled)
@@ -1567,10 +1576,20 @@ namespace FlareAI.Flare.UI
             if (changed != null) try { changed(this); } catch (Exception ex) { Diagnostics.Log("markers", ex); }
         }
 
+        /// <summary>Puts back the filter the guided first check set aside (when that check ends).</summary>
+        private void RestoreGuidedFilter()
+        {
+            var saved = _guidedSaved;
+            if (saved == null) return;
+            _guidedSaved = null;
+            _session.Filter = saved;
+        }
+
         /// <summary>A combo changed: the session shows the new choice, and the choice is remembered.</summary>
         private void ApplyFilterChoice()
         {
             if (_syncingFilter) return;
+            _guidedSaved = null;   // the writer picked a filter: it stays, and nothing is put back over it
             var level = (ReviewLevel)Math.Max(0, _levelBox.SelectedIndex);
             if (_files == null) _savedSource = (ReviewSource)Math.Max(0, _sourceBox.SelectedIndex);
             _session.Filter = new ReviewFilter(level, _files != null ? ReviewSource.RulesAndAi : _savedSource);
@@ -1580,6 +1599,7 @@ namespace FlareAI.Flare.UI
 
         private void ClearFilters()
         {
+            _guidedSaved = null;
             _syncingFilter = true;
             try
             {

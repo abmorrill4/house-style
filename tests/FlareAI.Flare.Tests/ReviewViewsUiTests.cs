@@ -134,6 +134,20 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        [Fact]
+        public void FilteredEmpty_DoesNotShowGettingStarted()
+        {
+            WithPane(260, (panel, form, list) =>
+            {
+                Assert.True(list.Items.Count > 0);   // the topic has open issues (all suggestions)
+                Combo(panel, "Level").SelectedIndex = 1;   // Errors: none of them is an error
+                Assert.Empty(list.Items);
+                var checklist = All(panel).OfType<LinkLabel>().Single(l => l.AccessibleName == "Getting started");
+                Assert.False(checklist.Visible);
+                Assert.True(All(panel).OfType<Button>().Single(b => b.Text == "Clear Filters").Visible);
+            });
+        }
+
         private static IEnumerable<Control> All(Control c)
         {
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }

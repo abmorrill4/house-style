@@ -327,16 +327,17 @@ namespace FlareAI.Core.Actions
         public void OnSelected(StyleFinding f)
         {
             if (f != null && f.IsFixed) RecheckApplied();
-            Current = f;
-            if (f != null && f.DocumentPath == null) GoTo(f, false);
+            Current = f != null && Filter.Shows(f) ? f : null;   // a hidden issue is never the current one
+            if (Current != null && Current.DocumentPath == null) GoTo(Current, false);
         }
 
-        /// <summary>Selects a suggestion (null clears the selection).</summary>
+        /// <summary>Selects a suggestion (null clears the selection). A suggestion the filter hides selects nothing.</summary>
         public void Select(StyleFinding f)
         {
-            Current = f != null && _findings.Contains(f) ? f : null;
+            var shown = f != null && _findings.Contains(f) && Filter.Shows(f) ? f : null;
+            Current = shown;
             var h = SelectRequested;
-            if (h != null) h(f);
+            if (h != null) h(shown);
         }
 
         /// <summary>
