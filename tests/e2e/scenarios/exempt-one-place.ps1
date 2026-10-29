@@ -9,9 +9,9 @@ Wait-PaneDone 300 | Out-Null
 $before = @((Get-E2EState).pane.panel.rows)
 Assert-E2E ($before.Count -gt 0) "Lint Topic lists issues to exempt"
 
-# Exempt This Text on the first issue, with a reason.
-$menu = (Send-E2E rowMenu "Exempt This Text" -Extra @{ index = 0 }).value
-Assert-E2E (@($menu | Where-Object { $_ -like "Exempt This Text*" }).Count -eq 1) "the row menu offers Exempt This Text (got: $($menu -join ' | '))"
+# Exempt This Text on the first issue, with a reason. The item opens a dialog, so the verb answers only when it closes.
+Send-E2E rowMenu "Exempt This Text" -Extra @{ index = 0 } -NoWait
+Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" } } 15 "the Exempt This Text dialog" | Out-Null
 Send-E2E dialogType "The product name is always written this way." -Extra @{ title = "Exempt This Text"; name = "Why is this text exempt?" } | Out-Null
 Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
