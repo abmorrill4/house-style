@@ -284,6 +284,48 @@ namespace FlareAI.Core.Tests
             }
         }
 
+        [Fact]
+        public void FallbackGuide_LogsNothingWhileTeamGuideUnreadable()
+        {
+            const string unknown = "xyz:1";
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-fallback-" + Guid.NewGuid().ToString("N"));
+            var missing = Path.Combine(dir, "Gone", "TeamGuide");
+            var readable = Path.Combine(dir, "Share", "Readable");
+            var style = Path.Combine(readable, @"Content\Resources\StyleGuide");
+            try
+            {
+                // The team guide can't be reached, so the bundled fallback stands in; the readable layer still loads and has an unknown row.
+                Directory.CreateDirectory(style);
+                File.WriteAllText(Path.Combine(readable, "Guide.flprj"), "<CatapultProject />");
+                File.WriteAllText(Path.Combine(style, "overrides.ini"), unknown + " = off\r\n");
+                var lines = new List<string>();
+                var oldSink = Diagnostics.Sink; var oldEnabled = Diagnostics.Enabled;
+                Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+                Diagnostics.Enabled = true;
+                try
+                {
+                    var e = new StyleEngine(new[] { missing, readable }, GuideSourceTests.Bundled) { Fallback = () => new[] { GuideSourceTests.Bundled } };
+                    var comp = e.Compose(null);
+                    Assert.NotNull(comp.Notice);
+                    Assert.StartsWith(StyleEngine.UnreadableNotice, comp.Notice, StringComparison.Ordinal);
+                    Assert.Null(comp.SettingOf(unknown));
+                    Assert.False(comp.IsOff(unknown));
+                    List<string> logged;
+                    lock (lines) logged = lines.Where(l => l.StartsWith("Style guide", StringComparison.Ordinal)).ToList();
+                    Assert.DoesNotContain(logged, l => l.Contains(unknown));
+                    Assert.DoesNotContain(logged, l => l.Contains("names no rule"));
+                }
+                finally
+                {
+                    Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled;
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
