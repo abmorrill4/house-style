@@ -1,0 +1,1 @@
+- Walk through one rule place by place. A counter stays pinned at the top, Enter changes a place, I ignores it and N goes to the next one, all from the keyboard, and Next Rule starts the next rule. By Rule remembers the last rule you walked. This replaces most of #20.
