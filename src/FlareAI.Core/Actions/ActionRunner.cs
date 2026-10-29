@@ -586,6 +586,35 @@ namespace FlareAI.Core.Actions
             return id != null && GuideRules().TryGetValue(id, out r) ? r : null;
         }
 
+        /// <summary>
+        /// The twins of a rule (rules that flag the same words, or some of them, and are not off), named for the author.
+        /// Empty when there is no layered guide.
+        /// </summary>
+        public List<RuleRef> TwinsOf(string ruleId)
+        {
+            var found = new List<RuleRef>();
+            var engine = _style as StyleEngine;
+            if (engine == null || ruleId == null) return found;
+            try
+            {
+                var comp = _comp ?? (_comp = engine.Compose(_project));
+                var catalog = RuleCatalog.Build(comp);
+                foreach (var t in RuleChanges.TwinsOf(catalog, ruleId))
+                {
+                    var checker = t.Id == null;
+                    found.Add(new RuleRef
+                    {
+                        Id = t.Key,
+                        Layer = t.Origin,
+                        IsChecker = checker,
+                        Name = checker ? t.Key : SourceName(t.Origin, t.Id) + " · " + t.Section + ": " + t.Text
+                    });
+                }
+            }
+            catch (Exception ex) { Diagnostics.Log("twin rules", ex); found.Clear(); }
+            return found;
+        }
+
         /// <summary>The rule's Bad/Good example, or null. Loaded once per runner.</summary>
         public GuideExample ExampleFor(string id)
         {

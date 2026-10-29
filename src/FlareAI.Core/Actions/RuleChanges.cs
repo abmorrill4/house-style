@@ -128,6 +128,11 @@ namespace FlareAI.Core.Actions
             if (choice.ForTeam && (team == null || team.GuideRoot == null)) throw new InvalidOperationException("No style guide is set up to record the change. Choose one in Settings.");
             var all = new List<CatalogRule> { rule };
             if (choice.AlsoOthers && others != null) all.AddRange(others.Where(o => o != null && o != rule));
+            // Checkers the writer ticked (generated rules with no guide id, such as the glossary's): only those, never any other.
+            if (choice.AlsoCheckers != null)
+                foreach (var id in choice.AlsoCheckers.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase))
+                    if (!all.Any(a => string.Equals(a.Key, id, StringComparison.OrdinalIgnoreCase)))
+                        all.Add(new CatalogRule { Key = id, Id = id, Name = id, Title = id });
             foreach (var one in all)
             {
                 try

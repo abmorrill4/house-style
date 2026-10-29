@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Xml;
 using FlareAI.Core.Editing;
@@ -1129,24 +1130,33 @@ namespace FlareAI.Core.Actions
             var guide = team != null ? team.GuideRoot : null;
             var personal = team != null && team.IsPersonal;
             var described = Describe(f, rule);
-            var others = rule != null ? f.AlsoRules : null;   // other rules on the same words: turning off this one would expose them
-            if (others != null)
+            // Other rules on the same words: turning off this one would expose them. The twins first, then any merged rule not listed.
+            IList<RuleRef> others = null;
+            if (rule != null)
             {
                 var readable = new List<RuleRef>();   // the rule's text, not its id
-                foreach (var o in others)
-                {
-                    var r = _runner.RuleFor(o.Id);
-                    readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
-                }
-                others = readable;
+                readable.AddRange(_runner.TwinsOf(f.RuleId).Where(t => t.Id != f.RuleId));
+                if (f.AlsoRules != null)
+                    foreach (var o in f.AlsoRules)
+                    {
+                        if (o.Id == f.RuleId || readable.Any(x => string.Equals(x.Id, o.Id, StringComparison.OrdinalIgnoreCase))) continue;
+                        var r = o.IsChecker ? null : _runner.RuleFor(o.Id);
+                        readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, IsChecker = o.IsChecker, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
+                    }
+                others = readable.Count > 0 ? readable : null;
             }
             var choice = _host.ChooseRuleSetting(described, rule != null && guide != null, personal, others);
             if (choice == null) return;
+            var checkerIds = new List<string>();   // only the checkers the author ticked
+            if (choice.AlsoCheckers != null && others != null)
+                foreach (var id in choice.AlsoCheckers)
+                    if (others.Any(x => x.IsChecker && string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)) && !checkerIds.Contains(id)) checkerIds.Add(id);
             var path = f.DocumentPath ?? _doc.SourcePath;
             var target = choice.ForTeam ? guide : ProjectOverridesPath(path);
             var changed = new List<string>();
             var all = new List<StyleFinding> { f };
-            if (choice.AlsoOthers && others != null) foreach (var o in others) all.Add(new StyleFinding { RuleId = o.Id, Rule = o.Name, Layer = o.Layer, Source = "lint" });
+            if (choice.AlsoOthers && others != null) foreach (var o in others) if (!o.IsChecker) all.Add(new StyleFinding { RuleId = o.Id, Rule = o.Name, Layer = o.Layer, Source = "lint" });
+            foreach (var id in checkerIds) all.Add(new StyleFinding { RuleId = id, Rule = id, Layer = others.First(x => x.Id == id).Layer, Source = "lint" });
             foreach (var one in all)
             {
                 try
@@ -1180,7 +1190,19 @@ namespace FlareAI.Core.Actions
             if (choice.Setting == "off")
             {
                 if (f.Layer == "ai" && f.RuleId == null) IgnoredAi().Add(f.Rule);
-                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) : x.Rule == f.Rule);
+                // A merged checker that was not ticked still flags these words: keep its issue, labeled with its name.
+                var kept = new List<StyleFinding>();
+                if (f.AlsoRules != null)
+                    foreach (var o in f.AlsoRules)
+                        if (o.IsChecker && !checkerIds.Contains(o.Id) && !_findings.Any(x => x.RuleId == null && x.Rule == o.Name && x.Excerpt == f.Excerpt && x.Block == f.Block && x.DocumentPath == f.DocumentPath))
+                        {
+                            var extra = Clone(f);
+                            extra.Rule = o.Name; extra.RuleId = null; extra.RuleLayer = null; extra.RuleSection = null; extra.RuleText = null; extra.AlsoRules = null;
+                            kept.Add(extra);
+                        }
+                var ticked = changed.Where(c => checkerIds.Contains(c)).ToList();
+                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) || (x.RuleId == null && ticked.Contains(x.Rule)) : x.Rule == f.Rule);
+                _findings.AddRange(kept);
                 Sort();
             }
             // Where it was written goes to the log, not the status line.

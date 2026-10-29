@@ -60,6 +60,8 @@ namespace FlareAI.Core.Actions
         public string Reason { get; set; }
         /// <summary>Also change the other rules that flag the same words (same scope, setting and reason).</summary>
         public bool AlsoOthers { get; set; }
+        /// <summary>Also change these checkers (ids such as Company.GlossaryTerms), same scope, setting and reason. A checker not listed is never changed.</summary>
+        public IList<string> AlsoCheckers { get; set; } = new List<string>();
         /// <summary>A request only: the rule's proposed new wording, or null to keep it.</summary>
         public string Wording { get; set; }
     }
