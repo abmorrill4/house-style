@@ -41,17 +41,17 @@ namespace FlareAI.Core.Style
 
         /// <summary>
         /// Records the rule of <paramref name="other"/>, which this hit replaces, and the rules <paramref name="other"/> already
-        /// stood for, unless they have no id, are this rule or are listed.
+        /// stood for, unless they are this rule or are listed. A rule with no guide id (the glossary checker) is named by its checker name.
         /// </summary>
         internal void AlsoFlaggedBy(LintHit other)
         {
-            Also(new RuleRef { Id = other.RuleId, Name = other.Rule, Layer = other.Layer });
+            Also(new RuleRef { Id = other.RuleId ?? other.Rule, Name = other.Rule, Layer = other.Layer, IsChecker = other.RuleId == null && RuleCatalog.IsGlossaryChecker(other.Rule) });
             foreach (var r in other.AlsoRules) Also(r);
         }
 
         private void Also(RuleRef r)
         {
-            if (r.Id == null || r.Id == RuleId || AlsoRules.Any(x => x.Id == r.Id)) return;
+            if (r.Id == (RuleId ?? Rule) || AlsoRules.Any(x => x.Id == r.Id)) return;
             AlsoRules.Add(r);
         }
     }
@@ -59,9 +59,12 @@ namespace FlareAI.Core.Style
     /// <summary>A guide rule named by id, for lists of related rules.</summary>
     public sealed class RuleRef
     {
+        /// <summary>The guide id, or the checker's name for a rule with none (the glossary checker).</summary>
         public string Id { get; set; }
         public string Name { get; set; }
         public string Layer { get; set; }
+        /// <summary>True for the generated glossary checker (Id is its name, such as "Company.GlossaryTerms").</summary>
+        public bool IsChecker { get; set; }
     }
 
     /// <summary>What a unit of text is, for choosing its rules: its content (Content tags) and its words (Term/Rule rows).</summary>

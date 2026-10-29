@@ -199,6 +199,20 @@ namespace FlareAI.Core.Actions
             return found;
         }
 
+        /// <summary>
+        /// The twins of <paramref name="ruleId"/>: the rules that flag the same words, or some of them, and are not off now.
+        /// A rule with no guide id (a checker row, such as the glossary's) has none: it is a twin of the rules it shares words with.
+        /// </summary>
+        public static List<CatalogRule> TwinsOf(RuleCatalog catalog, string ruleId)
+        {
+            var found = new List<CatalogRule>();
+            var rule = catalog == null ? null : catalog.Find(ruleId);
+            if (rule == null || rule.Id == null) return found;
+            foreach (var o in catalog.OverlapsOf(rule))
+                if (o != rule && o.State != RuleState.Off) found.Add(o);
+            return found;
+        }
+
         private static bool Same(string a, string b) { return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase); }
 
         /// <summary>Turn back on for <paramref name="rule"/> and, when given, the rules turned off with it (<see cref="CompanionsOf"/>).</summary>

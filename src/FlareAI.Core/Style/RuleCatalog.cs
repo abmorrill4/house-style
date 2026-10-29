@@ -240,7 +240,12 @@ namespace FlareAI.Core.Style
                 if (req != null) { r.OpenRequest = req; r.RequestIsMine = isMine != null && isMine(req); }
             }
 
-            Group(cat, r => { LintRule l; return r.Id != null && lintById.TryGetValue(r.Id, out l) ? l : null; });
+            Group(cat, r =>
+            {
+                LintRule l;
+                if (r.Id != null) return lintById.TryGetValue(r.Id, out l) ? l : null;
+                return comp.Rules.FirstOrDefault(x => x.Id == null && x.Name == r.Name);   // a generated checker: by its name
+            });
             foreach (var r in cat.Rules) r.Haystack = Haystack(r);
             cat.Sources = cat.Rules.OrderBy(r => r.SourceIndex).Select(r => r.Source).Distinct().ToList();
             cat.ContentTags = cat.Rules.SelectMany(r => r.Content).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
@@ -270,6 +275,12 @@ namespace FlareAI.Core.Style
             };
             r.ForOurProducts = comp.ForOurProducts(r.Products);
             return r;
+        }
+
+        /// <summary>True for the generated glossary checker's name ("Company.GlossaryTerms"): it flags words the way a table rule does.</summary>
+        internal static bool IsGlossaryChecker(string name)
+        {
+            return name != null && name.EndsWith(".GlossaryTerms", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string Generated(LintRule l) { return l.LocalName == "Variables" ? "Variables" : l.LocalName == "GlossaryTerms" ? "Glossary terms" : l.LocalName; }
@@ -322,7 +333,7 @@ namespace FlareAI.Core.Style
         /// </summary>
         private static void Group(RuleCatalog cat, Func<CatalogRule, LintRule> lint)
         {
-            var table = cat.Rules.Where(r => r.IsTable && r.Id != null).ToList();
+            var table = cat.Rules.Where(r => r.IsTable && (r.Id != null || IsGlossaryChecker(r.Name))).ToList();
             // Direct neighbours only (what one finding can stand for), not chains: "please" and "please note that" share
             // words, "note that" and "please note that" too, but "please" and "note that" never flag the same words.
             var near = table.ToDictionary(r => r, r => new HashSet<CatalogRule>());
@@ -379,8 +390,8 @@ namespace FlareAI.Core.Style
                 foreach (var p in phrases.Keys)
                     if (rx.Match(p).Length > 0) foreach (var o in phrases[p]) union(r, o);
             }
-            // Each rule's example, as the checker sees it: another rule's match on the same words, inside them, or around them.
-            Func<Match, Match, bool> overlap = (a, b) => (b.Index >= a.Index && b.Index + b.Length <= a.Index + a.Length) || (a.Index >= b.Index && a.Index + a.Length <= b.Index + b.Length);
+            // Each rule's example, as the checker sees it: another rule's match that shares words with one of its own (inside, around, or partly over them).
+            Func<Match, Match, bool> overlap = (a, b) => a.Index < b.Index + b.Length && b.Index < a.Index + a.Length;
             foreach (var r in table.Where(r => !string.IsNullOrEmpty(r.Example)))
             {
                 var mine = swaps[r].SelectMany(x => x.Matches(r.Example).Cast<Match>()).Where(m => m.Length > 0).ToList();
