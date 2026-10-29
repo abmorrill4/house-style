@@ -585,6 +585,35 @@ namespace FlareAI.Scenarios.Rules
         }
 
         [Fact]
+        public void Story23f_UnknownIdsInTheTeamGuideAndOverridesIni_ChangeNothing_AndOtherRulesStillWork()
+        {
+            using (var t = Skipping())
+            {
+                Func<List<string>> others = () =>
+                {
+                    t.Fx.LintOnlyCheck();
+                    return t.Fx.Session.Findings.Where(f => f.RuleId != HeadingOrder).Select(f => f.RuleId + "|" + f.Severity).OrderBy(s => s, StringComparer.Ordinal).ToList();
+                };
+                var before = others();
+                AssertOnEveryPath(t, true, "warning");
+
+                GuideOverrides.Set(t.Guide, "xyz:1", "off", Reason, Pat, DateTime.Now);
+                GuideOverrides.Set(t.Guide, "ai:clarity", "off", Reason, Pat, DateTime.Now);
+                GuideOverrides.Set(t.Guide, HeadingOrder, "off", Reason, Pat, DateTime.Now);
+                var ini = t.Ws.PathOf(@"Content\Resources\StyleGuide\overrides.ini");
+                Directory.CreateDirectory(Path.GetDirectoryName(ini));
+                File.WriteAllText(ini, "xyz:1 = off\r\n..\\..\\x = off\r\nai:clarity = off\r\n" + HeadingOrder + " = off\r\n");
+                t.Restart();
+
+                AssertOnEveryPath(t, false);                                                     // the real row took effect
+                Assert.Equal(before, others());                                                  // the made-up ones changed nothing
+                t.Restart();
+                AssertOnEveryPath(t, false);
+                Assert.Equal(before, others());
+            }
+        }
+
+        [Fact]
         public void Story23h_EnableRule_BringsTheStructureIssueBackOnEveryPath()
         {
             using (var t = Skipping())

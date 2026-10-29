@@ -381,11 +381,11 @@ namespace FlareAI.Scenarios.Guide
                 x.Load(topic);
                 foreach (XmlNode row in x.SelectNodes("//*[local-name()='tr'][*[local-name()='td']]")) row.ParentNode.RemoveChild(row);
                 x.Save(topic);
-                GuideOverrides.Set(mine, "google:words/2", "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
+                GuideOverrides.Set(mine, ThisPage, "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
                 i.Engine = new StyleEngine(() => i.Settings.GuideRoots(i.PluginDir), i.Bundled);
 
                 Assert.DoesNotContain(Check(ws, i), f => f.RuleId == ThisPage);
-                Assert.True(i.Engine.IsOff(null, "google:words/2"));
+                Assert.True(i.Engine.IsOff(null, ThisPage));
             }
         }
     }
