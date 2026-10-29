@@ -1233,7 +1233,7 @@ namespace FlareAI.Flare.UI
                 List<StyleFinding> lint;
                 try { lint = _runner.Lint(blocks); }
                 catch (Exception ex) { Diagnostics.Log("docstyle", ex); lint = new List<StyleFinding>(); _lintNote = "The rules couldn't be loaded, so only the AI review is shown. For details, see Diagnostics in Settings."; }
-                try { lint.AddRange(FlareAI.Core.Style.StructureCheck.Of(blocks)); }
+                try { lint.AddRange(_runner.StructureFindings(blocks)); }
                 catch (Exception ex) { Diagnostics.Log("structure", ex); }
                 try { lint.AddRange(_runner.LintSnippets(blocks, _doc.SourcePath)); }
                 catch (Exception ex) { Diagnostics.Log("snippets", ex); }
