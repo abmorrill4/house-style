@@ -36,6 +36,7 @@ namespace FlareAI.Scenarios.Review
                 Assert.Equal(all[1], fx.Session.NextAfter(null));
                 Assert.Equal(1, fx.Session.Visible().Count(f => f.RuleId == Utilize));
                 Assert.Contains("Showing 1 of ", fx.Session.Summary());
+                Assert.StartsWith("Showing 1 of ", fx.Session.Status);   // the status line follows the filter (#249's e2e found it didn't)
 
                 fx.Session.FixAll();
 

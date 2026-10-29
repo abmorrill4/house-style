@@ -256,6 +256,7 @@ namespace FlareAI.Core.Actions
                 if (Current != null && !_filter.Shows(Current)) Current = null;
                 var h = ListChanged;
                 if (h != null) h();
+                if (_findings.Count > 0) Status = Summary();   // "Showing n of m issues" follows the filter; before a lint there is nothing to count
             }
         }
 
