@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using FlareAI.Core.Actions;
 using FlareAI.Core.Style;
 using Xunit;
 
@@ -47,6 +49,13 @@ namespace FlareAI.Core.Tests
             return Engine().Lint(new[] { Text }, null, _topic).Single(h => h.Match == "Zelle Transfer");
         }
 
+        /// <summary>Replaces the project's glossary with these terms.</summary>
+        private void Glossary(params string[] terms)
+        {
+            var entries = string.Concat(terms.Select(t => "<GlossaryEntry><Terms><Term>" + t + "</Term></Terms><Definition>A term.</Definition></GlossaryEntry>").ToArray());
+            Write(@"Project\Glossaries\Main.flglo", "<CatapultGlossary>" + entries + "</CatapultGlossary>");
+        }
+
         [Fact]
         public void AlsoFlaggedBy_NamesACheckerWithNoId_ByItsCheckerName()
         {
@@ -73,6 +82,63 @@ namespace FlareAI.Core.Tests
                 "<table><tr><th>Rule</th><th>Setting</th><th>Reason</th></tr><tr><td>" + checker + "</td><td>off</td><td>Our spelling.</td></tr></table>"));
 
             Assert.DoesNotContain(Engine().Lint(new[] { Text }, null, _topic), h => h.Match == "Zelle Transfer");
+        }
+
+        [Fact]
+        public void TwinsOf_ListsOverlappingRules_NotAlreadyOff()
+        {
+            // The glossary checker has no id: its twins are the company rules that flag its spellings (and it has none itself).
+            Glossary("single sign-on", "identity provider");
+            var cat = RuleCatalog.Build(Engine().Compose(_topic));
+            Assert.Contains("Company.GlossaryTerms", RuleChanges.TwinsOf(cat, "company:terminology/6").Select(r => r.Key));
+            Assert.Contains("Company.GlossaryTerms", RuleChanges.TwinsOf(cat, "company:terminology/7").Select(r => r.Key));
+
+            Write(@"Content\Resources\StyleGuide\Twin.htm", string.Format(Html,
+                "<table><tr><th>Rule</th><th>Setting</th><th>Reason</th></tr><tr><td>Company.GlossaryTerms</td><td>off</td><td>Our spelling.</td></tr></table>"));
+            var off = RuleCatalog.Build(Engine().Compose(_topic));
+            Assert.Equal(RuleState.Off, off.Find("Company.GlossaryTerms").State);
+            Assert.DoesNotContain("Company.GlossaryTerms", RuleChanges.TwinsOf(off, "company:terminology/6").Select(r => r.Key));
+            Assert.DoesNotContain("Company.GlossaryTerms", RuleChanges.TwinsOf(off, "company:terminology/7").Select(r => r.Key));
+        }
+
+        [Fact]
+        public void TwinsOf_PartlyOverlappingMatches_AreTwins()
+        {
+            // "Transfer now" starts inside "Zelle Transfer" in the example: they share words without one containing the other.
+            Write(@"Content\Resources\StyleGuide\Twin.htm", string.Format(Html,
+                "<table><tr><th>Avoid</th><th>Use</th><th>Severity</th><th>Why</th><th>Example</th></tr>" +
+                "<tr><td>Zelle Transfer</td><td>Zelle transfer</td><td>warning</td><td>Spelling.</td><td>Send a Zelle Transfer now.</td></tr>" +
+                "<tr><td>Transfer now</td><td>Transfer</td><td>warning</td><td>Wording.</td><td>Send a Zelle Transfer now.</td></tr></table>"));
+            var cat = RuleCatalog.Build(Engine().Compose(_topic));
+            var zelle = cat.Rules.Single(r => r.Avoid.Contains("Zelle Transfer"));
+            var transfer = cat.Rules.Single(r => r.Avoid.Contains("Transfer now"));
+
+            Assert.Contains(transfer.Key, RuleChanges.TwinsOf(cat, zelle.Key).Select(r => r.Key));
+            Assert.Contains(zelle.Key, RuleChanges.TwinsOf(cat, transfer.Key).Select(r => r.Key));
+        }
+
+        [Fact]
+        public void TwinsOf_ForAChecker_IsEmpty()
+        {
+            Glossary("single sign-on");
+            var cat = RuleCatalog.Build(Engine().Compose(_topic));
+            Assert.NotNull(cat.Find("Company.GlossaryTerms"));
+            Assert.Empty(RuleChanges.TwinsOf(cat, "Company.GlossaryTerms"));
+            Assert.Empty(RuleChanges.TwinsOf(cat, "no:such/1"));
+        }
+
+        [Fact]
+        public void Build_WithA500TermGlossary_FinishesUnderTwoSeconds()
+        {
+            Glossary(Enumerable.Range(1, 500).Select(i => "term " + i + " word").ToArray());
+            var comp = Engine().Compose(_topic);
+
+            var watch = Stopwatch.StartNew();
+            var cat = RuleCatalog.Build(comp);
+            watch.Stop();
+
+            Assert.NotNull(cat.Find("Company.GlossaryTerms"));
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), "Build took " + watch.Elapsed.TotalSeconds.ToString("0.00") + " s");
         }
     }
 }

@@ -199,6 +199,20 @@ namespace FlareAI.Core.Actions
             return found;
         }
 
+        /// <summary>
+        /// The rules that flag the same words as <paramref name="ruleId"/> and are still on: turning this one off shows them too.
+        /// Empty for a checker with no id (its words are the glossary's, not a rule's) and for an unknown rule.
+        /// </summary>
+        public static List<CatalogRule> TwinsOf(RuleCatalog catalog, string ruleId)
+        {
+            var found = new List<CatalogRule>();
+            var rule = catalog == null ? null : catalog.Find(ruleId);
+            if (rule == null || rule.Id == null) return found;
+            foreach (var o in catalog.OverlapsOf(rule))
+                if (o != rule && o.State != RuleState.Off) found.Add(o);
+            return found;
+        }
+
         private static bool Same(string a, string b) { return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase); }
 
         /// <summary>Turn back on for <paramref name="rule"/> and, when given, the rules turned off with it (<see cref="CompanionsOf"/>).</summary>

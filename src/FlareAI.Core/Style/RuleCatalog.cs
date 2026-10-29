@@ -380,7 +380,7 @@ namespace FlareAI.Core.Style
                     if (rx.Match(p).Length > 0) foreach (var o in phrases[p]) union(r, o);
             }
             // Each rule's example, as the checker sees it: another rule's match on the same words, inside them, or around them.
-            Func<Match, Match, bool> overlap = (a, b) => (b.Index >= a.Index && b.Index + b.Length <= a.Index + a.Length) || (a.Index >= b.Index && a.Index + a.Length <= b.Index + b.Length);
+            Func<Match, Match, bool> overlap = (a, b) => a.Index < b.Index + b.Length && b.Index < a.Index + a.Length;
             foreach (var r in table.Where(r => !string.IsNullOrEmpty(r.Example)))
             {
                 var mine = swaps[r].SelectMany(x => x.Matches(r.Example).Cast<Match>()).Where(m => m.Length > 0).ToList();
