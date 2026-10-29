@@ -206,7 +206,7 @@ namespace FlareAI.Core.Style
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
             for (var i = 0; i < guides.Count; i++) layers.Add(LoadTeam(guides[i], NameOfCopy(guides[i], originals), Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
-            var comp = new Composition(layers) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
+            var comp = new Composition(layers, notice != null ? (Func<string, bool>)null : k => { lock (_gate) return _logged.Add(k); }) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
             var onRead = GuideRead;
             if (onRead != null)
@@ -529,9 +529,20 @@ namespace FlareAI.Core.Style
         internal HashSet<string> KnownNames { get; private set; }
         private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        public Composition(List<GuideLayer> layers)
+        private const int MaxIgnoredLines = 20;
+
+        public Composition(List<GuideLayer> layers) : this(layers, null)
+        {
+        }
+
+        /// <param name="firstTime">
+        /// Called with a key (guide|id) before an ignored override row is logged: true when this engine hasn't logged it yet.
+        /// Null logs nothing (the rows are still ignored).
+        /// </param>
+        internal Composition(List<GuideLayer> layers, Func<string, bool> firstTime)
         {
             Layers = layers;
+            // First pass: name every layer and know every rule, so a row in an earlier layer may name a later layer's rule.
             var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var l in layers)
             {
@@ -539,7 +550,6 @@ namespace FlareAI.Core.Style
                 while (!taken.Add(name)) name = b + i++;
                 l.Style = name;
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
-                foreach (var o in l.Overrides) _overrides[OverrideIds.Canonical(o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
             }
             Items = layers.SelectMany(l => l.Items).ToList();
             Rules = layers.SelectMany(l => l.Rules).ToList();
@@ -547,6 +557,31 @@ namespace FlareAI.Core.Style
             foreach (var g in Items) if (g.Id != null) KnownNames.Add(g.Id);
             foreach (var r in Rules) foreach (var n in new[] { r.Id, r.Name, r.LocalName }) if (n != null) KnownNames.Add(n);
             OurProducts = new HashSet<string>(layers.Skip(1).SelectMany(l => l.ProductTags), StringComparer.OrdinalIgnoreCase);
+
+            // Second pass: only a row that names a rule counts. Later layers win; a built-in check's legacy name is stored as its id.
+            var written = 0;
+            foreach (var l in layers)
+            {
+                var guide = OverrideIds.ForLog(GuideName(l));
+                var more = 0;
+                foreach (var o in l.Overrides)
+                {
+                    if (OverrideIds.IsKnown(this, o.Key)) { _overrides[StructureCheck.IdOf(OverrideIds.Canonical(o.Key))] = o.Value; continue; }
+                    if (firstTime == null) continue;
+                    if (written >= MaxIgnoredLines) { more++; continue; }
+                    if (!firstTime(guide + "|" + o.Key)) continue;
+                    written++;
+                    Diagnostics.Log("Style guide " + guide + " has a rule setting for " + OverrideIds.ForLog(o.Key) + " that names no rule, so it was ignored.");
+                }
+                if (more > 0) Diagnostics.Log("and " + more + " more in " + guide);
+            }
+        }
+
+        /// <summary>The guide's folder name (never its full path), else the layer's name.</summary>
+        private static string GuideName(GuideLayer l)
+        {
+            var folder = string.IsNullOrEmpty(l.Path) ? null : System.IO.Path.GetFileName(l.Path.TrimEnd('\\', '/'));
+            return string.IsNullOrEmpty(folder) ? l.Name : folder;
         }
 
         /// <param name="include">Which rules to include (null = all).</param>
