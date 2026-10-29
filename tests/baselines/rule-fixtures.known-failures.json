@@ -1,19 +1,4 @@
 {
   "about": "Rule fixture cases that fail today, by owning issue. Case ids are check|rule|context|case. CI fails on a failure not listed here and on a listed case that now passes: only ever remove entries (run with FLAREAI_UPDATE_KNOWN=1 after a fix).",
-  "issues": {
-    "#54": {
-      "title": "Same-span findings: deterministic owner, and turning off covers every rule on that span",
-      "count": 8,
-      "cases": [
-        "off-project|company:terminology/6|paragraph|0",
-        "off-project|company:terminology/6|paragraph|2",
-        "off-project|company:terminology/7|paragraph|0",
-        "off-project|company:terminology/7|paragraph|1",
-        "off-team|company:terminology/6|paragraph|0",
-        "off-team|company:terminology/6|paragraph|2",
-        "off-team|company:terminology/7|paragraph|0",
-        "off-team|company:terminology/7|paragraph|1"
-      ]
-    }
-  }
+  "issues": {}
 }

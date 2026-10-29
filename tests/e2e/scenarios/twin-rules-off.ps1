@@ -40,6 +40,5 @@ Assert-E2E (@($rows | Where-Object { $_.excerpt -like "*Identity Provider*" }).C
 
 # The project's override file: the rule is off, and the glossary checker isn't in it, because its box was unticked.
 Assert-E2E (Test-Path (Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini")) "the project's overrides.ini was written"
-$ovr = Get-Content (Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini") -Raw
-Assert-E2E ($ovr -match "company:terminology/6") "overrides.ini has a company:terminology/6 row"
-Assert-E2E ($ovr -notmatch "Company\.GlossaryTerms") "overrides.ini has no Company.GlossaryTerms row (the checker box was unticked)"
+Assert-E2E ((Get-Content (Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini") -Raw) -match "company:terminology/6") "overrides.ini has a company:terminology/6 row"
+Assert-E2E ((Get-Content (Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini") -Raw) -notmatch "Company\.GlossaryTerms") "overrides.ini has no Company.GlossaryTerms row (the checker box was unticked)"
