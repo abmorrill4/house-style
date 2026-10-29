@@ -149,6 +149,101 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- keys and focus in the walk ---------------------------------------------------------------------------------
+
+        private const string ThreePlaces = "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body>" +
+                                           "<p>In order to save, press the button.</p><p>In order to load, press the other button.</p>" +
+                                           "<p>In order to quit, close the window.</p></body></html>";
+
+        [DesktopFact]   // keyboard focus needs an interactive desktop (as the other focus tests in the file)
+        public void ListHasFocusAfterEachWalkKey_AndAfterAnOpen()
+        {
+            Sta(() =>
+            {
+                var doc = FlareSimDocument.FromXml(ThreePlaces);
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text("{\"findings\":[]}")(r)), new PromptBuilder(null), 1024, new TwoRuleGuide());
+                var editor = new TextBox();
+                var opened = new List<string>();
+                // The host takes the focus into the editor when a file is opened, as Flare does; the walk must give the list the focus back.
+                var panel = new FindingsPanel(runner, doc, () => runner, path => { opened.Add(path); editor.Focus(); return doc; }, null, false);
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(260, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Controls.Add(editor);
+                    form.Show();
+                    form.Activate();
+                    panel.Begin();
+                    var list = All(panel).OfType<ListView>().Single();
+                    Pump(() => list.Items.Count == 3 && All(panel).OfType<ProgressBar>().All(p => !p.Visible), 15000);
+                    var strip = All(panel).OfType<WalkStrip>().Single();
+                    var session = (ReviewSession)typeof(FindingsPanel).GetField("_session", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(panel);
+
+                    // One rule with three places: walk it from the first.
+                    var rule = session.Backlog().Single();
+                    list.Focus();
+                    session.ReviewRule(rule);
+                    Pump(null, 200);
+                    Assert.Equal("1 of 3", CounterOf(strip));
+
+                    // I with no reason yet opens the reasons menu; the reason picked ignores place 1 and gives the list the focus back.
+                    Press(list, Keys.I);
+                    panel.E2EMenuPick("It's correct");
+                    Pump(null, 100);
+                    Assert.Equal("2 of 3", CounterOf(strip));
+                    AssertListFocused(panel, rule.Key, 2, 3, false);
+
+                    // N goes to the next place (place 2 is passed over, not ignored).
+                    Press(list, Keys.N);
+                    Assert.Equal("3 of 3", CounterOf(strip));
+                    AssertListFocused(panel, rule.Key, 3, 3, false);
+
+                    // Shift+Enter opens the file through the host, which takes the focus; the list gets it back.
+                    Press(list, Keys.Enter | Keys.Shift);
+                    Assert.Single(opened);
+                    AssertListFocused(panel, rule.Key, 3, 3, false);
+
+                    // I again uses the last reason: place 3 is the last, so the walk is finished.
+                    Press(list, Keys.I);
+                    AssertListFocused(panel, rule.Key, 0, 3, true);   // no place is current once the walk is finished
+                    Assert.True(session.WalkFinished);
+
+                    // Enter on the finished strip: no rule is left, so it is All Rules, and the walk ends.
+                    Assert.False(session.HasNextRule);
+                    Press(list, Keys.Enter);
+                    Assert.Null(WalkState(panel));
+                    Assert.True(list.Focused, "the list has the focus after All Rules");
+                }
+            });
+        }
+
+        /// <summary>Checks the E2E walk object: the rule key, the place, the total, finished, and that the list has the focus.</summary>
+        private static void AssertListFocused(FindingsPanel panel, string rule, int position, int total, bool finished)
+        {
+            var walk = WalkState(panel);
+            Assert.NotNull(walk);
+            Assert.Equal(new[] { "finished", "listFocused", "position", "rule", "total" },
+                         walk.GetType().GetProperties().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+            Assert.Equal(rule, Prop(walk, "rule"));
+            Assert.Equal(position, Prop(walk, "position"));
+            Assert.Equal(total, Prop(walk, "total"));
+            Assert.Equal(finished, Prop(walk, "finished"));
+            Assert.True((bool)Prop(walk, "listFocused"), "the list has the focus after the key");
+        }
+
+        /// <summary>The walk object of the pane's E2E state (null when no rule is walked).</summary>
+        private static object WalkState(FindingsPanel panel) { return Prop(panel.E2EState(), "walk"); }
+
+        private static object Prop(object o, string name) { return o.GetType().GetProperty(name).GetValue(o); }
+
+        /// <summary>Presses a key in the control as the keyboard does: its KeyDown runs, which is where the walk's keys are handled.</summary>
+        private static void Press(Control c, Keys key)
+        {
+            typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(c, new object[] { new KeyEventArgs(key) });
+            Pump(null, 100);
+        }
+
         /// <summary>A guide with two rules, one per sentence of <see cref="TwoSentences"/>: "Please note that" and "In order to".</summary>
         private sealed class TwoRuleGuide : FlareAI.Core.Style.IStyleService
         {

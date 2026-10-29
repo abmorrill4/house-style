@@ -63,6 +63,7 @@ namespace FlareAI.Flare.UI
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
         private string _lastRule;   // the rule row to come back to after Review one by one
+        private string _lastReason;   // the reason of the last Ignore: I in a walk uses it (the reasons menu asks the first time only)
 
         private static readonly string SettingsDir = FlareAI.Core.Settings.PluginSettings.SettingsDirectory;
         private static readonly Dismissals Dismissed = Dismissals.Load(System.IO.Path.Combine(SettingsDir, "dismissed.json"));
@@ -319,9 +320,9 @@ namespace FlareAI.Flare.UI
             _rule = Btn(actions, "Open Guide", (s, e) => { var f = Current(); if (f != null && !string.IsNullOrEmpty(f.Link)) OpenLink(f.Link); });
             // Ignore asks why (recorded for Rule Decisions): the stored reasons stay "wrong", "fine here", "rule doesn't apply".
             _rejectMenu = new ContextMenuStrip();
-            _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong")));
-            _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here")));
-            _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")));
+            _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => RejectWith("wrong")));
+            _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => RejectWith("fine here")));
+            _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => RejectWith("rule doesn't apply")));
             _rejectMenu.Items.Add(new ToolStripSeparator());
             _rejectMenu.Items.Add("Skip for Now", null, (s, e) => Safe.Run("Skip", _session.Skip));
             _rejectMenu.Items.Add(new ToolStripSeparator());
@@ -1098,8 +1099,21 @@ namespace FlareAI.Flare.UI
             }
             var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk() };
         }
+
+        /// <summary>
+        /// The walk as the scenario reads it: the rule's key (never its title or text), the place, whether the walk went past its
+        /// last place, and whether the list has the focus. Null when no rule is walked.
+        /// </summary>
+        private object E2EWalk()
+        {
+            if (!_session.IsWalking) return null;
+            return new { rule = _session.FocusRule, position = _session.WalkPosition, total = _session.WalkTotal, finished = _session.WalkFinished, listFocused = ListHasFocus };
+        }
+
+        /// <summary>The issues list has the keyboard focus (or one of its children does).</summary>
+        private bool ListHasFocus { get { return _list.Focused || _list.ContainsFocus; } }
 
         /// <summary>
         /// The card as laid out: the why text's full height comes from the box itself, so whyClipped is true when the box is
@@ -1164,7 +1178,7 @@ namespace FlareAI.Flare.UI
             if (form != null && form.CanFocus) form.Activate();
             if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
             _list.Focus();
-            return _list.Focused || _list.ContainsFocus;
+            return ListHasFocus;
         }
 
         /// <summary>
@@ -1210,8 +1224,9 @@ namespace FlareAI.Flare.UI
                 return;
             }
             if ((e.KeyCode == Keys.Escape || e.KeyCode == Keys.Back) && _session.FocusRule != null) { _session.EndRuleReview(); e.Handled = true; e.SuppressKeyPress = true; return; }
-            if (e.KeyCode == Keys.Enter && e.Shift) { _session.OpenFileOfCurrent(); e.Handled = true; e.SuppressKeyPress = true; }
-            else if (e.KeyCode == Keys.Enter && e.Control) { _session.GoToCurrent(); e.Handled = true; e.SuppressKeyPress = true; }
+            if (WalkKey(e)) { e.Handled = true; e.SuppressKeyPress = true; return; }
+            if (e.KeyCode == Keys.Enter && e.Shift) { _session.OpenFileOfCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
+            else if (e.KeyCode == Keys.Enter && e.Control) { _session.GoToCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.Enter) { Accept(); e.Handled = true; }
             else if (e.KeyCode == Keys.Delete) { _rejectMenu.Show(_reject, new Point(0, _reject.Height)); e.Handled = true; }
         }
@@ -1516,6 +1531,45 @@ namespace FlareAI.Flare.UI
             _lastRule = _session.FocusRule;
             _list.Focus();
         }
+
+        /// <summary>
+        /// The keys of a walk, place by place: Enter changes the place and moves on, I ignores it (with the reason last given),
+        /// N goes to the next place. On the finished strip Enter is Next Rule, or All Rules when none is left. The list takes
+        /// the focus back after each, so the next key never goes to the editor. False for any other key (and outside a walk).
+        /// </summary>
+        private bool WalkKey(KeyEventArgs e)
+        {
+            if (!ShowsWalk || e.Control || e.Alt) return false;
+            if (_session.WalkFinished)
+            {
+                if (e.KeyCode != Keys.Enter || e.Shift) return false;
+                if (_session.HasNextRule) NextRuleInWalk(); else _session.EndRuleReview();
+                _list.Focus();
+                return true;
+            }
+            if (e.KeyCode == Keys.Enter && !e.Shift) Accept();
+            else if (e.KeyCode == Keys.N) _session.Next();
+            else if (e.KeyCode == Keys.I)
+            {
+                // The first ignore asks why, in the reasons menu (it takes the focus, and RejectWith gives it back); then the last reason is used.
+                if (_lastReason == null) { _rejectMenu.Show(_reject, new Point(0, _reject.Height)); return true; }
+                _session.Reject(_lastReason);
+            }
+            else return false;
+            FocusWalkList();
+            return true;
+        }
+
+        /// <summary>Ignore with a reason: the reason is kept for I in a walk, and the walk goes on from the list.</summary>
+        private void RejectWith(string reason)
+        {
+            _lastReason = reason;
+            _session.Reject(reason);
+            FocusWalkList();
+        }
+
+        /// <summary>In a walk the list takes the focus back after an action: an open or a move to another place may have put it in the editor.</summary>
+        private void FocusWalkList() { if (ShowsWalk) _list.Focus(); }
 
         /// <summary>True while the strip shows the walk: a walk in By Rule (or a topic), not after the view moved to By File.</summary>
         private bool ShowsWalk { get { return _session.IsWalking && (_files == null || _byRule.Checked); } }
