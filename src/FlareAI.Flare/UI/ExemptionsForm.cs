@@ -11,7 +11,7 @@ namespace FlareAI.Flare.UI
 {
     /// <summary>
     /// "Exemptions" (from a Lint Project report): the text this project exempts from one rule in one topic, with who, when
-    /// and why, and Remove Exemption. Each row is one finding hidden; the rule stays on everywhere else. A row whose text
+    /// and why, and Remove Exemption. Each row is one issue hidden; the rule stays on everywhere else. A row whose text
     /// or topic is gone says so in its Text cell. Nothing here writes the topics.
     /// </summary>
     internal sealed class ExemptionsForm : Form
@@ -96,8 +96,8 @@ namespace FlareAI.Flare.UI
             }
             catch (Exception ex) { Diagnostics.Log("exemptions", ex); _head.Text = "Could not read the exemptions: " + ex.Message; return; }
             _head.Text = (done != null ? done + "  " : "") + (_list.Items.Count == 0
-                ? "This project has no exemptions. Lint Project reports every finding."
-                : "Each exemption hides one finding in one topic. The rule stays on everywhere else.") +
+                ? "This project has no exemptions. Lint Project reports every issue."
+                : "Each exemption hides one issue in one topic. The rule stays on everywhere else.") +
                 (stale == 0 ? "" : "  Some exemptions no longer find their text. Check the Text column.");
             if (_list.Items.Count > 0) _list.Items[0].Selected = true;
             _remove.Enabled = Current() != null;

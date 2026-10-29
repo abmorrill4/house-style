@@ -10,7 +10,7 @@ namespace FlareAI.Core.Actions
 {
     /// <summary>
     /// Text a writer exempted from one rule in one topic ("this is intended here"), so the rule stays on everywhere else.
-    /// Unlike <see cref="LintExclusions"/>, nothing is turned off: an entry hides one exact finding and no other.
+    /// Unlike <see cref="LintExclusions"/>, nothing is turned off: an entry hides one exact issue and no other.
     /// One entry per line in Project\HouseStyle\Exemptions.txt, tab separated: Topic, Rule, Text, Before, Reason, Who, When.
     /// A line that fails <see cref="Load"/> is skipped; the log gets a count and line numbers, never the line itself.
     /// </summary>
@@ -77,7 +77,7 @@ namespace FlareAI.Core.Actions
             return new ExemptionList(entries, stamp);
         }
 
-        /// <summary>True when the list exempts this exact finding: the same topic, rule, text and context. Nothing else matches.</summary>
+        /// <summary>True when the list exempts this exact issue: the same topic, rule, text and context. Nothing else matches.</summary>
         public static bool Covers(ExemptionList list, string relPath, string rule, string excerpt, string before)
         {
             return list != null && relPath != null && list.Has(relPath, rule, Clean(excerpt), Clean(before));
