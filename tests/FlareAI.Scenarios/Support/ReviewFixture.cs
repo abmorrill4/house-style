@@ -105,7 +105,7 @@ namespace FlareAI.Scenarios.Support
             s.Clear();
             var blocks = Runner.PickCheckBlocks(Doc);
             var lint = Runner.Lint(blocks);
-            lint.AddRange(StructureCheck.Of(blocks));
+            lint.AddRange(Runner.StructureFindings(blocks));
             lint.AddRange(Runner.LintSnippets(blocks, Doc.SourcePath));
             var all = new List<StyleFinding>(lint);
             var fresh = 0;
@@ -127,7 +127,7 @@ namespace FlareAI.Scenarios.Support
             s.Clear();
             var blocks = Runner.PickCheckBlocks(Doc);
             var lint = Runner.Lint(blocks);
-            lint.AddRange(StructureCheck.Of(blocks));
+            lint.AddRange(Runner.StructureFindings(blocks));
             lint.AddRange(Runner.LintSnippets(blocks, Doc.SourcePath));
             s.Add(lint);
             return lint;
