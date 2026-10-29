@@ -61,6 +61,10 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>The project or topic the current lint covers, while its remembered rule is still to be looked for; null once found.</summary>
+        private string _rememberScope;
+        /// <summary>A walk wrote the remembered rule during the lint that is running, so the next lint must not drop it.</summary>
+        private bool _walkWritten;
         private string _status;
         private List<StyleFinding> _walk;
         private bool _watching, _offThreadLogged;
@@ -109,6 +113,8 @@ namespace FlareAI.Core.Actions
         public Action<BatchRun> RunBatch { get; set; } = run => run.RunToEnd();
         /// <summary>True while the pane showing this session is the one on screen. Null means always (tests).</summary>
         public Func<bool> IsShown { get; set; }
+        /// <summary>The review view prefs file (where the rule walked last is remembered). Tests point it at a temp folder.</summary>
+        public string PrefsPath { get; set; } = ReviewViewPrefs.DefaultPath;
 
         // ---- state the view reads ---------------------------------------------------------------
 
@@ -155,6 +161,12 @@ namespace FlareAI.Core.Actions
         /// <summary>Forgets every suggestion (a new check starts).</summary>
         public void Clear()
         {
+            // The last lint ended without the rule walked there: its memory is out of date, so it goes.
+            var protect = _walkWritten;
+            _walkWritten = false;
+            if (!protect && _rememberScope != null && RememberedRule == null) ForgetWalkIn(_rememberScope);
+            _rememberScope = RememberScope();
+            RememberedRule = null;
             _findings.Clear();
             _skippedRules.Clear();
             _walkedRules.Clear();
@@ -198,6 +210,48 @@ namespace FlareAI.Core.Actions
                 catch (Exception ex) { Diagnostics.Log("record baseline: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
             }
             Sort();
+            if (_rememberScope != null && RememberedRule == null) RememberFromLint();
+        }
+
+        /// <summary>
+        /// The project a project check covers, or else the topic: the scope the walk memory is kept for. Null when there is no
+        /// path (or it can't be resolved), so nothing is remembered.
+        /// </summary>
+        private string RememberScope()
+        {
+            var path = _doc == null ? null : _doc.SourcePath;
+            if (string.IsNullOrEmpty(path)) return null;
+            try { return ReviewViewPrefs.ScopeOf(_project ? StyleEngine.FlareProjectRoot(path) ?? path : path); }
+            catch (Exception ex) { Diagnostics.Log("review scope", ex); return null; }
+        }
+
+        /// <summary>After a new lint, while the rule walked last is still open here: names it in the status. Nothing is started.</summary>
+        private void RememberFromLint()
+        {
+            var rule = ReviewViewPrefs.Load(PrefsPath).RuleIn(_rememberScope, Backlog());
+            if (rule == null) return;
+            RememberedRule = rule;
+            Status = "Last time you were on " + rule.Title + ". Press Enter to review it again.";
+        }
+
+        /// <summary>Drops the remembered walk when it is in <paramref name="scope"/>; other scopes are left alone.</summary>
+        private void ForgetWalkIn(string scope)
+        {
+            var prefs = ReviewViewPrefs.Load(PrefsPath);
+            if (prefs.Walk == null || !string.Equals(prefs.Walk.Scope, scope, StringComparison.Ordinal)) return;
+            prefs.Walk = null;
+            prefs.TrySave(PrefsPath);
+        }
+
+        /// <summary>Writes the rule walked last for this project or topic. A key the prefs can't hold is not written.</summary>
+        private void RememberWalk(string key)
+        {
+            var scope = RememberScope();
+            if (scope == null || !ReviewViewPrefs.IsValidKey(key)) return;
+            var prefs = ReviewViewPrefs.Load(PrefsPath);
+            prefs.Walk = new ReviewViewPrefs.RememberedWalk { Scope = scope, RuleKey = key };
+            prefs.TrySave(PrefsPath);
+            _walkWritten = true;
         }
 
         /// <summary>
@@ -838,6 +892,12 @@ namespace FlareAI.Core.Actions
         /// <summary>The rule being reviewed one by one, or null. Next, Skip and Apply stay within it.</summary>
         public string FocusRule { get; private set; }
 
+        /// <summary>
+        /// The rule walked last in this project or topic, if this lint still has it open; null otherwise. The view selects its row
+        /// (the status says so) and Enter starts the walk. Set by a new lint only.
+        /// </summary>
+        public BacklogRule RememberedRule { get; private set; }
+
         /// <summary>The focused rule's heading, or null.</summary>
         public string FocusTitle
         {
@@ -893,6 +953,7 @@ namespace FlareAI.Core.Actions
             if (rule == null || rule.Findings.Count == 0) return;
             FocusRule = rule.Key;
             _walkedRules.Add(rule.Key);
+            RememberWalk(rule.Key);
             var h = ListChanged;
             if (h != null) h();
             _walk = rule.Findings.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f));
