@@ -79,6 +79,7 @@ namespace FlareAI.Flare.UI
         private static bool _widthTipShown;   // once per Flare session, in the first pane that is narrow
         private bool _widthTipHere;
         private readonly SplitContainer _split;
+        private readonly WalkStrip _walkStrip;   // the rule walked place by place, over the list (hidden otherwise)
         private readonly Panel _card;
         private readonly List<Button> _buttons = new List<Button>();
         private Font _metaFont;
@@ -344,6 +345,12 @@ namespace FlareAI.Flare.UI
             _checklist = new LinkLabel { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, Padding = new Padding(4, 4, 4, 4), AccessibleRole = AccessibleRole.Grouping, AccessibleName = "Getting started" };
             _checklist.LinkClicked += (s, e) => Safe.Run("Checklist", () => OnChecklistLink(e.Link.LinkData as string));
             split.Panel1.Controls.Add(_checklist);
+            // The walk strip: the rule walked place by place. Added last, so it docks above the list and the list keeps its rows.
+            _walkStrip = new WalkStrip { Visible = false };
+            _walkStrip.ChangeAllClicked += (s, e) => Safe.Run("Change All", () => _session.FixRule(_session.FindBacklogRule(_session.FocusRule)));
+            _walkStrip.AllRulesClicked += (s, e) => Safe.Run("All Rules", _session.EndRuleReview);
+            _walkStrip.NextRuleClicked += (s, e) => Safe.Run("Next Rule", NextRuleInWalk);
+            split.Panel1.Controls.Add(_walkStrip);
             split.Panel2.Controls.Add(card);
             // The pane is laid out small first and grows: the card gets the height it needs (or the writer's, once they drag
             // the splitter) and the list what's left; the card is laid out again whenever its size or content changes.
@@ -376,7 +383,7 @@ namespace FlareAI.Flare.UI
             tips.SetToolTip(_byRule, "List one row per rule, most frequent first.");
             tips.SetToolTip(_byFile, "List every issue, file by file.");
             tips.SetToolTip(_fixRule, "Replace every instance of this issue in every file.");
-            tips.SetToolTip(_reviewRule, "Go through this rule's issues one at a time.");
+            tips.SetToolTip(_reviewRule, "Go through this rule's issues one at a time. (Enter)");
             tips.SetToolTip(_turnOffRule, "Stop linting for this rule.");
             tips.SetToolTip(_skipRule, "Hide this rule until you lint again.");
             tips.SetToolTip(_showAllRules, "List every rule.");
@@ -1355,11 +1362,21 @@ namespace FlareAI.Flare.UI
                     var found = (List<StyleFinding>)e.Result;
                     FirstProjectLint();
                     _session.Add(found);
-                    _status.Text = Summary() + "  Linted " + Plural.Of(_files.Count, "file") + ". No AI was used." + (_focusLine != null ? "  " + _focusLine : "");
+                    var lint = Summary() + "  Linted " + Plural.Of(_files.Count, "file") + ". No AI was used." + (_focusLine != null ? "  " + _focusLine : "");
+                    _status.Text = _session.RememberedRule != null ? _session.Status + "  " + lint : lint;   // the rule walked last is named, not started
                     var guide = _runner.GuideNotice;
                     if (guide != null) _status.Text += "  " + guide;
                     ShowRequestNote();
-                    if (RuleRows && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
+                    if (RuleRows && _list.Items.Count > 0)
+                    {
+                        // The rule walked last is the row selected (not walked); else the most frequent rule.
+                        var row = _list.Items[0];
+                        if (_session.RememberedRule != null)
+                        {
+                            foreach (ListViewItem item in _list.Items) if (((BacklogRule)item.Tag).Key == _session.RememberedRule.Key) row = item;
+                        }
+                        row.Selected = true; row.Focused = true;
+                    }
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
                 }
@@ -1389,7 +1406,7 @@ namespace FlareAI.Flare.UI
             if (_files != null)
             {
                 var reviewing = _session.FocusRule != null;
-                _backToRules.Visible = reviewing;
+                _backToRules.Visible = reviewing && !ShowsWalk;   // during a walk the strip's All Rules is the one
                 _showSkipped.Visible = _session.SkippedRuleCount > 0 && !reviewing;
                 _showSkipped.Text = "Show Skipped Rules (" + _session.SkippedRuleCount + ")";
                 _list.Columns[0].Text = RuleRows ? "Rule" : "Issue";
@@ -1477,7 +1494,8 @@ namespace FlareAI.Flare.UI
                 if (settings.ProjectViewByFile != byFile) { settings.ProjectViewByFile = byFile; settings.Save(); }
             }
             catch (Exception ex) { Diagnostics.Log("save view", ex); }
-            if (_session.FocusRule != null) _session.EndRuleReview();
+            // A walk is kept across the switch: the strip hides (or shows again at the same place) and All Rules ends it.
+            if (_session.FocusRule != null && !_session.IsWalking) _session.EndRuleReview();
             else Rebuild();
             _list.Focus();
         }
@@ -1489,6 +1507,44 @@ namespace FlareAI.Flare.UI
             _lastRule = r.Key;
             _session.ReviewRule(r);
             _list.Focus();
+        }
+
+        /// <summary>Next Rule on the strip: walks the next rule not yet walked, as Review one by one does (or says every rule is done).</summary>
+        private void NextRuleInWalk()
+        {
+            _session.NextRule();
+            _lastRule = _session.FocusRule;
+            _list.Focus();
+        }
+
+        /// <summary>True while the strip shows the walk: a walk in By Rule (or a topic), not after the view moved to By File.</summary>
+        private bool ShowsWalk { get { return _session.IsWalking && (_files == null || _byRule.Checked); } }
+
+        /// <summary>The walked rule's title, reason and severity, from its suggestions (fixed ones too), or null.</summary>
+        private BacklogRule WalkedRule()
+        {
+            var key = _session.FocusRule;
+            if (key == null) return null;
+            var mine = _session.Findings.Where(f => RuleBacklog.KeyOf(f) == key).ToList();
+            return mine.Count == 0 ? null : RuleBacklog.Group(mine, _runner.RuleFor, _doc.SourcePath, _runner.SourceName)[0];
+        }
+
+        /// <summary>Shows the walk in the strip above the list, with the counter, the change and the finished state; hides it otherwise.</summary>
+        private void UpdateWalkStrip()
+        {
+            if (_walkStrip == null) return;
+            var rule = ShowsWalk ? WalkedRule() : null;
+            _walkStrip.Visible = rule != null;
+            if (rule == null) return;
+            if (_session.WalkFinished)
+            {
+                var more = _session.HasNextRule;
+                _walkStrip.ShowFinished(_session.WalkFinishedText + (more ? "" : "  You've been through every rule."), more);
+                return;
+            }
+            var current = Current();
+            var example = current == null || string.IsNullOrEmpty(current.Excerpt) ? "" : current.Excerpt + "\n" + (current.Replacement ?? "");
+            _walkStrip.ShowWalk(rule.Title, rule.Severity, rule.Reason, example, _session.WalkPosition, _session.WalkTotal, _session.WalkChangeAllCount, null);
         }
 
         /// <summary>The card for a rule row: why the rule exists, where it fires, real examples, and what Fix all would do.</summary>
@@ -1746,6 +1802,7 @@ namespace FlareAI.Flare.UI
 
         private void ShowCard()
         {
+            UpdateWalkStrip();   // the strip's counter and finished state follow the selection
             var f = Current();
             _cardDiff.Clear(); _cardWhy.Clear(); _cardWhy.Tag = null;
             var ruleRow = CurrentRule();
