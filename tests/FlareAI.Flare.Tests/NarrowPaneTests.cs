@@ -1093,7 +1093,7 @@ namespace FlareAI.Flare.Tests
             });
         }
 
-        [Fact]
+        [DesktopFact]
         public void SwitchingTabs_MovesFocus_AndAltP_SwitchesWhenFocusIsInThePane()
         {
             WithPane((panel, form, list) =>
