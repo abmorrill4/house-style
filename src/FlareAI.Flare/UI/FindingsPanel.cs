@@ -275,20 +275,16 @@ namespace FlareAI.Flare.UI
 
             // Level and Source: which issues the list shows. Remembered; locked during Review One by One.
             _filterTip = new ToolTip();
-            var levelLabel = new Label { Text = "Level:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) };
-            _levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Level", Width = 130, MaximumSize = new Size(140, 0), Margin = new Padding(0, 2, 8, 4) };
+            // No labels: the choices say what they filter, and a narrow pane has no height to spare for a label row.
+            _levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Level", Width = 76, DropDownWidth = 110, Margin = new Padding(0, 0, 3, 0) };
             _levelBox.Items.AddRange(new object[] { "All Levels", "Errors", "Warnings", "Suggestions" });
-            var sourceLabel = new Label { Text = "Source:", AutoSize = true, Margin = new Padding(0, 6, 4, 0) };
-            _sourceBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Source", Width = 130, MaximumSize = new Size(140, 0), Margin = new Padding(0, 2, 8, 4) };
+            _sourceBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Source", Width = 76, DropDownWidth = 110, Margin = new Padding(0, 0, 3, 0) };
             _sourceBox.Items.AddRange(new object[] { "Rules and AI", "Rules Only", "AI Only" });
             _levelBox.SelectedIndex = (int)_session.Filter.Level;
             _sourceBox.SelectedIndex = (int)_session.Filter.Source;
-            _viewBar.Controls.Add(levelLabel);
-            _viewBar.SetFlowBreak(levelLabel, true);
+            _filterTip.SetToolTip(_levelBox, "Show only issues of one level.");
+            _filterTip.SetToolTip(_sourceBox, "Show only issues from the rules, or only those from the AI.");
             _viewBar.Controls.Add(_levelBox);
-            _viewBar.SetFlowBreak(_levelBox, true);
-            _viewBar.Controls.Add(sourceLabel);
-            _viewBar.SetFlowBreak(sourceLabel, true);
             _viewBar.Controls.Add(_sourceBox);
             _viewBar.SetFlowBreak(_sourceBox, true);
             _levelBox.SelectedIndexChanged += (s, e) => Safe.Run("Filter level", ApplyFilterChoice);
@@ -304,6 +300,7 @@ namespace FlareAI.Flare.UI
             _excluded = Btn(_viewBar, "Excluded Files", (s, e) => ShowExcluded());
             _export = Btn(_viewBar, "Export Issues…", (s, e) => ExportIssues());
             _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
+            _export.Visible = files != null;   // the bar is always shown now (the filter lives on it); the project report buttons only in Lint Project
 
             // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
             // Items, groups, selection, keys, menu and tooltips are the ListView's own; only the painting is ours.
