@@ -917,12 +917,10 @@ namespace FlareAI.Core.Style
                 }
             }
             // Override tables must name rules that exist.
-            var known = new HashSet<string>(Rules.Select(r => r.Id).Where(x => x != null).Concat(Rules.Select(r => r.Name)).Concat(Items.Select(x => x.Id)), StringComparer.OrdinalIgnoreCase);
             foreach (var l in Layers.Where(x => !x.OverridesOnly))   // the shipped defaults aren't the guide owner's to fix
                 foreach (var o in l.Overrides)
                 {
-                    var key = OverrideIds.Canonical(o.Key);
-                    if (!known.Contains(key))
+                    if (!OverrideIds.IsKnown(this, o.Key))
                         report.Issues.Add(new GuideIssue { Level = "error", Layer = l.Name, File = "", Location = "override " + o.Key, Message = "No rule '" + o.Key + "': use a rule's reference from the guide, for example google:numbers/3." });
                 }
             // Rules without a permanent key: their ids would shift when rules are added or moved.

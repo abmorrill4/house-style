@@ -350,6 +350,29 @@ namespace FlareAI.Core.Tests
             }
         }
 
+        [Fact]
+        public void Validate_AcceptsStructureIdRows_AndReportsUnknownOnes()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-validate-" + Guid.NewGuid().ToString("N"));
+            var team = Path.Combine(dir, "TeamGuide");
+            var style = Path.Combine(team, @"Content\Resources\StyleGuide");
+            try
+            {
+                Directory.CreateDirectory(style);
+                File.WriteAllText(Path.Combine(team, "Guide.flprj"), "<CatapultProject />");
+                File.WriteAllText(Path.Combine(style, "overrides.ini"), "structure:heading-order = off\r\nStructure.HeadingOrder = NO\r\nxyz:1 = off\r\n");
+                var report = new StyleEngine(new[] { team }, GuideSourceTests.Bundled).Validate(null);
+                var noRule = report.Issues.Where(i => i.Level == "error" && i.Message.StartsWith("No rule", StringComparison.Ordinal)).ToList();
+                Assert.Single(noRule);
+                Assert.Contains("xyz:1", noRule[0].Message, StringComparison.Ordinal);
+                Assert.DoesNotContain(report.Issues, i => i.Level == "error" && (i.Location == "override structure:heading-order" || i.Location == "override Structure.HeadingOrder"));
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
