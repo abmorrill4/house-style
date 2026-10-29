@@ -58,7 +58,7 @@ namespace FlareAI.Flare.UI
         // tab bar: This Topic and Project tabs
         private readonly FlowLayoutPanel _tabs;
         private readonly TabRadio _tabTopic, _tabProject;
-        private readonly Button _excluded, _export;
+        private readonly Button _excluded, _export, _ignoredBtn;
         private string _projectName;
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
@@ -220,6 +220,7 @@ namespace FlareAI.Flare.UI
             _session.ListChanged += Rebuild;
             _session.SelectRequested += Select;
             _session.StatusChanged += text => _status.Text = text;
+            _session.IgnoredChanged += UpdateIgnored;
             _session.BatchReported += ShowResult;
             _session.Happened += OnHappened;
             _session.IsShown = () => PanelHost.Current == this;
@@ -264,6 +265,7 @@ namespace FlareAI.Flare.UI
             _excluded = Btn(_viewBar, "Excluded Files", (s, e) => ShowExcluded());
             _export = Btn(_viewBar, "Export Issues…", (s, e) => ExportIssues());
             _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
+            if (files != null) _ignoredBtn = Btn(_viewBar, "Ignored Issues", (s, e) => ShowIgnored());
 
             // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
             // Items, groups, selection, keys, menu and tooltips are the ListView's own; only the painting is ours.
@@ -356,9 +358,12 @@ namespace FlareAI.Flare.UI
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(0, 4, 0, 0) };
             _recheck = Btn(bar, "Lint Again", (s, e) => { _aiOnStart = true; _fresh = !_stopped; Start(); });   // after Stop: carry on, not start over
             _ignore = Btn(bar, "Disable Rule…", (s, e) => { var r = CurrentRule(); if (r != null) _session.TurnOffRule(r); else _session.TurnOffRule(); });
+            if (files == null) _ignoredBtn = Btn(bar, "Ignored Issues", (s, e) => ShowIgnored());
+            _ignoredBtn.Visible = false;
             Btn(bar, "Close", (s, e) => { var h = CloseRequested; if (h != null) h(this, EventArgs.Empty); });
 
             var tips = new ToolTip();
+            tips.SetToolTip(_ignoredBtn, "Show the issues you ignored. They stay hidden each time you lint.");
             tips.SetToolTip(_accept, "Replace the text with the suggestion.");
             tips.SetToolTip(_changeAll, "Replace every instance of this issue in the topic.");
             tips.SetToolTip(_reject, "Ignore this issue.");
@@ -624,6 +629,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_recheck, "Lint Again");
             A11y.Name(_legend, "What the symbols mean", "Show what the symbols and buttons mean. Opens a dialog.");
             A11y.Name(_ignore, "Disable Rule", "Stop linting for this rule. Opens a dialog.");
+            A11y.Name(_ignoredBtn, "Ignored Issues", "Show the issues you ignored. Restore one to see it again if its text changed or you changed your mind. Opens a dialog.");
             // Tab order: tour, notice, triage buttons, list, decision buttons, card text, bottom bar.
             var top = new Control[] { _tabs, _tourStrip, _widthTip, _status, _notice, _acceptAll.Parent, _viewBar, _progress, _list.Parent.Parent, _cost, _recheck.Parent };
             for (var i = 0; i < top.Length; i++) top[i].TabIndex = i;
@@ -642,7 +648,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_tourDone, "Done", "End the practice.");
             A11y.Name(_tabs, "Issues for");
             var order = new Control[] { _tourStrip, _widthTip, _notice, _acceptAll, _bulk, _stop, _batchStop, _legend, _byRule, _byFile, _backToRules, _showSkipped, _showAllRules, _checklist, _list, _result,
-                                        _accept, _changeAll, _reject, _edit, _refine, _reanalyze, _rule, _fixRule, _reviewRule, _turnOffRule, _skipRule, _cardDiff, _cardWhy, _recheck, _ignore };
+                                        _accept, _changeAll, _reject, _edit, _refine, _reanalyze, _rule, _fixRule, _reviewRule, _turnOffRule, _skipRule, _cardDiff, _cardWhy, _recheck, _ignoredBtn, _ignore };
             for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
             A11y.Apply(this);
         }
@@ -1064,6 +1070,21 @@ namespace FlareAI.Flare.UI
             UpdateExcluded();
         }
 
+        /// <summary>The issues the writer ignored, to restore.</summary>
+        private void ShowIgnored()
+        {
+            using (var f = new IgnoredIssuesForm(_session)) f.ShowDialog(FindForm());
+            UpdateIgnored();
+        }
+
+        private void UpdateIgnored()
+        {
+            if (_ignoredBtn == null) return;
+            var n = _session.Ignored.Count;
+            _ignoredBtn.Visible = n > 0;
+            _ignoredBtn.Text = "Ignored Issues (" + n + ")";
+        }
+
         private void UpdateExcluded()
         {
             var n = _files == null ? 0 : LintExclusions.Load(_files.Count > 0 ? _files[0] : _doc.SourcePath).Count;
@@ -1215,6 +1236,7 @@ namespace FlareAI.Flare.UI
         {
             if (_worker != null && _worker.IsBusy) return;
             _session.Clear(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
+            UpdateIgnored();
             _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiHidden = false; _aiOffNote.Visible = false;
             _reviewing = true; _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee; _status.Text = "Linting…";
             _result.Visible = false; _stop.Visible = false; _stop.Enabled = true; _stopped = false; _unitCount = 0; _doneUnits = 0;
@@ -1362,6 +1384,7 @@ namespace FlareAI.Flare.UI
                     if (RuleRows && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
+                    UpdateIgnored();
                 }
                 UpdateButtons();
                 UpdateChecklist();
@@ -1620,7 +1643,7 @@ namespace FlareAI.Flare.UI
             return _list.Groups[key] ?? _list.Groups.Add(key, label);
         }
 
-        private static string ProposalText(StyleFinding f)
+        internal static string ProposalText(StyleFinding f)
         {
             var mark = f.IsFixed ? "✓ " : f.IsStale ? "⚠ " : "";
             return mark + ProposalBody(f);
@@ -1642,7 +1665,7 @@ namespace FlareAI.Flare.UI
 
         private static string Shorten(string s, int n) { return ReviewSession.Shorten(s, n); }
 
-        private string RelativeToContent(string path)
+        internal static string RelativeToContent(string path)
         {
             var dir = System.IO.Path.GetDirectoryName(path);
             while (dir != null && !System.IO.Path.GetFileName(dir).Equals("Content", StringComparison.OrdinalIgnoreCase)) dir = System.IO.Path.GetDirectoryName(dir);
@@ -2101,6 +2124,7 @@ namespace FlareAI.Flare.UI
             var r = CurrentRule();
             _ignore.Enabled = (f != null || r != null) && !busy;
             _viewBar.Enabled = !busy;
+            _ignoredBtn.Enabled = !busy;
             _tabs.Enabled = !busy;
             _actions.Enabled = !busy;
             _ruleActions.Enabled = !busy;
