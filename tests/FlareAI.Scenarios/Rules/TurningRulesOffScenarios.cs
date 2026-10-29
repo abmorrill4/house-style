@@ -50,7 +50,7 @@ namespace FlareAI.Scenarios.Rules
                 return Create(ws, "Content/topic.htm", who, owners, feedbackFolder);
             }
 
-            private static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder)
+            public static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder)
             {
                 var t = new Team_ { Who = who };
                 t.Guide = Files.TeamGuide(ws.Root, null, owners ?? new string[0]);
@@ -441,6 +441,164 @@ namespace FlareAI.Scenarios.Rules
                 GuideOverrides.Set(guide, EMail, "off", Reason, Pat, DateTime.Now);   // GuideOverrides reads and writes this layout fine
 
                 Assert.True(engine.IsOff(null, EMail));                                // …but the engine in the running plugin never reloads it
+            }
+        }
+
+        // ---- 23 · built-in structure checks are rules like the others -----------------------------------------------
+
+        private const string HeadingOrder = "structure:heading-order";
+        private const string SkipTopic = "Content/Skip.htm";
+        private const string SkipBody = "<h1>Tips</h1><h3>Skipped a level</h3><p>Open the page.</p>";
+
+        /// <summary>A copy of the legacy project with one topic whose heading skips a level.</summary>
+        private static Team_ Skipping(string who = Pat, string[] owners = null, bool feedbackFolder = false)
+        {
+            var ws = ReviewFixture.Corpus("v2/legacy");
+            ws.WriteFile(SkipTopic, string.Format(ReviewFixture.Wrapper, SkipBody));
+            return Team_.Create(ws, SkipTopic, who, owners, feedbackFolder);
+        }
+
+        private static List<StyleFinding> Heading(IEnumerable<StyleFinding> found) { return found.Where(f => f.RuleId == HeadingOrder).ToList(); }
+
+        /// <summary>The heading-order issue as Check style shows it.</summary>
+        private static List<StyleFinding> InTopic(Team_ t) { t.Fx.LintOnlyCheck(); return Heading(t.Fx.Session.Findings); }
+
+        /// <summary>The heading-order issue as Lint Project reports it.</summary>
+        private static List<StyleFinding> InProject(Team_ t) { return Heading(t.Fx.Runner.LintFiles(new[] { t.Ws.PathOf(@"Content\Skip.htm") })); }
+
+        /// <summary>The heading-order issue as the live check on save leaves it in the pane.</summary>
+        private static List<StyleFinding> Live(Team_ t)
+        {
+            var blocks = t.Fx.Runner.PickCheckBlocks(t.Fx.Doc);
+            var lint = t.Fx.Runner.Lint(blocks);
+            lint.AddRange(t.Fx.Runner.StructureFindings(blocks));
+            t.Fx.Session.RefreshLint(lint);
+            return Heading(t.Fx.Session.Findings);
+        }
+
+        private static void AssertOnEveryPath(Team_ t, bool shown, string level = null)
+        {
+            foreach (var found in new[] { InTopic(t), InProject(t), Live(t) })
+            {
+                Assert.Equal(shown, found.Count > 0);
+                if (shown && level != null) Assert.All(found, f => Assert.Equal(level, f.Severity));
+            }
+        }
+
+        [Fact]
+        public void Story23a_StructureCheckTurnedOffForTheTeam_IsGoneFromLintTopic_ProjectLint_AndLiveCheck_AfterARestart()
+        {
+            using (var t = Skipping())
+            {
+                AssertOnEveryPath(t, true, "warning");                                           // the control: it is flagged by default
+                GuideOverrides.Set(t.Guide, HeadingOrder, "off", Reason, Pat, DateTime.Now);
+                t.Restart();
+                AssertOnEveryPath(t, false);
+                t.Restart();                                                                    // and again after Flare is reopened
+                AssertOnEveryPath(t, false);
+            }
+        }
+
+        [Fact]
+        public void Story23b_StructureCheckTurnedOffForThisProject_OtherProjectsStillShowIt()
+        {
+            using (var t = Skipping())
+            {
+                var other = Path.Combine(t.Ws.Root, @"Other\legacy");
+                Files.Copy(t.Ws.ProjectDir, other);
+                t.Fx.LintOnlyCheck();
+                t.Choose(HeadingOrder);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Our topics start at h3." };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.Contains(HeadingOrder + " = off", File.ReadAllLines(t.Ws.PathOf(@"Content\Resources\StyleGuide\overrides.ini")));
+                Assert.DoesNotContain(GuideOverrides.Read(t.Guide), o => o.RuleId == HeadingOrder);   // the team's guide is not touched
+                Assert.Empty(t.Fx.Host.Errors);
+                t.Restart();
+                AssertOnEveryPath(t, false);
+
+                var elsewhere = t.Ws.Open(Path.Combine(other, @"Content\Skip.htm"));
+                var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(t.Fx.Style, elsewhere.SourcePath), 16000, t.Fx.Style, elsewhere.SourcePath) { VariableValue = elsewhere.VariableValue };
+                Assert.NotEmpty(Heading(runner.StructureFindings(runner.PickCheckBlocks(elsewhere))));   // a different project still has it
+            }
+        }
+
+        [Fact]
+        public void Story23c_StructureCheckSetToSuggestion_ChangesTheLevelOnEveryPath()
+        {
+            using (var t = Skipping())
+            {
+                AssertOnEveryPath(t, true, "warning");
+                GuideOverrides.Set(t.Guide, HeadingOrder, "suggestion", Reason, Pat, DateTime.Now);
+                t.Restart();
+                AssertOnEveryPath(t, true, "suggestion");
+                t.Restart();
+                AssertOnEveryPath(t, true, "suggestion");
+            }
+        }
+
+        [Fact]
+        public void Story23d_NonOwnerDisablesAStructureCheck_ARequestIsSent_NothingChanges()
+        {
+            using (var t = Skipping(Pat, new[] { Lead }, feedbackFolder: true))
+            {
+                var before = Files.Snapshot(t.Guide);
+                t.Fx.LintOnlyCheck();
+                var f = t.Choose(HeadingOrder);
+                t.Fx.Host.RequestChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = "Our topics start at h3." };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.Equal(before, Files.Snapshot(t.Guide));
+                Assert.False(File.Exists(t.Ws.PathOf(@"Content\Resources\StyleGuide\overrides.ini")));
+                Assert.True(f.RequestSent);
+                Assert.Empty(t.Fx.Host.Errors);
+                var request = GuideRequests.Load(Team.Load(t.Guide, t.Feedback, Lead)).Single();
+                Assert.Equal(RequestKinds.TurnOff, request.Kind);
+                Assert.Equal(HeadingOrder, request.RuleId);
+                Assert.Single(RequestFiles(t.Feedback));
+                t.Fx.Session.CheckRequests();
+                Assert.True(InTopic(t).Single().RequestSent);                                    // still shown, marked as asked about
+                AssertOnEveryPath(t, true, "warning");
+            }
+        }
+
+        [Fact]
+        public void Story23e_LegacyStructureNoLineInOverridesIni_IsHonored_AndEnableRuleRemovesIt()
+        {
+            using (var t = Skipping())
+            {
+                var ini = t.Ws.PathOf(@"Content\Resources\StyleGuide\overrides.ini");
+                Directory.CreateDirectory(Path.GetDirectoryName(ini));
+                File.WriteAllText(ini, "Structure.HeadingOrder = off\r\n");
+                t.Restart();
+                AssertOnEveryPath(t, false);
+
+                var row = RuleOverrides.Read(t.Ws.ProjectDir, "This project").Single(o => string.Equals(o.RuleId, "Structure.HeadingOrder", StringComparison.OrdinalIgnoreCase));
+                RuleOverrides.TurnBackOn(row, Team.Load(t.Guide, null, Pat));
+
+                Assert.DoesNotContain("Structure.HeadingOrder", File.ReadAllText(ini));
+                t.Restart();
+                AssertOnEveryPath(t, true, "warning");
+            }
+        }
+
+        [Fact]
+        public void Story23h_EnableRule_BringsTheStructureIssueBackOnEveryPath()
+        {
+            using (var t = Skipping())
+            {
+                GuideOverrides.Set(t.Guide, HeadingOrder, "off", Reason, Pat, DateTime.Now);
+                t.Restart();
+                AssertOnEveryPath(t, false);
+
+                var row = GuideOverrides.Read(t.Guide).Single(o => o.RuleId == HeadingOrder);
+                RuleOverrides.TurnBackOn(row, Team.Load(t.Guide, null, Pat));
+                t.Restart();
+
+                Assert.DoesNotContain(GuideOverrides.Read(t.Guide), o => o.RuleId == HeadingOrder);
+                AssertOnEveryPath(t, true, "warning");
             }
         }
 

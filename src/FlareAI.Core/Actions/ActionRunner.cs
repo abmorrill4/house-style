@@ -337,6 +337,25 @@ namespace FlareAI.Core.Actions
             return f.RuleLayer != null ? SourceName(f.RuleLayer, f.RuleId) : SourceName(f.Layer, f.RuleId);
         }
 
+        /// <summary>The built-in structure checks of these blocks with the rule tables applied (off drops, a level changes).</summary>
+        public List<StyleFinding> StructureFindings(IList<XmlNode> blocks)
+        {
+            return Settle(StructureCheck.Of(blocks));
+        }
+
+        /// <summary>Applies the rule tables to built-in structure findings: gives them their rule id, drops the ones turned off, re-levels the rest. Other findings pass through.</summary>
+        public List<StyleFinding> Settle(IList<StyleFinding> found)
+        {
+            var engine = _style as StyleEngine;
+            if (engine == null) return new List<StyleFinding>(found);
+            try
+            {
+                var comp = _comp ?? (_comp = engine.Compose(_project));
+                return StructureCheck.Settle(found, comp.SettingOf);
+            }
+            catch (Exception ex) { Diagnostics.Log("settle structure findings", ex); return new List<StyleFinding>(found); }
+        }
+
         public List<StyleFinding> LintFiles(IList<string> paths, Action<int, int> progress = null)
         {
             var findings = new List<StyleFinding>();
@@ -378,6 +397,7 @@ namespace FlareAI.Core.Actions
                     findings.Add(f);
                 }
             }
+            findings = Settle(findings);
             foreach (var f in findings)
             {
                 string t;

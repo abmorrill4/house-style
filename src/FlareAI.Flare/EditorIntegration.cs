@@ -174,7 +174,7 @@ namespace FlareAI.Flare
             if (runner == null) return null;
             var blocks = runner.PickAllBlocks(adapter);
             var lint = runner.Lint(blocks);
-            lint.AddRange(StructureCheck.Of(blocks));
+            lint.AddRange(runner.StructureFindings(blocks));
             return lint;
         }
 

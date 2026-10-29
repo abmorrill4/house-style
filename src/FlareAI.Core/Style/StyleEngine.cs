@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml;
 
 namespace FlareAI.Core.Style
 {
@@ -201,9 +202,9 @@ namespace FlareAI.Core.Style
                 KeyValuePair<string, Composition> c;
                 if (_cache.TryGetValue(key, out c) && c.Key == stamp) return c.Value;
             }
-            var layers = new List<GuideLayer> { GuideLayer.Load(GoogleRoot(guides), "google", "Google") };
+            var layers = new List<GuideLayer> { GuideLayer.Load(GoogleRoot(guides), "google", "Google"), StructureCheck.Layer() };
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
-            for (var i = 0; i < guides.Count; i++) layers.Add(GuideLayer.Load(guides[i], NameOfCopy(guides[i], originals), null, "Google", Shadowed(guides[i], guides.Skip(i + 1))));
+            for (var i = 0; i < guides.Count; i++) layers.Add(LoadTeam(guides[i], NameOfCopy(guides[i], originals), Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
             var comp = new Composition(layers) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
@@ -213,6 +214,17 @@ namespace FlareAI.Core.Style
                     try { if (!IsEmpty(g, layers)) onRead(g); }   // an empty guide never replaces the last good copy
                     catch (Exception ex) { lock (_gate) if (_logged.Add("guide-read|" + ex.GetType().Name)) Diagnostics.Log("style guide copy", ex); }
             return comp;
+        }
+
+        /// <summary>
+        /// A team guide's layer. A guide named 'structure' would take the built-in checks' name (and style), so it loads
+        /// as 'structure-guide' instead; built-in decisions use <see cref="GuideLayer.IsBuiltIn"/>, never the name.
+        /// </summary>
+        private static GuideLayer LoadTeam(string guide, string name, Func<string, bool> skip)
+        {
+            var layer = GuideLayer.Load(guide, name, null, "Google", skip);
+            if (!string.Equals(layer.Name, "structure", StringComparison.OrdinalIgnoreCase)) return layer;
+            return GuideLayer.Load(guide, "structure-guide", null, "Google", skip);
         }
 
         /// <summary>
@@ -437,9 +449,19 @@ namespace FlareAI.Core.Style
 
         public bool IsOff(string project, string ruleId) { return Compose(project).IsOff(ruleId); }
 
+        /// <summary>
+        /// The built-in structure checks of a topic (<see cref="StructureCheck.Of"/>), with the guides' and the project's rule
+        /// tables applied: a rule turned off drops its findings, a level changes them.
+        /// </summary>
+        public IList<Actions.StyleFinding> StructureFindings(string project, IList<XmlNode> blocks)
+        {
+            var comp = Compose(project);
+            return StructureCheck.Settle(StructureCheck.Of(blocks), comp.SettingOf);
+        }
+
         public IList<GuideExample> Examples(string project)
         {
-            return Compose(project).Items.Where(i => i.Bad.Length > 0 || i.Good.Length > 0)
+            return Compose(project).Layers.Where(l => !l.IsBuiltIn).SelectMany(l => l.Items).Where(i => i.Bad.Length > 0 || i.Good.Length > 0)
                 .Select(i => new GuideExample { Id = i.Id, Layer = i.Layer, Text = i.Text, Bad = i.Bad, Good = i.Good }).ToList();
         }
 
@@ -515,7 +537,7 @@ namespace FlareAI.Core.Style
                 while (!taken.Add(name)) name = b + i++;
                 l.Style = name;
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
-                foreach (var o in l.Overrides) _overrides[o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key] = o.Value;   // later layers win
+                foreach (var o in l.Overrides) _overrides[StructureCheck.IdOf(o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
             }
             Items = layers.SelectMany(l => l.Items).ToList();
             Rules = layers.SelectMany(l => l.Rules).ToList();
@@ -548,7 +570,7 @@ namespace FlareAI.Core.Style
         public bool IsOff(string ruleId)
         {
             string v;
-            return ruleId != null && _overrides.TryGetValue(ruleId, out v) && v == "off";
+            return ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v) && v == "off";
         }
 
         /// <summary>The open Flare project when it is the last of <see cref="Layers"/> (its own rules and exceptions), else null.</summary>
@@ -567,8 +589,8 @@ namespace FlareAI.Core.Style
         public string SettingOf(string ruleId, string name = null)
         {
             string v;
-            if (ruleId != null && _overrides.TryGetValue(ruleId, out v)) return v;
-            if (name != null && _overrides.TryGetValue(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name, out v)) return v;
+            if (ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v)) return v;
+            if (name != null && _overrides.TryGetValue(StructureCheck.IdOf(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name), out v)) return v;
             return null;
         }
 
@@ -583,7 +605,7 @@ namespace FlareAI.Core.Style
         private string Override(LintRule r)
         {
             string v;
-            if (!(r.Id != null && _overrides.TryGetValue(r.Id, out v)) && !_overrides.TryGetValue(r.Name, out v)) return null;
+            if (!(r.Id != null && _overrides.TryGetValue(StructureCheck.IdOf(r.Id), out v)) && !_overrides.TryGetValue(StructureCheck.IdOf(r.Name), out v)) return null;
             return v == "on" ? null : v;
         }
 
@@ -746,7 +768,9 @@ namespace FlareAI.Core.Style
         {
             var report = new GuideReport { Layers = Layers.Select(l => l.Name).ToList() };
             report.Issues.AddRange(Layers.SelectMany(l => l.Problems));
-            var rows = Rules.Where(r => r.Id != null && Override(r) != "off").ToList();   // a rule the team turned off is not tested: it never fires
+            // The built-in structure checks have no Example and aren't the guide's to test: they stay out of the tables and counts.
+            var guideItems = Layers.Where(l => !l.IsBuiltIn).SelectMany(l => l.Items).ToList();
+            var rows = Layers.Where(l => !l.IsBuiltIn).SelectMany(l => l.Rules).Where(r => r.Id != null && Override(r) != "off").ToList();   // a rule the team turned off is not tested: it never fires
             Action<string, LintRule, string> issue = (level, r, msg) => report.Issues.Add(new GuideIssue { Level = level, Layer = r.Layer, File = r.File, Location = "table row " + r.Row + " (" + r.Id + ")", Message = msg });
 
             foreach (var r in rows.Where(r => r.Action == "replace" && r.Avoid.Any(a => string.Equals(a, r.Use, r.IgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))))
@@ -841,7 +865,7 @@ namespace FlareAI.Core.Style
                 }
             // A rule's Good example must be clean: a Good example the guide itself flags teaches the writer two things at once.
             // (Linted as a paragraph; a Good example that is markup or code is a source snippet, not text a writer types.)
-            var goods = Items.Where(it => it.Good.Length > 0 && !IsOff(it.Id) && ForOurProducts(it.Products) && !LintPatterns.MatchesMarkup(it.Good)).ToList();
+            var goods = guideItems.Where(it => it.Good.Length > 0 && !IsOff(it.Id) && ForOurProducts(it.Products) && !LintPatterns.MatchesMarkup(it.Good)).ToList();
             if (goods.Count > 0)
             {
                 var lines = goods.Select(it => new LintLine { Text = it.Good, Known = true }).ToList();
@@ -870,8 +894,8 @@ namespace FlareAI.Core.Style
             }
             report.TableRules = rows.Count;
             report.TestedByExample = withEx.Count;
-            report.ProseRules = Items.Count - rows.Count;
-            report.ProseRulesWithExamples = Items.Count(i => i.Bad.Length > 0 || i.Good.Length > 0);
+            report.ProseRules = guideItems.Count - rows.Count;
+            report.ProseRulesWithExamples = guideItems.Count(i => i.Bad.Length > 0 || i.Good.Length > 0);
             report.Errors = report.Issues.Count(x => x.Level == "error");
             report.Warnings = report.Issues.Count(x => x.Level == "warning");
             return report;

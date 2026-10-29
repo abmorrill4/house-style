@@ -204,7 +204,7 @@ namespace FlareAI.Core.Actions
             var ignoredAi = IgnoredAi();
             if (_exemptions == null) RefreshExemptions();
             var added = new List<StyleFinding>();
-            foreach (var f in found)
+            foreach (var f in _runner.Settle(new List<StyleFinding>(found)))
             {
                 if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) { Park(f, _doc.SourcePath); continue; }
                 var key = ExemptRuleKey(f);
@@ -225,7 +225,7 @@ namespace FlareAI.Core.Actions
                     var cited = _runner.RuleFor(f.RuleId);   // its wording now: feedback records a fingerprint of it
                     if (cited != null) f.RuleText = cited.Text;
                 }
-                if (_requested.Contains(f.RuleId ?? f.Rule ?? "")) f.RequestSent = true;   // still visible while the owners decide
+                if (_requested.Contains(StructureCheck.IdOf(f.RuleId ?? f.Rule ?? ""))) f.RequestSent = true;   // still visible while the owners decide
                 if (!string.IsNullOrEmpty(f.Excerpt) && _findings.Exists(m => m.MarkedFixed && !string.IsNullOrEmpty(m.Excerpt) &&
                         m.RuleId == f.RuleId && m.DocumentPath == f.DocumentPath && HandFixes.ContextKey(m) == HandFixes.ContextKey(f))) continue;
                 _findings.Add(f);
@@ -1300,8 +1300,9 @@ namespace FlareAI.Core.Actions
             try
             {
                 var check = SyncRequests(team);
-                _requested = check.OpenRules;
-                foreach (var f in _findings) f.RequestSent = _requested.Contains(f.RuleId ?? f.Rule ?? "");
+                _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in check.OpenRules) _requested.Add(StructureCheck.IdOf(r));
+                foreach (var f in _findings) f.RequestSent = _requested.Contains(StructureCheck.IdOf(f.RuleId ?? f.Rule ?? ""));
                 return check.Notice;
             }
             catch (Exception ex) { Diagnostics.Log("requests check", ex); return null; }
@@ -1437,9 +1438,9 @@ namespace FlareAI.Core.Actions
             }
             RecordFeedback(f, _doc.SourcePath, "request", reason);
             Raise(ReviewEvent.RuleDisabled);   // the writer's way to disable a rule in a team with owners
-            var key = f.RuleId ?? f.Rule ?? "";
+            var key = StructureCheck.IdOf(f.RuleId ?? f.Rule ?? "");
             _requested.Add(key);
-            foreach (var x in _findings) if ((x.RuleId ?? x.Rule ?? "") == key) x.RequestSent = true;
+            foreach (var x in _findings) if (StructureCheck.IdOf(x.RuleId ?? x.Rule ?? "") == key) x.RequestSent = true;
             Sort();
             if (problem != null)
             {
@@ -1482,6 +1483,7 @@ namespace FlareAI.Core.Actions
                 case "company": return "Our rules";
                 case "project": return "This project";
                 case "ai": return "AI";
+                case "structure": return "Built-in checks";
                 default: return Cap(layer ?? "");
             }
         }
