@@ -1,0 +1,1 @@
+- Ignored Issues (n) in the House Style Issues pane lists the ignored issues still in the text, and Restore puts one back and stops hiding it, for Lint Topic and Lint Project. Restore one if the text changed or you changed your mind.
