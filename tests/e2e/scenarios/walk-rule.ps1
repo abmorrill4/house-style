@@ -74,7 +74,7 @@ Assert-E2E ($s5.pane.panel.walk.total -eq $p5.total) "Ignore leaves the walk's t
 AssertProject "after Ignore"
 
 # 6. Change a place House Style can fix in another file: Enter changes it and the walk moves on.
-KeyUntil "n" { $c = CardFile; [bool]$c -and $c -ne $firstFile -and @((Get-E2EState).pane.buttons | Where-Object { $_.text -eq "Change" -and $_.enabled }).Count -eq 1 } "N to reach a place House Style can change in another file"
+KeyUntil "n" { $c = CardFile; [bool]$c -and $c -ne $firstFile -and $c -notlike "*.flsnp" -and @((Get-E2EState).pane.buttons | Where-Object { $_.text -eq "Change" -and $_.enabled }).Count -eq 1 }   # not a snippet: those are changed from the snippet itself "N to reach a place House Style can change in another file"
 $s6 = Get-E2EState
 $fileHere = CardFile
 $p6 = $s6.pane.panel.walk.position
