@@ -525,6 +525,8 @@ namespace FlareAI.Core.Style
         public List<GuideLayer> Layers { get; private set; }
         public List<GuideRule> Items { get; private set; }
         public List<LintRule> Rules { get; private set; }
+        /// <summary>Every id and rule name here, ignoring case: guide items' ids, rules' ids, checker names and bare names. See <see cref="OverrideIds.IsKnown"/>.</summary>
+        internal HashSet<string> KnownNames { get; private set; }
         private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public Composition(List<GuideLayer> layers)
@@ -537,10 +539,13 @@ namespace FlareAI.Core.Style
                 while (!taken.Add(name)) name = b + i++;
                 l.Style = name;
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
-                foreach (var o in l.Overrides) _overrides[StructureCheck.IdOf(o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
+                foreach (var o in l.Overrides) _overrides[OverrideIds.Canonical(o.Key)] = o.Value;   // later layers win; a built-in check's legacy name is stored as its id
             }
             Items = layers.SelectMany(l => l.Items).ToList();
             Rules = layers.SelectMany(l => l.Rules).ToList();
+            KnownNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in Items) if (g.Id != null) KnownNames.Add(g.Id);
+            foreach (var r in Rules) foreach (var n in new[] { r.Id, r.Name, r.LocalName }) if (n != null) KnownNames.Add(n);
             OurProducts = new HashSet<string>(layers.Skip(1).SelectMany(l => l.ProductTags), StringComparer.OrdinalIgnoreCase);
         }
 
@@ -590,7 +595,7 @@ namespace FlareAI.Core.Style
         {
             string v;
             if (ruleId != null && _overrides.TryGetValue(StructureCheck.IdOf(ruleId), out v)) return v;
-            if (name != null && _overrides.TryGetValue(StructureCheck.IdOf(name.IndexOf('.') < 0 && name.IndexOf(':') < 0 ? "Google." + name : name), out v)) return v;
+            if (name != null && _overrides.TryGetValue(OverrideIds.Canonical(name), out v)) return v;
             return null;
         }
 
@@ -881,7 +886,7 @@ namespace FlareAI.Core.Style
             foreach (var l in Layers.Where(x => !x.OverridesOnly))   // the shipped defaults aren't the guide owner's to fix
                 foreach (var o in l.Overrides)
                 {
-                    var key = o.Key.IndexOf('.') < 0 && o.Key.IndexOf(':') < 0 ? "Google." + o.Key : o.Key;
+                    var key = OverrideIds.Canonical(o.Key);
                     if (!known.Contains(key))
                         report.Issues.Add(new GuideIssue { Level = "error", Layer = l.Name, File = "", Location = "override " + o.Key, Message = "No rule '" + o.Key + "': use a rule's reference from the guide, for example google:numbers/3." });
                 }
