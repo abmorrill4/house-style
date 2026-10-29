@@ -230,6 +230,60 @@ namespace FlareAI.Core.Tests
             }
         }
 
+        [Fact]
+        public void UnknownIdIsLoggedOncePerEngine_AndCappedPerLoad()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-cap-" + Guid.NewGuid().ToString("N"));
+            var team = Path.Combine(dir, "TeamGuide");
+            var style = Path.Combine(team, @"Content\Resources\StyleGuide");
+            var ini = Path.Combine(style, "overrides.ini");
+            try
+            {
+                Directory.CreateDirectory(style);
+                File.WriteAllText(Path.Combine(team, "Guide.flprj"), "<CatapultProject />");
+                File.WriteAllText(ini, "nope:xyz = off\r\n");
+                var lines = new List<string>();
+                var oldSink = Diagnostics.Sink; var oldEnabled = Diagnostics.Enabled;
+                Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+                Diagnostics.Enabled = true;
+                try
+                {
+                    // Once per engine: the second load misses the cache (the file's write time moved), but the engine has logged this id already.
+                    var e = new StyleEngine(new[] { team }, GuideSourceTests.Bundled);
+                    e.Compose(null);
+                    File.SetLastWriteTimeUtc(ini, DateTime.UtcNow.AddMinutes(1));
+                    e.Compose(null);
+                    List<string> once;
+                    lock (lines) once = lines.Where(l => l.StartsWith("Style guide", StringComparison.Ordinal) && l.Contains("\"nope:xyz\"")).ToList();
+                    Assert.Single(once);
+
+                    // Capped per load: 30 distinct unknown ids give 20 lines and one 'and N more' line.
+                    var ids = Enumerable.Range(1, 30).Select(i => "nope:" + i.ToString("00")).ToList();
+                    File.WriteAllText(ini, string.Join("\r\n", ids.Select(u => u + " = off").ToArray()) + "\r\n");
+                    lock (lines) lines.Clear();
+                    new StyleEngine(new[] { team }, GuideSourceTests.Bundled).Compose(null);
+                    List<string> rows, more;
+                    lock (lines)
+                    {
+                        rows = lines.Where(l => l.StartsWith("Style guide \"TeamGuide\" has a rule setting for ", StringComparison.Ordinal) && l.Contains("\"nope:")).ToList();
+                        more = lines.Where(l => l.StartsWith("and ", StringComparison.Ordinal) && l.Contains(" more in \"TeamGuide\"")).ToList();
+                    }
+                    Assert.True(rows.Count <= 20, "logged " + rows.Count + " rows");
+                    Assert.Single(more);
+                    Assert.StartsWith("and ", more[0], StringComparison.Ordinal);
+                    Assert.Contains("more in", more[0], StringComparison.Ordinal);
+                }
+                finally
+                {
+                    Diagnostics.Sink = oldSink; Diagnostics.Enabled = oldEnabled;
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (Exception) { }
+            }
+        }
+
         private static List<XmlNode> Body(string html)
         {
             var doc = new XmlDocument();
