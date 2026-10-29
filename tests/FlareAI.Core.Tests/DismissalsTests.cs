@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using FlareAI.Core.Actions;
 using Xunit;
@@ -20,6 +21,52 @@ namespace FlareAI.Core.Tests
             Assert.True(again.IsDismissed(new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "It " }, @"c:\P\a.htm"));
             Assert.False(again.IsDismissed(f, @"C:\p\B.htm"));
             Assert.False(again.IsDismissed(new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "They " }, @"C:\p\A.htm"));
+        }
+
+        [Fact]
+        public void Restore_RemovesTheKey_AndSurvivesReload()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var f = new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "It " };
+            Dismissals.Load(store).Dismiss(f, @"C:\p\A.htm");
+            var dismissals = Dismissals.Load(store);
+            Assert.True(dismissals.Restore(f, @"C:\p\A.htm"));
+            Assert.False(Dismissals.Load(store).IsDismissed(f, @"C:\p\A.htm"));
+        }
+
+        [Fact]
+        public void Restore_UnknownKey_DoesNothing()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var f = new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "It " };
+            Assert.True(Dismissals.Load(store).Restore(f, @"C:\p\A.htm"));
+            Assert.False(File.Exists(store));
+        }
+
+        [Fact]
+        public void Restore_WhenTheFileCantBeWritten_ReturnsFalse_AndLogsNoKey()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var f = new StyleFinding { Rule = "Google.Zebra", Excerpt = "qzxSecretWords", Before = "A " };
+            var dismissals = Dismissals.Load(store);
+            dismissals.Dismiss(f, @"C:\p\A.htm");
+            var lines = new List<string>();
+            var previousSink = Diagnostics.Sink;
+            Diagnostics.Sink = lines.Add;
+            File.SetAttributes(store, FileAttributes.ReadOnly);
+            try
+            {
+                Assert.False(dismissals.Restore(f, @"C:\p\A.htm"));
+                var logged = string.Join("\n", lines);
+                Assert.Contains("dismissed.json", logged);
+                Assert.DoesNotContain("qzxSecretWords", logged);
+                Assert.DoesNotContain("Google.Zebra", logged);
+            }
+            finally
+            {
+                Diagnostics.Sink = previousSink;
+                File.SetAttributes(store, FileAttributes.Normal);
+            }
         }
 
         [Fact]
