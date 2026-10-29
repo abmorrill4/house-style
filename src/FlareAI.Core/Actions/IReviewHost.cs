@@ -50,6 +50,16 @@ namespace FlareAI.Core.Actions
         void ShowError(string whatHappened, string whatToDo, Exception details, string action);
     }
 
+    /// <summary>
+    /// A host whose text prompt keeps OK off until the box has text. Optional, so hosts that only ask
+    /// <see cref="IReviewHost.AskText"/> stay as they are.
+    /// </summary>
+    public interface IRequiredTextHost
+    {
+        /// <summary>A one-field text prompt that needs an answer. Null when cancelled.</summary>
+        string AskRequiredText(string title, string label, string initial, bool multiline);
+    }
+
     /// <summary>The author's answer to <see cref="IReviewHost.ChooseRuleSetting"/>.</summary>
     public sealed class RuleSettingChoice
     {

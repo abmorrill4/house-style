@@ -288,8 +288,12 @@ namespace FlareAI.Flare
         private static void Select(Control root, int index)
         {
             var box = All(root).OfType<ListBox>().FirstOrDefault(x => x.Visible);
-            if (box == null) throw new InvalidOperationException("No list in the dialog");
-            box.SelectedIndex = index;
+            if (box != null) { box.SelectedIndex = index; return; }
+            var view = All(root).OfType<ListView>().FirstOrDefault(x => x.Visible);   // the Exemptions dialog lists rows
+            if (view == null) throw new InvalidOperationException("No list in the dialog");
+            if (index < 0 || index >= view.Items.Count) throw new InvalidOperationException("No row " + index + " in the dialog's list (" + view.Items.Count + " rows)");
+            view.SelectedItems.Clear();
+            view.Items[index].Selected = true; view.Items[index].Focused = true;
         }
 
         /// <summary>Selects the first row of the dialog's list view whose text contains <paramref name="text"/>, as a click would.</summary>

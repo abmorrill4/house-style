@@ -58,6 +58,8 @@ namespace FlareAI.Core.Actions
         /// <summary>Other files this session wrote fixes in that stayed open in the editor (their undo history is there).</summary>
         private readonly Dictionary<string, IDocumentAdapter> _writtenIn = new Dictionary<string, IDocumentAdapter>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _ignoredAi;
+        private ExemptionList _exemptions;
+        private readonly HashSet<string> _exemptIdentities = new HashSet<string>(StringComparer.Ordinal);
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
@@ -157,16 +159,26 @@ namespace FlareAI.Core.Actions
             _skippedRules.Clear();
             FocusRule = null;
             Current = null;
+            _exemptIdentities.Clear();
+            RefreshExemptions();
         }
 
-        /// <summary>Adds suggestions, leaving out rejected ones and AI rules the project ignores, and labels them by guide section.</summary>
+        /// <summary>Adds suggestions, leaving out rejected ones, exempt text and AI rules the project ignores, and labels them by guide section.</summary>
         public void Add(IEnumerable<StyleFinding> found)
         {
             var ignoredAi = IgnoredAi();
+            if (_exemptions == null) RefreshExemptions();
             var added = new List<StyleFinding>();
             foreach (var f in found)
             {
                 if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) continue;
+                var key = ExemptRuleKey(f);
+                var topic = key == null ? null : Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
+                if (topic != null && Exemptions.Covers(_exemptions, topic, key, f.Excerpt, f.Before ?? ""))
+                {
+                    _exemptIdentities.Add(ExemptIdentity(topic, key, f));
+                    continue;
+                }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
                 if (f.Layer != "ai" && f.RuleSection == null)
                 {
@@ -204,6 +216,9 @@ namespace FlareAI.Core.Actions
             if (_project) return;
             RecheckApplied();   // an undone fix is live again, so the fresh lint below replaces it instead of duplicating it
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
+            var own = Exemptions.TopicPathFor(_doc.SourcePath);
+            if (own != null) _exemptIdentities.RemoveWhere(id => id.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal));
+            RefreshExemptions();
             Add(lint);
         }
 
@@ -997,6 +1012,90 @@ namespace FlareAI.Core.Actions
             Sort();
             Select(next);
             Status = Summary() + "  Ignored. It stays hidden for this text.";
+        }
+
+        /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>
+        public int ExemptHidden { get { return _exemptIdentities.Count; } }
+
+        /// <summary>The status line's tail: "1 issue is exempt." or "2 issues are exempt."; empty when none are.</summary>
+        public string ExemptTail
+        {
+            get { return ExemptHidden > 0 ? Plural.Of(ExemptHidden, "issue") + (ExemptHidden == 1 ? " is" : " are") + " exempt." : ""; }
+        }
+
+        /// <summary>True when the finding has text to exempt, in a topic inside a Flare project's Content, under a rule that can be named.</summary>
+        public bool CanExempt(StyleFinding f)
+        {
+            if (f == null || string.IsNullOrEmpty(f.Excerpt) || f.Excerpt.Length > 2000) return false;
+            if ((f.Before ?? "").Length > 2000) return false;
+            if (ExemptRuleKey(f) == null) return false;
+            return Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath) != null;
+        }
+
+        /// <summary>Exempt…: asks why, then hides this exact text for this rule in this topic, for everyone on the project.</summary>
+        public void ExemptSelected()
+        {
+            var f = Current;
+            if (!CanExempt(f)) return;
+            var label = "Why is this text exempt?";
+            var required = _host as IRequiredTextHost;
+            var reason = required != null ? required.AskRequiredText("Exempt This Text", label, "", true) : _host.AskText("Exempt This Text", label, "", true);
+            if (string.IsNullOrWhiteSpace(reason)) return;
+            Exempt(f, reason.Trim());
+        }
+
+        /// <summary>Exempt with a reason: writes the project's list, hides the text, and the next one is selected.</summary>
+        public void Exempt(StyleFinding f, string reason)
+        {
+            if (f == null || !CanExempt(f)) return;
+            var key = ExemptRuleKey(f);
+            var topic = Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
+            try
+            {
+                // Team.FeedbackWriter honors the attribution setting; without a team the anonymous id is used.
+                var team = CurrentTeam();
+                var who = team != null ? team.FeedbackWriter : Team.AnonymousId();
+                Exemptions.Add(_doc.SourcePath, topic, key, f.Excerpt, f.Before ?? "", reason, who, DateTime.UtcNow.Date);
+            }
+            catch (GuideWriteException ex)
+            {
+                Diagnostics.Log("Exempt", ex);
+                _host.ShowError("House Style couldn't exempt this text in " + ex.Target + ".",
+                                ex.Message + Environment.NewLine + Environment.NewLine + "Nothing was changed. The issue still shows.", ex, "Exempt");
+                Status = Summary() + "  The text was not exempted.";
+                return;
+            }
+            RefreshExemptions();
+            _exemptIdentities.Add(ExemptIdentity(topic, key, f));
+            var next = NextAfter(f);
+            _findings.Remove(f);
+            Sort();
+            Select(next);
+            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
+        }
+
+        private static string ExemptRuleKey(StyleFinding f)
+        {
+            if (!string.IsNullOrEmpty(f.RuleId)) return f.RuleId;
+            return f.Rule != null && f.Rule.StartsWith("Structure.", StringComparison.Ordinal) ? f.Rule : null;
+        }
+
+        private static string ExemptIdentity(string topic, string key, StyleFinding f)
+        {
+            return topic.ToLowerInvariant() + "|" + key + "|" + Exemptions.Clean(f.Excerpt) + "|" + Exemptions.Clean(f.Before ?? "");
+        }
+
+        /// <summary>Loads the project's list when none is cached or the file changed since it was read.</summary>
+        private void RefreshExemptions()
+        {
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            long stamp = 0;
+            if (root != null)
+            {
+                var file = Exemptions.FileFor(root);
+                if (System.IO.File.Exists(file)) stamp = new System.IO.FileInfo(file).LastWriteTimeUtc.Ticks;
+            }
+            if (_exemptions == null || _exemptions.Stamp != stamp) _exemptions = Exemptions.Load(_doc.SourcePath);
         }
 
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>
