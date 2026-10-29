@@ -105,5 +105,53 @@ namespace FlareAI.Scenarios.Review
                 _out.WriteLine(s.WalkFinishedText);
             }
         }
+
+        [Fact]
+        public void Walk_PastTheLast_IsFinished_NextRuleStartsTheNextMostFrequent()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var backlog = s.Backlog();
+                Assert.True(backlog.Count >= 2);
+
+                s.ReviewRule(backlog[0]);
+                while (!s.WalkFinished) s.Next();
+                Assert.True(s.WalkFinished);
+
+                Assert.True(s.HasNextRule);
+                Assert.True(s.NextRule());
+                Assert.Equal(backlog[1].Key, s.FocusRule);
+                Assert.Equal(1, s.WalkPosition);
+                Assert.False(s.WalkFinished);
+            }
+        }
+
+        [Fact]
+        public void Walk_ThreeRulesWithOpenIssues_NextRuleGoesA_B_C_ThenNoneLeft()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var backlog = s.Backlog();
+                Assert.True(backlog.Count >= 3);
+                foreach (var r in backlog.Skip(3)) s.SkipRule(r);   // three rules left in the backlog: A, B, C
+                var rules = s.Backlog();
+                Assert.Equal(3, rules.Count);
+
+                Assert.True(s.NextRule());
+                Assert.Equal(rules[0].Key, s.FocusRule);
+                Assert.True(s.NextRule());                          // A still has open issues: Next rule goes on anyway
+                Assert.Equal(rules[1].Key, s.FocusRule);
+                Assert.True(s.Open().Exists(f => RuleBacklog.KeyOf(f) == rules[0].Key));
+                Assert.True(s.NextRule());
+                Assert.Equal(rules[2].Key, s.FocusRule);
+
+                Assert.False(s.NextRule());
+                Assert.Equal("You've been through every rule.", s.Status);
+                Assert.Null(s.FocusRule);
+                Assert.False(s.HasNextRule);
+            }
+        }
     }
 }

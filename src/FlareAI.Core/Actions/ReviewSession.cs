@@ -60,6 +60,7 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _ignoredAi;
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
         private string _status;
         private List<StyleFinding> _walk;
         private bool _watching, _offThreadLogged;
@@ -156,6 +157,7 @@ namespace FlareAI.Core.Actions
         {
             _findings.Clear();
             _skippedRules.Clear();
+            _walkedRules.Clear();
             FocusRule = null;
             Current = null;
         }
@@ -847,6 +849,7 @@ namespace FlareAI.Core.Actions
         {
             if (rule == null || rule.Findings.Count == 0) return;
             FocusRule = rule.Key;
+            _walkedRules.Add(rule.Key);
             var h = ListChanged;
             if (h != null) h();
             _walk = rule.Findings.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f));
@@ -857,6 +860,25 @@ namespace FlareAI.Core.Actions
             foreach (var f in _walk) paths.Add(f.DocumentPath ?? "");
             Status = rule.Title + ", " + _walk.Count + " places in " + (_project ? paths.Count : 1) + " files.";
         }
+
+        /// <summary>The status when every rule has been walked since the last lint.</summary>
+        private const string AllRulesWalked = "You've been through every rule.";
+
+        /// <summary>
+        /// Next rule: walks the first rule (most frequent first) not yet walked since the last lint, from its first place, even
+        /// when earlier rules still have open issues. When none is left, back to all rules, and returns false.
+        /// </summary>
+        public bool NextRule()
+        {
+            var next = RuleBacklog.NextAfter(Backlog(), _walkedRules);
+            if (next != null) { ReviewRule(next); return true; }
+            EndRuleReview();
+            Status = AllRulesWalked;
+            return false;
+        }
+
+        /// <summary>True while a rule is left that <see cref="NextRule"/> would walk.</summary>
+        public bool HasNextRule { get { return RuleBacklog.NextAfter(Backlog(), _walkedRules) != null; } }
 
         /// <summary>True while a rule is walked place by place (also after the last place, until All Rules).</summary>
         public bool InWalk { get { return _walk != null; } }
