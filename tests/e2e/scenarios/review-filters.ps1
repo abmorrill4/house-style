@@ -8,6 +8,8 @@ function Wait-Tab([string]$Tab, [string]$What) { Wait-Until { $p = (Get-E2EState
 
 # Lint Topic: count the errors and the other issues from each row's glyph.
 Send-E2E open (Join-Path $run.Project "Content\billpay\faq.htm") | Out-Null
+# faq.htm's own issues are all warnings: add a word the starter rules flag as an error (Plain-language: whitelist).
+Send-E2E replace "Most changes to a payee appear" -Extra @{ text = "Most changes to a payee whitelist appear" } | Out-Null
 Invoke-Ribbon "Lint Topic"
 Wait-PaneDone 300 | Out-Null
 $all = @((Get-E2EState).pane.panel.rows)
