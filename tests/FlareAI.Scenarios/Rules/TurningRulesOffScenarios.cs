@@ -190,6 +190,125 @@ namespace FlareAI.Scenarios.Rules
             }
         }
 
+        // ---- 24 · #127: twin rules and the glossary checker --------------------------------------------------------
+
+        private const string SignOn = "company:terminology/6";   // Single Sign-On → single sign-on; example "Enable Single Sign-On first."
+        private const string Example = "<h1>Tips</h1><p>Enable Single Sign-On first.</p>";
+
+        /// <summary>A team whose guide also has a rule that matches only part of the words of /6, and a glossary with these terms.</summary>
+        private static Team_ TeamWithTwins(string body, bool partlyOverlappingRule, params string[] glossary)
+        {
+            var t = Team_.OnTopic(body);
+            if (partlyOverlappingRule)
+                File.WriteAllText(Path.Combine(t.Guide, @"Content\Resources\StyleGuide\Company\Twinning.htm"),
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Twinning</title></head><body><h1>Twinning</h1>" +
+                    "<table><tr><th>Avoid</th><th>Use</th><th>Severity</th><th>Why</th><th>Example</th></tr>" +
+                    "<tr><td>Sign-On first</td><td>Sign-On</td><td>warning</td><td>Shorter.</td><td>Enable Single Sign-On first.</td></tr></table></body></html>");
+            if (glossary.Length > 0)
+            {
+                var entries = string.Concat(glossary.Select(g => "<GlossaryEntry><Terms><Term>" + g + "</Term></Terms><Definition>A term.</Definition></GlossaryEntry>").ToArray());
+                var file = Path.Combine(t.Guide, @"Project\Glossaries\Main.flglo");
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, "<CatapultGlossary>" + entries + "</CatapultGlossary>");
+            }
+            t.Restart();
+            t.Fx.Check();
+            return t;
+        }
+
+        private static bool IsGlossary(StyleFinding f) { return f.RuleId == null && f.Rule != null && f.Rule.EndsWith(".GlossaryTerms", StringComparison.Ordinal); }
+
+        [Fact]
+        public void Story24a_PartlyOverlappingTwin_IsOfferedAndTurnedOffTogether()
+        {
+            // #127: "Single Sign-On" and "Sign-On first" share words without one containing the other.
+            using (var t = TeamWithTwins(Example, true))
+            {
+                var f = t.Fx.Session.Findings.Single(x => x.RuleId == SignOn);
+                t.Fx.Session.Select(f);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason, AlsoOthers = true };
+
+                t.Fx.Session.TurnOffRule();
+
+                var twin = t.Fx.Host.Offered.Single(o => !o.IsChecker && o.Id.StartsWith("company:twinning/", StringComparison.Ordinal));
+                var rows = GuideOverrides.Read(t.Guide).Select(o => o.RuleId).ToList();
+                Assert.Contains(SignOn, rows);
+                Assert.Contains(twin.Id, rows);
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn || x.RuleId == twin.Id);
+                t.Restart();
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn || x.RuleId == twin.Id);
+            }
+        }
+
+        [Fact]
+        public void Story24b_RulesBrowserAndPaneOfferTheSameTwins()
+        {
+            // The glossary also flags words that are not in the rule's example ("Single Sign-On Setup", "Zelle Transfer").
+            using (var t = TeamWithTwins("<h1>Tips</h1><p>Enable Single Sign-On first. Open Single Sign-On Setup. Send a Zelle Transfer now.</p>", true,
+                                         "single sign-on", "single sign-on setup", "zelle transfer"))
+            {
+                var merged = t.Fx.Session.Findings.Where(x => x.RuleId != null && x.AlsoRules.Count > 0).ToList();
+                Assert.NotEmpty(merged);
+                foreach (var f in merged)
+                {
+                    var twins = t.Fx.Runner.TwinsOf(f.RuleId).Select(r => r.Id).ToList();
+                    foreach (var also in f.AlsoRules) Assert.Contains(also.Id, twins);
+                }
+
+                t.Fx.Session.Select(t.Fx.Session.Findings.First(x => x.RuleId == SignOn));
+                t.Fx.Host.RuleChoice = null;
+                t.Fx.Session.TurnOffRule();
+
+                var offered = t.Fx.Host.Offered.Select(o => o.Id).ToList();
+                foreach (var twin in t.Fx.Runner.TwinsOf(SignOn)) Assert.Contains(twin.Id, offered);
+                Assert.Contains(t.Fx.Host.Offered, o => o.IsChecker);
+            }
+        }
+
+        [Fact]
+        public void Story24c_GlossaryChecker_IsOfferedUnticked_DefaultsLeaveGlossaryIssuesElsewhere()
+        {
+            using (var t = TeamWithTwins("<h1>Tips</h1><p>Enable Single Sign-On first. Send a Zelle Transfer now.</p>", false, "single sign-on", "zelle transfer"))
+            {
+                t.Fx.Session.Select(t.Fx.Session.Findings.First(x => x.RuleId == SignOn));
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason, AlsoOthers = true };   // the checker is not ticked
+
+                t.Fx.Session.TurnOffRule();
+
+                var checker = t.Fx.Host.Offered.Single(o => o.IsChecker);
+                Assert.EndsWith(".GlossaryTerms", checker.Id);
+                Assert.DoesNotContain(GuideOverrides.Read(t.Guide), o => o.RuleId == checker.Id);
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn);
+                Assert.Contains(t.Fx.Session.Findings, x => IsGlossary(x) && x.Excerpt.StartsWith("Zelle"));          // elsewhere
+                Assert.Contains(t.Fx.Session.Findings, x => IsGlossary(x) && x.Excerpt.StartsWith("Single Sign-On"));   // the shared words stay flagged
+                t.Fx.Check();
+                Assert.Contains(t.Fx.Session.Findings, x => IsGlossary(x) && x.Excerpt.StartsWith("Single Sign-On"));
+            }
+        }
+
+        [Fact]
+        public void Story24d_TickedGlossaryChecker_ClearsEveryGlossaryIssueFromThePane()
+        {
+            using (var t = TeamWithTwins("<h1>Tips</h1><p>Enable Single Sign-On first. Send a Zelle Transfer now.</p>", false, "single sign-on", "zelle transfer"))
+            {
+                var before = t.Fx.Session.Findings.Count;
+                t.Fx.Session.Select(t.Fx.Session.Findings.First(x => x.RuleId == SignOn));
+                var checker = t.Fx.Runner.TwinsOf(SignOn).Single(r => r.IsChecker);
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = Reason, AlsoOthers = true, AlsoCheckers = new List<string> { checker.Id } };
+
+                t.Fx.Session.TurnOffRule();
+
+                Assert.Contains(GuideOverrides.Read(t.Guide), o => o.RuleId == checker.Id);
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn || IsGlossary(x));
+                Assert.True(t.Fx.Session.Findings.Count < before);
+                Assert.Empty(t.Fx.Host.Errors);
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn || IsGlossary(x));
+            }
+        }
+
         // ---- 18 · TEST-PLAN D6 ------------------------------------------------------------------------------------
 
         [Fact]

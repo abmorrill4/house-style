@@ -45,7 +45,7 @@ namespace FlareAI.Core.Style
         /// </summary>
         internal void AlsoFlaggedBy(LintHit other)
         {
-            Also(new RuleRef { Id = other.RuleId ?? other.Rule, Name = other.Rule, Layer = other.Layer });
+            Also(new RuleRef { Id = other.RuleId ?? other.Rule, Name = other.Rule, Layer = other.Layer, IsChecker = other.RuleId == null });
             foreach (var r in other.AlsoRules) Also(r);
         }
 
