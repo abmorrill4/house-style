@@ -606,6 +606,33 @@ namespace FlareAI.Core.Actions
             return id != null && GuideRules().TryGetValue(id, out r) ? r : null;
         }
 
+        /// <summary>
+        /// The rules that flag the same words as this one and are still on, for "turn off this rule" to offer. The generated
+        /// glossary checker comes back with <see cref="RuleRef.IsChecker"/> set, named by its checker name. Empty when there
+        /// is no layered guide or the rule is unknown.
+        /// </summary>
+        public List<RuleRef> TwinsOf(string ruleId)
+        {
+            var found = new List<RuleRef>();
+            var engine = _style as StyleEngine;
+            if (engine == null || ruleId == null) return found;
+            try
+            {
+                var catalog = RuleCatalog.Build(engine.Compose(_project));
+                foreach (var t in RuleChanges.TwinsOf(catalog, ruleId))
+                {
+                    if (t.Id == null)
+                    {
+                        if (t.Key == null || !t.Key.EndsWith(".GlossaryTerms", StringComparison.Ordinal)) continue;   // only the glossary checker is offered
+                        found.Add(new RuleRef { Id = t.Key, Name = "Glossary terms", Layer = t.Origin, IsChecker = true });
+                    }
+                    else found.Add(new RuleRef { Id = t.Id, Name = t.Source + " · " + t.Page + ": " + t.Title, Layer = t.Origin });
+                }
+            }
+            catch (Exception ex) { Diagnostics.Log("rule twins", ex); }
+            return found;
+        }
+
         /// <summary>The rule's Bad/Good example, or null. Loaded once per runner.</summary>
         public GuideExample ExampleFor(string id)
         {

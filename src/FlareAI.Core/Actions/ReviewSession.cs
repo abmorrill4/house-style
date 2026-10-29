@@ -118,7 +118,7 @@ namespace FlareAI.Core.Actions
         /// <summary>True while the pane showing this session is the one on screen. Null means always (tests).</summary>
         public Func<bool> IsShown { get; set; }
         /// <summary>The review view prefs file (where the rule walked last is remembered). Tests point it at a temp folder.</summary>
-        public string PrefsPath { get; set; } = ReviewViewPrefs.DefaultPath;
+        public string PrefsPath { get; set; } = ReviewWalkPrefs.DefaultPath;
 
         // ---- state the view reads ---------------------------------------------------------------
 
@@ -268,14 +268,14 @@ namespace FlareAI.Core.Actions
         {
             var path = _doc == null ? null : _doc.SourcePath;
             if (string.IsNullOrEmpty(path)) return null;
-            try { return ReviewViewPrefs.ScopeOf(_project ? StyleEngine.FlareProjectRoot(path) ?? path : path); }
+            try { return ReviewWalkPrefs.ScopeOf(_project ? StyleEngine.FlareProjectRoot(path) ?? path : path); }
             catch (Exception ex) { Diagnostics.Log("review scope", ex); return null; }
         }
 
         /// <summary>After a new lint, while the rule walked last is still open here: names it in the status. Nothing is started.</summary>
         private void RememberFromLint()
         {
-            var rule = ReviewViewPrefs.Load(PrefsPath).RuleIn(_rememberScope, Backlog());
+            var rule = ReviewWalkPrefs.Load(PrefsPath).RuleIn(_rememberScope, Backlog());
             if (rule == null) return;
             RememberedRule = rule;
             Status = "Last time you were on " + rule.Title + ". Press Enter to review it again.";
@@ -284,7 +284,7 @@ namespace FlareAI.Core.Actions
         /// <summary>Drops the remembered walk when it is in <paramref name="scope"/>; other scopes are left alone.</summary>
         private void ForgetWalkIn(string scope)
         {
-            var prefs = ReviewViewPrefs.Load(PrefsPath);
+            var prefs = ReviewWalkPrefs.Load(PrefsPath);
             if (prefs.Walk == null || !string.Equals(prefs.Walk.Scope, scope, StringComparison.Ordinal)) return;
             prefs.Walk = null;
             prefs.TrySave(PrefsPath);
@@ -294,9 +294,9 @@ namespace FlareAI.Core.Actions
         private void RememberWalk(string key)
         {
             var scope = RememberScope();
-            if (scope == null || !ReviewViewPrefs.IsValidKey(key)) return;
-            var prefs = ReviewViewPrefs.Load(PrefsPath);
-            prefs.Walk = new ReviewViewPrefs.RememberedWalk { Scope = scope, RuleKey = key };
+            if (scope == null || !ReviewWalkPrefs.IsValidKey(key)) return;
+            var prefs = ReviewWalkPrefs.Load(PrefsPath);
+            prefs.Walk = new ReviewWalkPrefs.RememberedWalk { Scope = scope, RuleKey = key };
             prefs.TrySave(PrefsPath);
             _walkWritten = true;
         }
@@ -340,19 +340,38 @@ namespace FlareAI.Core.Actions
         /// <summary>Suggestions not yet applied whose text is still there.</summary>
         public List<StyleFinding> Open() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale); }
 
+        private ReviewFilter _filter = ReviewFilter.All;
+
+        /// <summary>Which open issues the list shows (level and source). Counts on the tabs and the editor markers ignore it.</summary>
+        public ReviewFilter Filter
+        {
+            get { return _filter; }
+            set
+            {
+                _filter = value ?? ReviewFilter.All;
+                if (Current != null && !_filter.Shows(Current)) Current = null;
+                var h = ListChanged;
+                if (h != null) h();
+                if (_findings.Count > 0) Status = Summary();   // "Showing n of m issues" follows the filter; before a lint there is nothing to count
+            }
+        }
+
+        /// <summary>Open issues the <see cref="Filter"/> shows.</summary>
+        public List<StyleFinding> Visible() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && Filter.Shows(f)); }
+
         /// <summary>Open proposals in the topic itself (not in snippets), for the editor markers.</summary>
         public List<StyleFinding> OpenTopicFindings() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && f.DocumentPath == null); }
 
         /// <summary>What "Apply all fixes" would apply: exact rule fixes in the topic (in a project report: everywhere).</summary>
         public List<StyleFinding> FixAllCandidates()
         {
-            return _findings.FindAll(f => f.CanFix && f.Kind == "mechanical" && (f.DocumentPath == null || _project));
+            return _findings.FindAll(f => Filter.Shows(f) && f.CanFix && f.Kind == "mechanical" && (f.DocumentPath == null || _project));
         }
 
         /// <summary>What "Write all as tracked changes" would write: every exact suggestion in the topic.</summary>
         public List<StyleFinding> WriteAllCandidates()
         {
-            return _findings.FindAll(f => f.CanFix && (f.Kind == "mechanical" || f.Kind == "wording") && f.DocumentPath == null);
+            return _findings.FindAll(f => Filter.Shows(f) && f.CanFix && (f.Kind == "mechanical" || f.Kind == "wording") && f.DocumentPath == null);
         }
 
         /// <summary>
@@ -362,8 +381,10 @@ namespace FlareAI.Core.Actions
         public string Summary()
         {
             if (_project) return BacklogSummary();
-            var open = Open();
-            if (open.Count == 0) return NoIssuesInTopic;
+            var all = Open();
+            if (all.Count == 0) return NoIssuesInTopic;
+            var open = Visible();
+            if (open.Count == 0) return "No issues match these filters.";
             int fixes = 0, needsYou = 0;
             var sections = new HashSet<string>();
             foreach (var f in open)
@@ -374,7 +395,8 @@ namespace FlareAI.Core.Actions
             var parts = new List<string>();
             if (fixes > 0) parts.Add(fixes + " Auto-fix");
             if (needsYou > 0) parts.Add(needsYou + " Needs you");
-            return Plural.Of(open.Count, "issue") + (sections.Count > 1 ? " in " + sections.Count + " sections" : "") + ". "
+            var count = Filter.IsAll ? Plural.Of(open.Count, "issue") : "Showing " + open.Count + " of " + all.Count + " issues";
+            return count + (sections.Count > 1 ? " in " + sections.Count + " sections" : "") + ". "
                    + Cap(string.Join(", ", parts.ToArray())) + ".";
         }
 
@@ -402,20 +424,22 @@ namespace FlareAI.Core.Actions
         public void OnSelected(StyleFinding f)
         {
             if (f != null && f.IsFixed) RecheckApplied();
-            Current = f;
-            if (f != null && f.DocumentPath == null) GoTo(f, false);
+            Current = f != null && Filter.Shows(f) ? f : null;   // a hidden issue is never the current one
+            if (Current != null && Current.DocumentPath == null) GoTo(Current, false);
         }
 
         /// <summary>
-        /// Selects a suggestion (null clears the selection). In a project walk the suggestion's file is opened with its words
-        /// selected; a file that can't be opened is reported and the walk stays where it is, so N moves on.
+        /// Selects a suggestion (null clears the selection). A suggestion the filter hides selects nothing. In a project walk
+        /// the suggestion's file is opened with its words selected; a file that can't be opened is reported and the walk
+        /// stays where it is, so N moves on.
         /// </summary>
         public void Select(StyleFinding f)
         {
-            Current = f != null && _findings.Contains(f) ? f : null;
+            var shown = f != null && _findings.Contains(f) && Filter.Shows(f) ? f : null;
+            Current = shown;
             if (Current != null && InWalk && _project) GoTo(Current, true);
             var h = SelectRequested;
-            if (h != null) h(f);
+            if (h != null) h(shown);
         }
 
         /// <summary>
@@ -451,13 +475,13 @@ namespace FlareAI.Core.Actions
 
         public StyleFinding NextAfter(StyleFinding cur)
         {
-            var open = Open();
+            var open = Visible();
             if (open.Count == 0) return null;
             var start = cur == null ? -1 : _findings.IndexOf(cur);
             for (var i = 1; i <= _findings.Count; i++)
             {
                 var f = _findings[(start + i + _findings.Count) % _findings.Count];
-                if (f != cur && !f.IsFixed && !f.IsStale && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
+                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
             }
             return null;
         }
@@ -889,7 +913,7 @@ namespace FlareAI.Core.Actions
         {
             if (f == null || !RuleBacklog.IsAutomatic(f)) return new List<StyleFinding>();
             var key = RuleBacklog.KeyOf(f);
-            return FixAllCandidates().FindAll(x => RuleBacklog.KeyOf(x) == key);
+            return FixAllCandidates().FindAll(x => Filter.Shows(x) && RuleBacklog.KeyOf(x) == key);
         }
 
         /// <summary>Change All: every instance of the selected issue's rule, as tracked changes in one undo step.</summary>
@@ -919,7 +943,7 @@ namespace FlareAI.Core.Actions
             run.Finished += result =>
             {
                 foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
-                var inSnippets = _findings.FindAll(f => f.CanFix && f.DocumentPath != null && !_project).Count;
+                var inSnippets = _findings.FindAll(f => Filter.Shows(f) && f.CanFix && f.DocumentPath != null && !_project).Count;
                 if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
                 if (walking) { WalkAfter(before); return; }
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
@@ -950,6 +974,9 @@ namespace FlareAI.Core.Actions
         /// </summary>
         public BacklogRule RememberedRule { get; private set; }
 
+        /// <summary>True while one rule is reviewed one by one.</summary>
+        public bool WalkActive { get { return FocusRule != null; } }
+
         /// <summary>The focused rule's heading, or null.</summary>
         public string FocusTitle
         {
@@ -964,7 +991,7 @@ namespace FlareAI.Core.Actions
         /// <summary>Open suggestions grouped under their rule, most frequent first, without the rules skipped for now.</summary>
         public List<BacklogRule> Backlog()
         {
-            return RuleBacklog.Group(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath, _runner.SourceName);
+            return RuleBacklog.Group(Visible().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _runner.RuleFor, _doc.SourcePath, _runner.SourceName);
         }
 
         /// <summary>The rule a key names in the backlog now, or null (fixed, turned off or skipped since).</summary>
@@ -973,13 +1000,14 @@ namespace FlareAI.Core.Actions
         /// <summary>"117 suggestions in 42 files. 63 can be fixed automatically across 9 rules."</summary>
         public string BacklogSummary()
         {
-            return RuleBacklog.Summary(Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _doc.SourcePath, _skippedRules.Count);
+            return RuleBacklog.Summary(Visible().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))), _doc.SourcePath, _skippedRules.Count,
+                Filter.IsAll ? -1 : Open().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f))).Count);
         }
 
         /// <summary>What "Fix all automatic suggestions" writes: every exact rule fix, except rules skipped for now.</summary>
         public List<StyleFinding> AutomaticCandidates()
         {
-            return FixAllCandidates().FindAll(f => !_skippedRules.Contains(RuleBacklog.KeyOf(f)));
+            return FixAllCandidates().FindAll(f => Filter.Shows(f) && !_skippedRules.Contains(RuleBacklog.KeyOf(f)));
         }
 
         /// <summary>Fix all automatic suggestions…: every exact rule fix in every file, after the preview.</summary>
@@ -1133,7 +1161,7 @@ namespace FlareAI.Core.Actions
         {
             var todo = WriteAllCandidates();
             if (todo.Count == 0) return;
-            if (!_host.Confirm("Make " + Plural.Of(todo.Count, "change") + " in the topic as tracked changes?\n\n" +
+            if (!_host.Confirm((Filter.IsAll ? "Make " + Plural.Of(todo.Count, "change") + " in the topic as tracked changes?" : "Make " + Plural.Of(todo.Count, "change") + " to the issues shown as tracked changes?") + "\n\n" +
                     "You can accept them on the Review tab. One Ctrl+Z undoes them all.", "Change All Issues")) return;
             var n = Apply(todo, "House Style: " + Plural.Of(todo.Count, "change"));
             foreach (var f in todo) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "proposed", "bulk");
@@ -1517,16 +1545,19 @@ namespace FlareAI.Core.Actions
             var guide = team != null ? team.GuideRoot : null;
             var personal = team != null && team.IsPersonal;
             var described = Describe(f, rule);
-            var others = rule != null ? f.AlsoRules : null;   // other rules on the same words: turning off this one would expose them
-            if (others != null)
+            List<RuleRef> others = null;   // other rules on the same words: turning off this one would expose them
+            if (rule != null)
             {
-                var readable = new List<RuleRef>();   // the rule's text, not its id
-                foreach (var o in others)
+                // The twins in the guide first, then the rules this issue was merged with that the guide doesn't list as twins.
+                others = new List<RuleRef>();
+                foreach (var t in _runner.TwinsOf(f.RuleId))
+                    if (t.Id != f.RuleId && !others.Exists(x => x.Id == t.Id)) others.Add(t);
+                foreach (var o in f.AlsoRules)
                 {
-                    var r = _runner.RuleFor(o.Id);
-                    readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
+                    if (o.Id == f.RuleId || others.Exists(x => x.Id == o.Id)) continue;
+                    var r = o.IsChecker ? null : _runner.RuleFor(o.Id);   // the rule's text, not its id
+                    others.Add(new RuleRef { Id = o.Id, Layer = o.Layer, IsChecker = o.IsChecker, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
                 }
-                others = readable;
             }
             var choice = _host.ChooseRuleSetting(described, rule != null && guide != null, personal, others);
             if (choice == null) return;
@@ -1534,7 +1565,10 @@ namespace FlareAI.Core.Actions
             var target = choice.ForTeam ? guide : ProjectOverridesPath(path);
             var changed = new List<string>();
             var all = new List<StyleFinding> { f };
-            if (choice.AlsoOthers && others != null) foreach (var o in others) all.Add(new StyleFinding { RuleId = o.Id, Rule = o.Name, Layer = o.Layer, Source = "lint" });
+            if (others != null)
+                foreach (var o in others)
+                    if (o.IsChecker ? choice.AlsoCheckers.Contains(o.Id) : choice.AlsoOthers)
+                        all.Add(new StyleFinding { RuleId = o.Id, Rule = o.IsChecker ? o.Id : o.Name, Layer = o.Layer, Source = "lint" });
             foreach (var one in all)
             {
                 try
@@ -1568,7 +1602,18 @@ namespace FlareAI.Core.Actions
             if (choice.Setting == "off")
             {
                 if (f.Layer == "ai" && f.RuleId == null) IgnoredAi().Add(f.Rule);
-                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) : x.Rule == f.Rule);
+                // A checker has no id: its issues are found by its name, so a ticked checker clears every one of them.
+                var tickedCheckers = choice.AlsoCheckers;
+                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) || (x.RuleId == null && x.Rule != null && tickedCheckers.Contains(x.Rule)) : x.Rule == f.Rule);
+                // A checker merged into the shown issue and left on still flags these words: keep its issue, named for it.
+                if (f.RuleId != null)
+                    foreach (var o in f.AlsoRules)
+                    {
+                        if (!o.IsChecker || tickedCheckers.Contains(o.Id) || _findings.Exists(x => x.RuleId == null && x.Rule == o.Id && x.Block == f.Block && x.Excerpt == f.Excerpt)) continue;
+                        var kept = Clone(f);
+                        kept.Rule = o.Id; kept.RuleId = null; kept.Layer = o.Layer ?? f.Layer; kept.AlsoRules = new List<RuleRef>();
+                        _findings.Add(kept);
+                    }
                 Sort();
             }
             // Where it was written goes to the log, not the status line.

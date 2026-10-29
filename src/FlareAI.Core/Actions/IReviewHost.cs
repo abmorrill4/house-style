@@ -70,6 +70,16 @@ namespace FlareAI.Core.Actions
         public string Reason { get; set; }
         /// <summary>Also change the other rules that flag the same words (same scope, setting and reason).</summary>
         public bool AlsoOthers { get; set; }
+        /// <summary>
+        /// The checkers (ids such as Company.GlossaryTerms) on the same words to change too, with the same scope, setting and
+        /// reason, whether or not <see cref="AlsoOthers"/> is set. Empty by default; never null.
+        /// </summary>
+        public List<string> AlsoCheckers
+        {
+            get { return _alsoCheckers; }
+            set { _alsoCheckers = value ?? new List<string>(); }
+        }
+        private List<string> _alsoCheckers = new List<string>();
         /// <summary>A request only: the rule's proposed new wording, or null to keep it.</summary>
         public string Wording { get; set; }
     }

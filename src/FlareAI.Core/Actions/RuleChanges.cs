@@ -109,8 +109,9 @@ namespace FlareAI.Core.Actions
             if (choice == null) throw new ArgumentNullException("choice");
             var project = ProjectRules.OverridesPath(projectPath);
             if (!choice.ForTeam && project == null) throw new InvalidOperationException("Open a topic in the project first. A project exception is written into that project.");
-            // Before any write or request: a team change to a rule read from a saved copy (#246).
-            if (choice.ForTeam && (IsFromCopy(rule) || (choice.AlsoOthers && others != null && others.Any(IsFromCopy))))
+            var also = AlsoChanged(choice, rule, others);
+            // Before any write or request: a team change to a rule read from a saved copy (#246), the others and checkers too.
+            if (choice.ForTeam && (IsFromCopy(rule) || also.Any(IsFromCopy)))
                 throw new InvalidOperationException(CopyRefusal);
             var result = new RuleChangeResult();
             if (NeedsRequest(team))
@@ -127,7 +128,7 @@ namespace FlareAI.Core.Actions
             }
             if (choice.ForTeam && (team == null || team.GuideRoot == null)) throw new InvalidOperationException("No style guide is set up to record the change. Choose one in Settings.");
             var all = new List<CatalogRule> { rule };
-            if (choice.AlsoOthers && others != null) all.AddRange(others.Where(o => o != null && o != rule));
+            all.AddRange(also);
             foreach (var one in all)
             {
                 try
@@ -195,6 +196,37 @@ namespace FlareAI.Core.Actions
                 var d = o.Change;
                 if (o == rule || o.State != RuleState.Off || d == null || o.ChangeIsProject != rule.ChangeIsProject) continue;
                 if (Same(c.By, d.By) && Same(c.Date, d.Date) && Same(c.Note, d.Note) && Same(c.File, d.File) && Same(c.Setting, d.Setting)) found.Add(o);
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The rules that flag the same words as <paramref name="ruleId"/> and are still on: turning this one off shows them too.
+        /// Empty for a checker with no id (its words are the glossary's, not a rule's) and for an unknown rule.
+        /// </summary>
+        public static List<CatalogRule> TwinsOf(RuleCatalog catalog, string ruleId)
+        {
+            var found = new List<CatalogRule>();
+            var rule = catalog == null ? null : catalog.Find(ruleId);
+            if (rule == null || rule.Id == null) return found;
+            foreach (var o in catalog.OverlapsOf(rule))
+                if (o != rule && o.State != RuleState.Off) found.Add(o);
+            return found;
+        }
+
+        /// <summary>
+        /// The rules, besides <paramref name="rule"/>, that a change also writes: the others when <see cref="RuleSettingChoice.AlsoOthers"/>
+        /// is set, and a checker (no id) only when <see cref="RuleSettingChoice.AlsoCheckers"/> names it.
+        /// </summary>
+        private static List<CatalogRule> AlsoChanged(RuleSettingChoice choice, CatalogRule rule, IList<CatalogRule> others)
+        {
+            var found = new List<CatalogRule>();
+            if (others == null) return found;
+            foreach (var o in others)
+            {
+                if (o == null || o == rule) continue;
+                var checker = o.Id == null;
+                if (checker ? choice.AlsoCheckers.Contains(o.Key) : choice.AlsoOthers) found.Add(o);
             }
             return found;
         }

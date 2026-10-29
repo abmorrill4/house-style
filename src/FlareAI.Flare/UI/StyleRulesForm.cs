@@ -553,7 +553,8 @@ namespace FlareAI.Flare.UI
             var asking = RuleChanges.WillRequest(_team, r, false);
             var canTeam = _team != null && _team.GuideRoot != null;
             var canProject = _openProject != null && ProjectRules.OverridesPath(_openProject) != null;
-            var others = _catalog.OverlapsOf(r).Where(o => o.State != RuleState.Off).ToList();
+            var others = RuleChanges.TwinsOf(_catalog, r.Key)
+                .Where(o => o.Id != null || (o.Key != null && o.Key.EndsWith(".GlossaryTerms", StringComparison.Ordinal))).ToList();   // same list as the pane
             var setting = level ? r.Level ?? r.DefaultLevel ?? "warning" : "off";
             var described = r.Source + " · " + r.Page + ": " + r.Title;
             RuleSettingChoice choice;
@@ -572,11 +573,13 @@ namespace FlareAI.Flare.UI
             else
             {
                 using (var form = new RuleSettingForm(described, canTeam, _team != null && _team.IsPersonal,
-                                                      others.Select(o => new RuleRef { Id = o.Key, Layer = o.Origin, Name = o.Source + " · " + o.Page + ": " + o.Title }).ToList(),
+                                                      others.Select(o => o.Id == null
+                                                          ? new RuleRef { Id = o.Key, Layer = o.Origin, IsChecker = true, Name = "Glossary terms" }
+                                                          : new RuleRef { Id = o.Key, Layer = o.Origin, Name = o.Source + " · " + o.Page + ": " + o.Title }).ToList(),
                                                       setting, canProject, level ? "Change Level" : "Disable Rule"))
                 {
                     if (form.ShowDialog(this) != DialogResult.OK) return;
-                    choice = new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers };
+                    choice = new RuleSettingChoice { ForTeam = form.ForTeam, Setting = form.Setting, Reason = form.Reason, AlsoOthers = form.AlsoOthers, AlsoCheckers = form.AlsoCheckers };
                 }
             }
             if (choice == null) return;
@@ -613,7 +616,7 @@ namespace FlareAI.Flare.UI
             if (also.Count > 0)
             {
                 var asks = RuleChanges.WillRequest(_team, r, true);
-                using (var f = new AlsoRestoreForm(r.Source + " · " + r.Page + ": " + r.Title, also.Select(o => o.Source + " · " + o.Page + ": " + o.Title).ToList(),
+                using (var f = new AlsoRestoreForm(r.Source + " · " + r.Page + ": " + r.Title, also.Select(o => o.Id == null ? "Glossary terms" : o.Source + " · " + o.Page + ": " + o.Title).ToList(),
                                                    asks ? "Request to Enable" : "Enable Rule"))
                 {
                     if (f.ShowDialog(this) != DialogResult.OK) return;
