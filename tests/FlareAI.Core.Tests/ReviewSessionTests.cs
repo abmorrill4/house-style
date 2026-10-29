@@ -1147,7 +1147,7 @@ namespace FlareAI.Core.Tests
             _host.Documents.Remove(_snippetPath);
             var f = Find(_snippet, "utilize", "use", documentPath: _snippetPath);
             s.GoTo(f, true);
-            Assert.Equal("Could not open " + _snippetPath, s.Status);
+            Assert.Equal("Could not open " + System.IO.Path.GetFileName(_snippetPath), s.Status);
 
             var gone = Find(_topic, "utilize", "use");
             ((XmlText)gone.Block.FirstChild).Value = "Nothing here.";

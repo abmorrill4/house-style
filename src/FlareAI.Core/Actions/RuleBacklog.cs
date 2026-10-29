@@ -147,6 +147,22 @@ namespace FlareAI.Core.Actions
         }
 
         /// <summary>
+        /// The first rule of <paramref name="backlog"/> (in its order) whose key is not in <paramref name="walkedKeys"/>,
+        /// or null when every rule has been walked. A rule walked earlier is skipped even if its issues are still open.
+        /// </summary>
+        public static BacklogRule NextAfter(IList<BacklogRule> backlog, ICollection<string> walkedKeys)
+        {
+            foreach (var r in backlog)
+            {
+                var walked = false;
+                foreach (var k in walkedKeys)
+                    if (string.Equals(k, r.Key, StringComparison.Ordinal)) { walked = true; break; }
+                if (!walked) return r;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// "117 suggestions in 42 files. 63 can be fixed automatically across 9 rules." — the line that heads a project
         /// check. Rules skipped for this session are left out and mentioned at the end.
         /// </summary>

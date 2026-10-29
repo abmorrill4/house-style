@@ -70,6 +70,7 @@ namespace FlareAI.Flare.UI
         private readonly Button _backToRules, _showSkipped, _fixRule, _reviewRule, _turnOffRule, _skipRule, _batchStop;
         private BatchRun _batch;
         private string _lastRule;   // the rule row to come back to after Review one by one
+        private string _lastReason;   // the reason of the last Ignore: I in a walk uses it (the reasons menu asks the first time only)
 
         private static readonly string SettingsDir = FlareAI.Core.Settings.PluginSettings.SettingsDirectory;
         private static readonly Dismissals Dismissed = Dismissals.Load(System.IO.Path.Combine(SettingsDir, "dismissed.json"));
@@ -86,6 +87,7 @@ namespace FlareAI.Flare.UI
         private static bool _widthTipShown;   // once per Flare session, in the first pane that is narrow
         private bool _widthTipHere;
         private readonly SplitContainer _split;
+        private readonly WalkStrip _walkStrip;   // the rule walked place by place, over the list (hidden otherwise)
         private readonly Panel _card;
         private readonly List<Button> _buttons = new List<Button>();
         private Font _metaFont;
@@ -358,9 +360,9 @@ namespace FlareAI.Flare.UI
             _rejectMenu = new ContextMenuStrip();
             var reasons = new[]
             {
-                _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("wrong"))),
-                _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("fine here"))),
-                _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => _session.Reject("rule doesn't apply")))
+                _rejectMenu.Items.Add("The suggestion is wrong", null, (s, e) => Safe.Run("Ignore", () => RejectWith("wrong"))),
+                _rejectMenu.Items.Add("It's correct in this context", null, (s, e) => Safe.Run("Ignore", () => RejectWith("fine here"))),
+                _rejectMenu.Items.Add("The rule doesn't apply here", null, (s, e) => Safe.Run("Ignore", () => RejectWith("rule doesn't apply")))
             };
             foreach (var reason in reasons) reason.ToolTipText = IgnoreTip;
             var exempt = _rejectMenu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt", ExemptSelectedHere));
@@ -393,6 +395,12 @@ namespace FlareAI.Flare.UI
             _checklist = new LinkLabel { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, Padding = new Padding(4, 4, 4, 4), AccessibleRole = AccessibleRole.Grouping, AccessibleName = "Getting started" };
             _checklist.LinkClicked += (s, e) => Safe.Run("Checklist", () => OnChecklistLink(e.Link.LinkData as string));
             split.Panel1.Controls.Add(_checklist);
+            // The walk strip: the rule walked place by place. Added last, so it docks above the list and the list keeps its rows.
+            _walkStrip = new WalkStrip { Visible = false };
+            _walkStrip.ChangeAllClicked += (s, e) => Safe.Run("Change All", () => _session.FixRule(_session.FindBacklogRule(_session.FocusRule)));
+            _walkStrip.AllRulesClicked += (s, e) => Safe.Run("All Rules", _session.EndRuleReview);
+            _walkStrip.NextRuleClicked += (s, e) => Safe.Run("Next Rule", NextRuleInWalk);
+            split.Panel1.Controls.Add(_walkStrip);
             split.Panel2.Controls.Add(card);
             // The pane is laid out small first and grows: the card gets the height it needs (or the writer's, once they drag
             // the splitter) and the list what's left; the card is laid out again whenever its size or content changes.
@@ -427,7 +435,7 @@ namespace FlareAI.Flare.UI
             tips.SetToolTip(_byRule, "List one row per rule, most frequent first.");
             tips.SetToolTip(_byFile, "List every issue, file by file.");
             tips.SetToolTip(_fixRule, "Replace every instance of this issue in every file.");
-            tips.SetToolTip(_reviewRule, "Go through this rule's issues one at a time.");
+            tips.SetToolTip(_reviewRule, "Go through this rule's issues one at a time. (Enter)");
             tips.SetToolTip(_turnOffRule, "Stop linting for this rule.");
             tips.SetToolTip(_skipRule, "Hide this rule until you lint again.");
             tips.SetToolTip(_showAllRules, "List every rule.");
@@ -1205,8 +1213,21 @@ namespace FlareAI.Flare.UI
             }
             var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk(), filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
         }
+
+        /// <summary>
+        /// The walk as the scenario reads it: the rule's key (never its title or text), the place, whether the walk went past its
+        /// last place, and whether the list has the focus. Null when no rule is walked.
+        /// </summary>
+        private object E2EWalk()
+        {
+            if (!_session.IsWalking) return null;
+            return new { rule = _session.FocusRule, position = _session.WalkPosition, total = _session.WalkTotal, finished = _session.WalkFinished, listFocused = ListHasFocus };
+        }
+
+        /// <summary>The issues list has the keyboard focus (or one of its children does).</summary>
+        private bool ListHasFocus { get { return _list.Focused || _list.ContainsFocus; } }
 
         /// <summary>
         /// The card as laid out: the why text's full height comes from the box itself, so whyClipped is true when the box is
@@ -1271,7 +1292,7 @@ namespace FlareAI.Flare.UI
             if (form != null && form.CanFocus) form.Activate();
             if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
             _list.Focus();
-            return _list.Focused || _list.ContainsFocus;
+            return ListHasFocus;
         }
 
         /// <summary>
@@ -1320,8 +1341,9 @@ namespace FlareAI.Flare.UI
                 return;
             }
             if ((e.KeyCode == Keys.Escape || e.KeyCode == Keys.Back) && _session.FocusRule != null) { _session.EndRuleReview(); e.Handled = true; e.SuppressKeyPress = true; return; }
-            if (e.KeyCode == Keys.Enter && e.Shift) { _session.OpenFileOfCurrent(); e.Handled = true; e.SuppressKeyPress = true; }
-            else if (e.KeyCode == Keys.Enter && e.Control) { _session.GoToCurrent(); e.Handled = true; e.SuppressKeyPress = true; }
+            if (WalkKey(e)) { e.Handled = true; e.SuppressKeyPress = true; return; }
+            if (e.KeyCode == Keys.Enter && e.Shift) { _session.OpenFileOfCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
+            else if (e.KeyCode == Keys.Enter && e.Control) { _session.GoToCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.Enter) { Accept(); e.Handled = true; }
             else if (e.KeyCode == Keys.Delete) { _rejectMenu.Show(_reject, new Point(0, _reject.Height)); e.Handled = true; }
         }
@@ -1482,11 +1504,21 @@ namespace FlareAI.Flare.UI
                     var found = (List<StyleFinding>)e.Result;
                     FirstProjectLint();
                     _session.Add(found);
-                    _status.Text = Summary() + "  Linted " + Plural.Of(_files.Count, "file") + ". No AI was used." + ExemptNote() + (_focusLine != null ? "  " + _focusLine : "");
+                    var lint = Summary() + "  Linted " + Plural.Of(_files.Count, "file") + ". No AI was used." + ExemptNote() + (_focusLine != null ? "  " + _focusLine : "");
+                    _status.Text = _session.RememberedRule != null ? _session.Status + "  " + lint : lint;   // the rule walked last is named, not started
                     var guide = _runner.GuideNotice;
                     if (guide != null) _status.Text += "  " + guide;
                     ShowRequestNote();
-                    if (RuleRows && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
+                    if (RuleRows && _list.Items.Count > 0)
+                    {
+                        // The rule walked last is the row selected (not walked); else the most frequent rule.
+                        var row = _list.Items[0];
+                        if (_session.RememberedRule != null)
+                        {
+                            foreach (ListViewItem item in _list.Items) if (((BacklogRule)item.Tag).Key == _session.RememberedRule.Key) row = item;
+                        }
+                        row.Selected = true; row.Focused = true;
+                    }
                     GettingStarted.Mark(ChecklistItem.LintProject);
                     UpdateExcluded();
                     UpdateExemptions();
@@ -1519,7 +1551,7 @@ namespace FlareAI.Flare.UI
             if (_files != null)
             {
                 var reviewing = _session.FocusRule != null;
-                _backToRules.Visible = reviewing;
+                _backToRules.Visible = reviewing && !ShowsWalk;   // during a walk the strip's All Rules is the one
                 _showSkipped.Visible = _session.SkippedRuleCount > 0 && !reviewing;
                 _showSkipped.Text = "Show Skipped Rules (" + _session.SkippedRuleCount + ")";
                 _list.Columns[0].Text = RuleRows ? "Rule" : "Issue";
@@ -1665,7 +1697,8 @@ namespace FlareAI.Flare.UI
                 if (settings.ProjectViewByFile != byFile) { settings.ProjectViewByFile = byFile; settings.Save(); }
             }
             catch (Exception ex) { Diagnostics.Log("save view", ex); }
-            if (_session.FocusRule != null) _session.EndRuleReview();
+            // A walk is kept across the switch: the strip hides (or shows again at the same place) and All Rules ends it.
+            if (_session.FocusRule != null && !_session.IsWalking) _session.EndRuleReview();
             else Rebuild();
             _list.Focus();
         }
@@ -1677,6 +1710,83 @@ namespace FlareAI.Flare.UI
             _lastRule = r.Key;
             _session.ReviewRule(r);
             _list.Focus();
+        }
+
+        /// <summary>Next Rule on the strip: walks the next rule not yet walked, as Review one by one does (or says every rule is done).</summary>
+        private void NextRuleInWalk()
+        {
+            _session.NextRule();
+            _lastRule = _session.FocusRule;
+            _list.Focus();
+        }
+
+        /// <summary>
+        /// The keys of a walk, place by place: Enter changes the place and moves on, I ignores it (with the reason last given),
+        /// N goes to the next place. On the finished strip Enter is Next Rule, or All Rules when none is left. The list takes
+        /// the focus back after each, so the next key never goes to the editor. False for any other key (and outside a walk).
+        /// </summary>
+        private bool WalkKey(KeyEventArgs e)
+        {
+            if (!ShowsWalk || e.Control || e.Alt) return false;
+            if (_session.WalkFinished)
+            {
+                if (e.KeyCode != Keys.Enter || e.Shift) return false;
+                if (_session.HasNextRule) NextRuleInWalk(); else _session.EndRuleReview();
+                _list.Focus();
+                return true;
+            }
+            if (e.KeyCode == Keys.Enter && !e.Shift) Accept();
+            else if (e.KeyCode == Keys.N) _session.Next();
+            else if (e.KeyCode == Keys.I)
+            {
+                // The first ignore asks why, in the reasons menu (it takes the focus, and RejectWith gives it back); then the last reason is used.
+                if (_lastReason == null) { _rejectMenu.Show(_reject, new Point(0, _reject.Height)); return true; }
+                _session.Reject(_lastReason);
+            }
+            else return false;
+            FocusWalkList();
+            return true;
+        }
+
+        /// <summary>Ignore with a reason: the reason is kept for I in a walk, and the walk goes on from the list.</summary>
+        private void RejectWith(string reason)
+        {
+            _lastReason = reason;
+            _session.Reject(reason);
+            FocusWalkList();
+        }
+
+        /// <summary>In a walk the list takes the focus back after an action: an open or a move to another place may have put it in the editor.</summary>
+        private void FocusWalkList() { if (ShowsWalk) _list.Focus(); }
+
+        /// <summary>True while the strip shows the walk: a walk in By Rule (or a topic), not after the view moved to By File.</summary>
+        private bool ShowsWalk { get { return _session.IsWalking && (_files == null || _byRule.Checked); } }
+
+        /// <summary>The walked rule's title, reason and severity, from its suggestions (fixed ones too), or null.</summary>
+        private BacklogRule WalkedRule()
+        {
+            var key = _session.FocusRule;
+            if (key == null) return null;
+            var mine = _session.Findings.Where(f => RuleBacklog.KeyOf(f) == key).ToList();
+            return mine.Count == 0 ? null : RuleBacklog.Group(mine, _runner.RuleFor, _doc.SourcePath, _runner.SourceName)[0];
+        }
+
+        /// <summary>Shows the walk in the strip above the list, with the counter, the change and the finished state; hides it otherwise.</summary>
+        private void UpdateWalkStrip()
+        {
+            if (_walkStrip == null) return;
+            var rule = ShowsWalk ? WalkedRule() : null;
+            _walkStrip.Visible = rule != null;
+            if (rule == null) return;
+            if (_session.WalkFinished)
+            {
+                var more = _session.HasNextRule;
+                _walkStrip.ShowFinished(_session.WalkFinishedText + (more ? "" : "  You've been through every rule."), more);
+                return;
+            }
+            var current = Current();
+            var example = current == null || string.IsNullOrEmpty(current.Excerpt) ? "" : current.Excerpt + "\n" + (current.Replacement ?? "");
+            _walkStrip.ShowWalk(rule.Title, rule.Severity, rule.Reason, example, _session.WalkPosition, _session.WalkTotal, _session.WalkChangeAllCount, null);
         }
 
         /// <summary>The card for a rule row: why the rule exists, where it fires, real examples, and what Fix all would do.</summary>
@@ -1934,6 +2044,7 @@ namespace FlareAI.Flare.UI
 
         private void ShowCard()
         {
+            UpdateWalkStrip();   // the strip's counter and finished state follow the selection
             var f = Current();
             _cardDiff.Clear(); _cardWhy.Clear(); _cardWhy.Tag = null;
             var ruleRow = CurrentRule();

@@ -64,7 +64,13 @@ namespace FlareAI.Core.Actions
         private readonly HashSet<string> _exemptIdentities = new HashSet<string>(StringComparer.Ordinal);
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>The project or topic the current lint covers, while its remembered rule is still to be looked for; null once found.</summary>
+        private string _rememberScope;
+        /// <summary>A walk wrote the remembered rule during the lint that is running, so the next lint must not drop it.</summary>
+        private bool _walkWritten;
         private string _status;
+        private List<StyleFinding> _walk;
         private bool _watching, _offThreadLogged;
         private int _uiThread, _pendingMarked, _pendingReopened;
 
@@ -111,6 +117,8 @@ namespace FlareAI.Core.Actions
         public Action<BatchRun> RunBatch { get; set; } = run => run.RunToEnd();
         /// <summary>True while the pane showing this session is the one on screen. Null means always (tests).</summary>
         public Func<bool> IsShown { get; set; }
+        /// <summary>The review view prefs file (where the rule walked last is remembered). Tests point it at a temp folder.</summary>
+        public string PrefsPath { get; set; } = ReviewWalkPrefs.DefaultPath;
 
         // ---- state the view reads ---------------------------------------------------------------
 
@@ -189,10 +197,19 @@ namespace FlareAI.Core.Actions
         /// <summary>Forgets every suggestion (a new check starts).</summary>
         public void Clear()
         {
+            // The last lint ended without the rule walked there: its memory is out of date, so it goes.
+            var protect = _walkWritten;
+            _walkWritten = false;
+            if (!protect && _rememberScope != null && RememberedRule == null) ForgetWalkIn(_rememberScope);
+            _rememberScope = RememberScope();
+            RememberedRule = null;
             _findings.Clear();
             DropIgnored(f => true);
             _skippedRules.Clear();
+            _walkedRules.Clear();
             FocusRule = null;
+            _walk = null;
+            WalkFinished = false;
             Current = null;
             _exemptIdentities.Clear();
             RefreshExemptions();
@@ -240,6 +257,48 @@ namespace FlareAI.Core.Actions
                 catch (Exception ex) { Diagnostics.Log("record baseline: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
             }
             Sort();
+            if (_rememberScope != null && RememberedRule == null) RememberFromLint();
+        }
+
+        /// <summary>
+        /// The project a project check covers, or else the topic: the scope the walk memory is kept for. Null when there is no
+        /// path (or it can't be resolved), so nothing is remembered.
+        /// </summary>
+        private string RememberScope()
+        {
+            var path = _doc == null ? null : _doc.SourcePath;
+            if (string.IsNullOrEmpty(path)) return null;
+            try { return ReviewWalkPrefs.ScopeOf(_project ? StyleEngine.FlareProjectRoot(path) ?? path : path); }
+            catch (Exception ex) { Diagnostics.Log("review scope", ex); return null; }
+        }
+
+        /// <summary>After a new lint, while the rule walked last is still open here: names it in the status. Nothing is started.</summary>
+        private void RememberFromLint()
+        {
+            var rule = ReviewWalkPrefs.Load(PrefsPath).RuleIn(_rememberScope, Backlog());
+            if (rule == null) return;
+            RememberedRule = rule;
+            Status = "Last time you were on " + rule.Title + ". Press Enter to review it again.";
+        }
+
+        /// <summary>Drops the remembered walk when it is in <paramref name="scope"/>; other scopes are left alone.</summary>
+        private void ForgetWalkIn(string scope)
+        {
+            var prefs = ReviewWalkPrefs.Load(PrefsPath);
+            if (prefs.Walk == null || !string.Equals(prefs.Walk.Scope, scope, StringComparison.Ordinal)) return;
+            prefs.Walk = null;
+            prefs.TrySave(PrefsPath);
+        }
+
+        /// <summary>Writes the rule walked last for this project or topic. A key the prefs can't hold is not written.</summary>
+        private void RememberWalk(string key)
+        {
+            var scope = RememberScope();
+            if (scope == null || !ReviewWalkPrefs.IsValidKey(key)) return;
+            var prefs = ReviewWalkPrefs.Load(PrefsPath);
+            prefs.Walk = new ReviewWalkPrefs.RememberedWalk { Scope = scope, RuleKey = key };
+            prefs.TrySave(PrefsPath);
+            _walkWritten = true;
         }
 
         /// <summary>
@@ -369,11 +428,16 @@ namespace FlareAI.Core.Actions
             if (Current != null && Current.DocumentPath == null) GoTo(Current, false);
         }
 
-        /// <summary>Selects a suggestion (null clears the selection). A suggestion the filter hides selects nothing.</summary>
+        /// <summary>
+        /// Selects a suggestion (null clears the selection). A suggestion the filter hides selects nothing. In a project walk
+        /// the suggestion's file is opened with its words selected; a file that can't be opened is reported and the walk
+        /// stays where it is, so N moves on.
+        /// </summary>
         public void Select(StyleFinding f)
         {
             var shown = f != null && _findings.Contains(f) && Filter.Shows(f) ? f : null;
             Current = shown;
+            if (Current != null && InWalk && _project) GoTo(Current, true);
             var h = SelectRequested;
             if (h != null) h(shown);
         }
@@ -384,6 +448,13 @@ namespace FlareAI.Core.Actions
         /// </summary>
         public void Next()
         {
+            if (InWalk)
+            {
+                if (WalkFinished) return;
+                var after = WalkNextAfter(Current);
+                if (after == null) FinishWalk(); else Select(after);
+                return;
+            }
             var next = NextAfter(Current);
             if (next == null && FocusRule != null)
             {
@@ -739,10 +810,33 @@ namespace FlareAI.Core.Actions
             var path = FilePathOf(f);
             if (path == null) return null;
             IDocumentAdapter doc = null;
-            try { doc = _host.OpenDocument(path); } catch (Exception ex) { Diagnostics.Log("OpenFile", ex); }
-            Status = doc == null ? "Could not open " + path : "Opened " + System.IO.Path.GetFileName(path) + ".";
+            if (!_project || IsOpenablePath(path))
+                try { doc = _host.OpenDocument(path); } catch (Exception ex) { Diagnostics.Log("OpenFile", ex); }
+            Status = doc == null ? "Could not open " + System.IO.Path.GetFileName(path) : "Opened " + System.IO.Path.GetFileName(path) + ".";
             return doc;
         }
+
+        /// <summary>
+        /// A file a project report may open: under the project folder of the checked topic, and not on a network share (UNC).
+        /// Only the project's own files are opened; a path outside it, or one that can't be resolved, is refused.
+        /// </summary>
+        private bool IsOpenablePath(string path)
+        {
+            if (string.IsNullOrEmpty(path) || IsUncPath(path)) return false;
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            if (root == null) return false;
+            try
+            {
+                var full = System.IO.Path.GetFullPath(path);
+                if (IsUncPath(full)) return false;
+                var folder = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar) +
+                             System.IO.Path.DirectorySeparatorChar;
+                return full.StartsWith(folder, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
+        }
+
+        private static bool IsUncPath(string path) { return path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal); }
 
         /// <summary>Go to button and Ctrl+Enter: open the topic or snippet and select the flagged text.</summary>
         public void GoToCurrent()
@@ -756,7 +850,7 @@ namespace FlareAI.Core.Actions
         {
             if (f.IsFixed) return;
             var doc = DocOf(f, report);
-            if (doc == null) { if (report) Status = "Could not open " + f.DocumentPath; return; }
+            if (doc == null) { if (report) Status = "Could not open " + System.IO.Path.GetFileName(f.DocumentPath); return; }
             var ok = false;
             try { ok = _runner.GoTo(doc, f); } catch (Exception ex) { Diagnostics.Log("GoTo", ex); }
             if (!ok && report) Status = "That text is no longer in the topic. Lint the paragraph again.";
@@ -843,22 +937,42 @@ namespace FlareAI.Core.Actions
             }
             var chosen = plan.SelectedFindings;
             if (chosen.Count == 0 && plan.Skipped.Count == 0) return;
+            var walking = InWalk && !WalkFinished;
+            var before = Current;   // the place the walk is on: the batch moves on from it
             var run = BeginBatch(chosen, chosen.Count == 1 ? "House Style: " + chosen[0].Rule : "House Style: " + chosen.Count + " changes", plan);
             run.Finished += result =>
             {
                 foreach (var f in chosen) if (f.IsFixed && !f.FixedByEdit) RecordFeedback(f, _doc.SourcePath, "accepted", null);
                 var inSnippets = _findings.FindAll(f => Filter.Shows(f) && f.CanFix && f.DocumentPath != null && !_project).Count;
                 if (inSnippets > 0) Status = Status + "  " + inSnippets + " more are in snippets. Select one to change it there.";
+                if (walking) { WalkAfter(before); return; }
                 if (FocusRule != null && !_findings.Exists(f => !f.IsFixed && !f.IsStale && RuleBacklog.KeyOf(f) == FocusRule)) EndRuleReview();
                 else Next();
             };
             RunBatch(run);
         }
 
+        /// <summary>After a batch in a walk: the first open place after <paramref name="from"/>, or the finished state. The rule stays focused.</summary>
+        private void WalkAfter(StyleFinding from)
+        {
+            var after = WalkNextAfter(from);
+            if (after != null) { Select(after); return; }
+            WalkFinished = true;
+            Current = null;
+            Select(null);
+            Status = Status + "  " + WalkFinishedText;
+        }
+
         // ---- the backlog: a project check, one rule at a time -----------------------------------
 
         /// <summary>The rule being reviewed one by one, or null. Next, Skip and Apply stay within it.</summary>
         public string FocusRule { get; private set; }
+
+        /// <summary>
+        /// The rule walked last in this project or topic, if this lint still has it open; null otherwise. The view selects its row
+        /// (the status says so) and Enter starts the walk. Set by a new lint only.
+        /// </summary>
+        public BacklogRule RememberedRule { get; private set; }
 
         /// <summary>True while one rule is reviewed one by one.</summary>
         public bool WalkActive { get { return FocusRule != null; } }
@@ -918,10 +1032,78 @@ namespace FlareAI.Core.Actions
         {
             if (rule == null || rule.Findings.Count == 0) return;
             FocusRule = rule.Key;
+            _walkedRules.Add(rule.Key);
+            RememberWalk(rule.Key);
             var h = ListChanged;
             if (h != null) h();
-            Select(rule.Findings[0]);
-            Status = rule.Title + " · " + rule.Counts() + ". Change or skip each issue for this rule.";
+            _walk = rule.Findings.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f));
+            if (_walk.Count == 0) _walk = new List<StyleFinding>(rule.Findings);
+            WalkFinished = false;
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in _walk) paths.Add(f.DocumentPath ?? "");
+            Status = rule.Title + ", " + Plural.Of(_walk.Count, "place") + " in " + Plural.Of(_project ? paths.Count : 1, "file") + ".";
+            Select(_walk[0]);   // after the status: a first place that can't be opened says so
+        }
+
+        /// <summary>The status when every rule has been walked since the last lint.</summary>
+        private const string AllRulesWalked = "You've been through every rule.";
+
+        /// <summary>
+        /// Next rule: walks the first rule (most frequent first) not yet walked since the last lint, from its first place, even
+        /// when earlier rules still have open issues. When none is left, back to all rules, and returns false.
+        /// </summary>
+        public bool NextRule()
+        {
+            var next = RuleBacklog.NextAfter(Backlog(), _walkedRules);
+            if (next != null) { ReviewRule(next); return true; }
+            EndRuleReview();
+            Status = AllRulesWalked;
+            return false;
+        }
+
+        /// <summary>True while a rule is left that <see cref="NextRule"/> would walk.</summary>
+        public bool HasNextRule { get { return RuleBacklog.NextAfter(Backlog(), _walkedRules) != null; } }
+
+        /// <summary>True while a rule is walked place by place (also after the last place, until All Rules).</summary>
+        public bool InWalk { get { return _walk != null; } }
+        /// <summary>A rule is walked place by place and has places in the walk. The view asks this before it ends the walk.</summary>
+        public bool IsWalking { get { return FocusRule != null && _walk != null && _walk.Count > 0; } }
+        /// <summary>The walk went past its last place.</summary>
+        public bool WalkFinished { get; private set; }
+        /// <summary>Places in the walk, as counted when it started. Ignored and changed places keep their slot.</summary>
+        public int WalkTotal { get { return _walk == null ? 0 : _walk.Count; } }
+        /// <summary>1-based place of the selected issue in the walk; 0 when not walking.</summary>
+        public int WalkPosition { get { return _walk == null || Current == null ? 0 : _walk.IndexOf(Current) + 1; } }
+        /// <summary>The "Change All (n)" count: the automatic issues of the focused rule that are still open.</summary>
+        public int WalkChangeAllCount { get { return FocusRule == null ? 0 : FixAllCandidates().FindAll(f => RuleBacklog.KeyOf(f) == FocusRule).Count; } }
+
+        /// <summary>What to say when the walk is through: nothing left open, or how many places are.</summary>
+        public string WalkFinishedText
+        {
+            get
+            {
+                var open = _walk == null ? 0 : _walk.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f)).Count;
+                if (open == 0) return "You've reviewed every place this rule applies.";
+                return "You've been through this rule. " + (open == 1 ? "1 place is" : open + " places are") + " still open.";
+            }
+        }
+
+        private StyleFinding WalkNextAfter(StyleFinding cur)
+        {
+            for (var i = (cur == null ? -1 : _walk.IndexOf(cur)) + 1; i < _walk.Count; i++)
+            {
+                var g = _walk[i];
+                if (!g.IsFixed && !g.IsStale && _findings.Contains(g)) return g;   // a stale place keeps its slot; Next moves past it
+            }
+            return null;
+        }
+
+        private void FinishWalk()
+        {
+            WalkFinished = true;
+            Current = null;
+            Select(null);
+            Status = WalkFinishedText;
         }
 
         /// <summary>Back to all rules (Review one by one ends).</summary>
@@ -929,6 +1111,8 @@ namespace FlareAI.Core.Actions
         {
             if (FocusRule == null) return;
             FocusRule = null;
+            _walk = null;
+            WalkFinished = false;
             Current = null;
             var h = ListChanged;
             if (h != null) h();
@@ -940,7 +1124,7 @@ namespace FlareAI.Core.Actions
         {
             if (rule == null) return;
             _skippedRules.Add(rule.Key);
-            if (FocusRule == rule.Key) FocusRule = null;
+            if (FocusRule == rule.Key) { FocusRule = null; _walk = null; WalkFinished = false; }
             if (Current != null && RuleBacklog.KeyOf(Current) == rule.Key) Current = null;
             var h = ListChanged;
             if (h != null) h();
@@ -1069,7 +1253,8 @@ namespace FlareAI.Core.Actions
         {
             var f = Current;
             if (f == null) return;
-            var next = NextAfter(f);
+            var walking = InWalk && !WalkFinished;
+            var next = walking ? WalkNextAfter(f) : NextAfter(f);
             _findings.Remove(f);   // first, so the row leaves the list even if recording the decision fails
             try
             {
@@ -1080,6 +1265,7 @@ namespace FlareAI.Core.Actions
             Park(f, _doc.SourcePath);
             Sort();
             Select(next);
+            if (walking && next == null) { FinishWalk(); return; }
             Status = Summary() + "  Ignored. It stays hidden for this text.";
         }
 
@@ -1547,7 +1733,7 @@ namespace FlareAI.Core.Actions
         private IDocumentAdapter DocOf(StyleFinding f, bool open)
         {
             var path = f.DocumentPath ?? _doc.SourcePath;
-            if (open && path != null)
+            if (open && path != null && (!_project || IsOpenablePath(path)))
             {
                 var opened = _host.OpenDocument(path);
                 if (opened != null && f.DocumentPath == null) return _doc; // keep the adapter whose DOM the findings came from

@@ -157,8 +157,14 @@ namespace FlareAI.Scenarios.Review
         [Fact]
         public void OpenFile_OpensTheFindingsFile_WithoutSelectingText()
         {
-            var topic = FlareSimDocument.FromXml(TopicXml, @"C:\P\Content\topic.htm");
-            var snippet = FlareSimDocument.FromXml(TopicXml, @"C:\P\Content\Resources\Snippets\shared.flsnp");
+            // A project report opens only files under a project folder it finds on disk, so this one has a .flprj.
+            var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "flareai-openfile-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "Content", "Resources", "Snippets"));
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "P.flprj"), "<Project />");
+            try
+            {
+            var topic = FlareSimDocument.FromXml(TopicXml, System.IO.Path.Combine(root, "Content", "topic.htm"));
+            var snippet = FlareSimDocument.FromXml(TopicXml, System.IO.Path.Combine(root, "Content", "Resources", "Snippets", "shared.flsnp"));
             var host = new ScenarioHost();
             host.Documents[topic.SourcePath] = topic;
             host.Documents[snippet.SourcePath] = snippet;
@@ -178,6 +184,8 @@ namespace FlareAI.Scenarios.Review
             Assert.Same(topic, s.OpenFile(inTopic));
             Assert.Equal(topic.SourcePath, host.Opened.Last());
             Assert.Null(topic.SelectedRun);
+            }
+            finally { try { System.IO.Directory.Delete(root, true); } catch (Exception) { } }
         }
 
         [Fact]

@@ -329,20 +329,16 @@ namespace FlareAI.Scenarios.Review
                     Assert.Equal(rule.Key, RuleBacklog.KeyOf(s.Current));
                     seen.Add(s.Current);
                     s.Skip();
-                    if (s.Current == seen[0]) break;   // wrapped: every one seen
                 }
                 Assert.Equal(rule.Occurrences, seen.Distinct().Count());
 
-                // Applying them one by one ends the review after the last.
-                foreach (var f in rule.Findings.Skip(1)) f.IsFixed = true;
-                s.Select(rule.Findings[0]);
-                s.Skip();
-                Assert.Equal(rule.Findings[0], s.Current);   // the only one left
-                rule.Findings[0].IsFixed = true;
-                s.Next();
-                Assert.Null(s.FocusRule);
+                // Passing the last one finishes the walk: nothing is selected, and the rule stays focused until All Rules.
+                Assert.True(s.WalkFinished);
                 Assert.Null(s.Current);
-                Assert.Contains("Done with " + rule.Title + ".", s.Status);
+                Assert.Equal(rule.Key, s.FocusRule);
+                s.EndRuleReview();
+                Assert.Null(s.FocusRule);
+                Assert.False(s.WalkFinished);
             }
         }
     }

@@ -1,0 +1,336 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using FlareAI.Core;
+using FlareAI.Core.Actions;
+using FlareAI.Core.Editing;
+using FlareAI.Core.Style;
+using FlareAI.TestKit.Editor;
+using FlareAI.TestKit.Llm;
+using FlareAI.TestKit.Workspace;
+using Xunit;
+using Xunit.Abstractions;
+
+namespace FlareAI.Scenarios.Review
+{
+    /// <summary>Walking through one rule place by place (#252): the counter, Change, Ignore and Next, and the end of the walk.</summary>
+    public class WalkRuleScenarios
+    {
+        private readonly ITestOutputHelper _out;
+        public WalkRuleScenarios(ITestOutputHelper output) { _out = output; }
+
+        private sealed class Check : IDisposable
+        {
+            public readonly FakeWorkspace Ws = FakeWorkspace.FromCorpus(@"v2\legacy");
+            public readonly WalkHost Host;
+            public readonly ReviewSession Session;
+            public readonly List<StyleFinding> Found;
+
+            public Check()
+            {
+                Host = new WalkHost(Ws);
+                var files = ActionRunner.ProjectFiles(Ws.ProjectFile);
+                var style = new StyleEngine(new[] { Repo.StyleGuide }, Repo.StyleGuide);
+                var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(style, files[0]), 16000, style, files[0]);
+                Found = runner.LintFiles(files);
+                var active = Ws.Open(files.First(f => f.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) && !Found.Any(x => string.Equals(x.DocumentPath, f, StringComparison.OrdinalIgnoreCase))));
+                Session = new ReviewSession(runner, active, Host, null, true)
+                {
+                    CurrentTeam = () => null,
+                    RecordFeedback = (f, topic, decision, reason) => null,
+                    IgnoredAiRules = p => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    ProjectOverridesPath = p => Path.Combine(Ws.ProjectDir, "overrides.ini")
+                };
+                Session.Add(Found);
+            }
+
+            public void Dispose() { Ws.Dispose(); }
+        }
+
+        private sealed class WalkHost : IReviewHost
+        {
+            private readonly FakeWorkspace _ws;
+            public WalkHost(FakeWorkspace ws) { _ws = ws; }
+
+            public bool Confirm(string message, string action) { return true; }
+            public RuleSettingChoice ChooseRuleSetting(string ruleText, bool canChangeTeamGuide, bool personalGuide, IList<RuleRef> otherRules) { return null; }
+            public RuleSettingChoice ChooseRequest(RequestQuestion question) { return null; }
+            public string AskText(string title, string label, string initial, bool multiline) { return null; }
+            public IDocumentAdapter OpenDocument(string path) { return _ws.OpenForPlugin(path); }
+            /// <summary>What the writer answers to a preview; false is Cancel.</summary>
+            public bool PreviewAnswer { get; set; } = true;
+            public int PreviewCalls { get; private set; }
+            public bool PreviewBatch(BatchPlan plan) { PreviewCalls++; return PreviewAnswer; }
+            public bool SaveAndClose(IDocumentAdapter doc)
+            {
+                var d = (FlareSimDocument)doc;
+                if (!d.OpenedByPlugin) return false;
+                d.Save();
+                d.Close();
+                return true;
+            }
+            public void ShowError(string whatHappened, string whatToDo, Exception details, string action) { }
+        }
+
+        [Fact]
+        public void Walk_CountsFromOneToTotal_ChangeIgnoreAndNextAdvance_IgnoreKeepsTheTotal()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Automatic.Count == r.Occurrences && r.Occurrences >= 5 && r.Snippets.Count == 0);
+                var n = rule.Occurrences;
+
+                s.ReviewRule(rule);
+                Assert.True(s.InWalk);
+                Assert.False(s.WalkFinished);
+                Assert.Equal(n, s.WalkTotal);
+                Assert.Equal(1, s.WalkPosition);
+                Assert.Contains(Plural.Of(n, "place") + " in ", s.Status);
+
+                s.Accept();                                  // Change
+                Assert.Equal(2, s.WalkPosition);
+                Assert.Equal(n, s.WalkTotal);
+
+                s.Reject("not for this text");               // Ignore keeps its slot and the total
+                Assert.Equal(3, s.WalkPosition);
+                Assert.Equal(n, s.WalkTotal);
+
+                s.Next();
+                Assert.Equal(4, s.WalkPosition);
+
+                while (!s.WalkFinished) s.Next();
+                Assert.Null(s.Current);
+                Assert.Equal(0, s.WalkPosition);
+                Assert.Equal(n, s.WalkTotal);
+                Assert.Equal(rule.Key, s.FocusRule);
+                Assert.StartsWith("You've been through this rule.", s.WalkFinishedText);
+                _out.WriteLine(s.WalkFinishedText);
+            }
+        }
+
+        [Fact]
+        public void Walk_PastTheLast_IsFinished_NextRuleStartsTheNextMostFrequent()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var backlog = s.Backlog();
+                Assert.True(backlog.Count >= 2);
+
+                s.ReviewRule(backlog[0]);
+                while (!s.WalkFinished) s.Next();
+                Assert.True(s.WalkFinished);
+
+                Assert.True(s.HasNextRule);
+                Assert.True(s.NextRule());
+                Assert.Equal(backlog[1].Key, s.FocusRule);
+                Assert.Equal(1, s.WalkPosition);
+                Assert.False(s.WalkFinished);
+            }
+        }
+
+        [Fact]
+        public void Walk_ThreeRulesWithOpenIssues_NextRuleGoesA_B_C_ThenNoneLeft()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var backlog = s.Backlog();
+                Assert.True(backlog.Count >= 3);
+                foreach (var r in backlog.Skip(3)) s.SkipRule(r);   // three rules left in the backlog: A, B, C
+                var rules = s.Backlog();
+                Assert.Equal(3, rules.Count);
+
+                Assert.True(s.NextRule());
+                Assert.Equal(rules[0].Key, s.FocusRule);
+                Assert.True(s.NextRule());                          // A still has open issues: Next rule goes on anyway
+                Assert.Equal(rules[1].Key, s.FocusRule);
+                Assert.True(s.Open().Exists(f => RuleBacklog.KeyOf(f) == rules[0].Key));
+                Assert.True(s.NextRule());
+                Assert.Equal(rules[2].Key, s.FocusRule);
+
+                Assert.False(s.NextRule());
+                Assert.Equal("You've been through every rule.", s.Status);
+                Assert.Null(s.FocusRule);
+                Assert.False(s.HasNextRule);
+            }
+        }
+
+        [Fact]
+        public void ProjectWalk_EachMove_OpensTheFileAtTheWords()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 2);
+
+                s.ReviewRule(rule);
+                for (var i = 1; i <= s.WalkTotal; i++)
+                {
+                    var f = s.Current;
+                    Assert.Equal(i, s.WalkPosition);
+                    Assert.True(c.Ws.IsOpen(f.DocumentPath), "place " + i + " opens " + f.DocumentPath);
+                    var doc = c.Ws.OpenDocuments.First(d => string.Equals(d.SourcePath, Path.GetFullPath(f.DocumentPath), StringComparison.OrdinalIgnoreCase));
+                    Assert.Equal(f.Excerpt, doc.SelectionText);
+                    if (i < s.WalkTotal) s.Next();
+                }
+            }
+        }
+
+        [Fact]
+        public void ProjectWalk_UncOrOutsideProjectPath_IsNotOpened_AndNextMovesOn()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+                var unc = @"\\fileserver\docs\unc.htm";
+                var outside = Path.Combine(Path.GetDirectoryName(c.Ws.ProjectDir), "outside.htm");
+                c.Ws.WriteFile(outside, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Outside</title></head><body><p>Outside.</p></body></html>");
+                var first = rule.Findings[0];
+                var second = rule.Findings[1];
+                first.DocumentPath = unc;
+                second.DocumentPath = outside;
+
+                s.ReviewRule(rule);
+                Assert.Same(first, s.Current);
+                Assert.Equal("Could not open unc.htm", s.Status);
+
+                s.Next();
+                Assert.Same(second, s.Current);
+                Assert.Equal("Could not open outside.htm", s.Status);
+
+                s.Next();
+                Assert.Equal(3, s.WalkPosition);
+                Assert.DoesNotContain(unc, c.Ws.OpenedByPlugin);
+                Assert.DoesNotContain(outside, c.Ws.OpenedByPlugin);
+                Assert.False(c.Ws.IsOpen(outside));
+            }
+        }
+
+        [Fact]
+        public void Walk_ChangeAllForTheRule_PreviewsThenGoesToTheNextOpenPlace()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Automatic.Count >= 1 && r.Automatic.Count < r.Occurrences);
+                var places = rule.Findings.ToList();
+                var k = places.FindIndex(RuleBacklog.IsAutomatic);   // Change All needs the current place to be automatic
+                var count = rule.Automatic.Count;
+
+                s.ReviewRule(rule);
+                s.Select(places[k]);
+                Assert.Equal(k + 1, s.WalkPosition);
+                Assert.Equal(count, s.WalkChangeAllCount);
+
+                s.ChangeAll();
+                Assert.Equal(1, c.Host.PreviewCalls);
+                Assert.Equal(0, s.WalkChangeAllCount);
+                Assert.Equal(rule.Key, s.FocusRule);
+                Assert.Equal(places.Count, s.WalkTotal);
+
+                var next = places.Skip(k + 1).FirstOrDefault(f => !f.IsFixed && !f.IsStale);
+                if (next == null)
+                {
+                    Assert.True(s.WalkFinished);
+                    Assert.Null(s.Current);
+                    Assert.Equal(0, s.WalkPosition);
+                }
+                else
+                {
+                    Assert.False(s.WalkFinished);
+                    Assert.Same(next, s.Current);
+                    Assert.Equal(places.IndexOf(next) + 1, s.WalkPosition);
+                }
+            }
+
+            using (var c = new Check())   // Cancel: nothing is written, and the walk stays where it was
+            {
+                var s = c.Session;
+                c.Host.PreviewAnswer = false;
+                var rule = s.Backlog().First(r => r.Automatic.Count >= 1 && r.Automatic.Count < r.Occurrences);
+                var places = rule.Findings.ToList();
+                var k = places.FindIndex(RuleBacklog.IsAutomatic);
+
+                s.ReviewRule(rule);
+                s.Select(places[k]);
+                var position = s.WalkPosition;
+                var total = s.WalkTotal;
+                var count = s.WalkChangeAllCount;
+
+                s.ChangeAll();
+                Assert.Equal(1, c.Host.PreviewCalls);
+                Assert.Same(places[k], s.Current);
+                Assert.Equal(position, s.WalkPosition);
+                Assert.Equal(total, s.WalkTotal);
+                Assert.Equal(count, s.WalkChangeAllCount);
+                Assert.False(s.WalkFinished);
+                Assert.EndsWith("Nothing was changed.", s.Status);
+            }
+        }
+
+        [Fact]
+        public void Walk_StaleIssue_KeepsItsSlot_AndNextMovesOn()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+                var places = rule.Findings.ToList();
+
+                s.ReviewRule(rule);
+                s.Select(places[1]);
+                places[1].IsStale = true;   // its text changed since the check
+
+                Assert.Equal(2, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+                Assert.Equal(AcceptOutcome.Stale, s.Accept());
+                Assert.Equal(2, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+
+                s.Next();
+                Assert.Same(places[2], s.Current);
+                Assert.Equal(3, s.WalkPosition);
+                Assert.Equal(rule.Occurrences, s.WalkTotal);
+            }
+        }
+
+        [Fact]
+        public void Walk_SwitchViewAndBack_KeepsTheRuleAndPosition()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+
+                s.ReviewRule(rule);
+                s.Next();
+                var current = s.Current;
+                var position = s.WalkPosition;
+                var total = s.WalkTotal;
+
+                // The calls the pane makes when the view is switched, minus the end of the walk (EndRuleReview) it no longer makes.
+                for (var i = 0; i < 2; i++)   // to the other view and back
+                {
+                    s.Sort();
+                    s.Backlog();
+                    s.Summary();
+
+                    Assert.True(s.IsWalking);
+                    Assert.Equal(rule.Key, s.FocusRule);
+                    Assert.Same(current, s.Current);
+                    Assert.Equal(position, s.WalkPosition);
+                    Assert.Equal(total, s.WalkTotal);
+                    Assert.False(s.WalkFinished);
+                }
+
+                s.EndRuleReview();
+                Assert.False(s.IsWalking);
+                Assert.False(s.InWalk);
+            }
+        }
+    }
+}
