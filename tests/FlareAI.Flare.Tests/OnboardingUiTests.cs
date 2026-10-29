@@ -25,6 +25,7 @@ namespace FlareAI.Flare.Tests
     public class OnboardingUiTests : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "hs-ui-" + Guid.NewGuid().ToString("N"));
+        private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
 
         public OnboardingUiTests()
         {
@@ -36,7 +37,7 @@ namespace FlareAI.Flare.Tests
         public void Dispose()
         {
             GuidedTour.Stop();
-            Paths.Root = null;
+            Paths.Root = _prevRoot;
             try { Directory.Delete(_root, true); } catch (Exception) { }
         }
 

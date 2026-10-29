@@ -22,6 +22,7 @@ namespace FlareAI.Flare.Tests
     {
         private const string Topic = "<html><head /><body><h1>Fees</h1><p>Please utilize the tool. Then utilize the menu.</p></body></html>";
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "hs-ignored-" + Guid.NewGuid().ToString("N"));
+        private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
         private readonly string _dismissedPath;
 
         public IgnoredIssuesFormTests()
@@ -35,7 +36,7 @@ namespace FlareAI.Flare.Tests
 
         public void Dispose()
         {
-            FlareAI.Core.Paths.Root = null;
+            FlareAI.Core.Paths.Root = _prevRoot;
             try
             {
                 if (File.Exists(_dismissedPath)) File.SetAttributes(_dismissedPath, FileAttributes.Normal);
