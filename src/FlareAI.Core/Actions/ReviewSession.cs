@@ -298,10 +298,14 @@ namespace FlareAI.Core.Actions
             if (f != null && f.DocumentPath == null) GoTo(f, false);
         }
 
-        /// <summary>Selects a suggestion (null clears the selection).</summary>
+        /// <summary>
+        /// Selects a suggestion (null clears the selection). In a project walk the suggestion's file is opened with its words
+        /// selected; a file that can't be opened is reported and the walk stays where it is, so N moves on.
+        /// </summary>
         public void Select(StyleFinding f)
         {
             Current = f != null && _findings.Contains(f) ? f : null;
+            if (Current != null && InWalk && _project) GoTo(Current, true);
             var h = SelectRequested;
             if (h != null) h(f);
         }
@@ -674,10 +678,33 @@ namespace FlareAI.Core.Actions
             var path = FilePathOf(f);
             if (path == null) return null;
             IDocumentAdapter doc = null;
-            try { doc = _host.OpenDocument(path); } catch (Exception ex) { Diagnostics.Log("OpenFile", ex); }
-            Status = doc == null ? "Could not open " + path : "Opened " + System.IO.Path.GetFileName(path) + ".";
+            if (!_project || IsOpenablePath(path))
+                try { doc = _host.OpenDocument(path); } catch (Exception ex) { Diagnostics.Log("OpenFile", ex); }
+            Status = doc == null ? "Could not open " + System.IO.Path.GetFileName(path) : "Opened " + System.IO.Path.GetFileName(path) + ".";
             return doc;
         }
+
+        /// <summary>
+        /// A file a project report may open: under the project folder of the checked topic, and not on a network share (UNC).
+        /// Only the project's own files are opened; a path outside it, or one that can't be resolved, is refused.
+        /// </summary>
+        private bool IsOpenablePath(string path)
+        {
+            if (string.IsNullOrEmpty(path) || IsUncPath(path)) return false;
+            var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
+            if (root == null) return false;
+            try
+            {
+                var full = System.IO.Path.GetFullPath(path);
+                if (IsUncPath(full)) return false;
+                var folder = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar) +
+                             System.IO.Path.DirectorySeparatorChar;
+                return full.StartsWith(folder, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
+        }
+
+        private static bool IsUncPath(string path) { return path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal); }
 
         /// <summary>Go to button and Ctrl+Enter: open the topic or snippet and select the flagged text.</summary>
         public void GoToCurrent()
@@ -691,7 +718,7 @@ namespace FlareAI.Core.Actions
         {
             if (f.IsFixed) return;
             var doc = DocOf(f, report);
-            if (doc == null) { if (report) Status = "Could not open " + f.DocumentPath; return; }
+            if (doc == null) { if (report) Status = "Could not open " + System.IO.Path.GetFileName(f.DocumentPath); return; }
             var ok = false;
             try { ok = _runner.GoTo(doc, f); } catch (Exception ex) { Diagnostics.Log("GoTo", ex); }
             if (!ok && report) Status = "That text is no longer in the topic. Lint the paragraph again.";
@@ -855,10 +882,10 @@ namespace FlareAI.Core.Actions
             _walk = rule.Findings.FindAll(f => !f.IsFixed && !f.IsStale && _findings.Contains(f));
             if (_walk.Count == 0) _walk = new List<StyleFinding>(rule.Findings);
             WalkFinished = false;
-            Select(_walk[0]);
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in _walk) paths.Add(f.DocumentPath ?? "");
             Status = rule.Title + ", " + _walk.Count + " places in " + (_project ? paths.Count : 1) + " files.";
+            Select(_walk[0]);   // after the status: a first place that can't be opened says so
         }
 
         /// <summary>The status when every rule has been walked since the last lint.</summary>
@@ -1376,7 +1403,7 @@ namespace FlareAI.Core.Actions
         private IDocumentAdapter DocOf(StyleFinding f, bool open)
         {
             var path = f.DocumentPath ?? _doc.SourcePath;
-            if (open && path != null)
+            if (open && path != null && (!_project || IsOpenablePath(path)))
             {
                 var opened = _host.OpenDocument(path);
                 if (opened != null && f.DocumentPath == null) return _doc; // keep the adapter whose DOM the findings came from

@@ -153,5 +153,57 @@ namespace FlareAI.Scenarios.Review
                 Assert.False(s.HasNextRule);
             }
         }
+
+        [Fact]
+        public void ProjectWalk_EachMove_OpensTheFileAtTheWords()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 2);
+
+                s.ReviewRule(rule);
+                for (var i = 1; i <= s.WalkTotal; i++)
+                {
+                    var f = s.Current;
+                    Assert.Equal(i, s.WalkPosition);
+                    Assert.True(c.Ws.IsOpen(f.DocumentPath), "place " + i + " opens " + f.DocumentPath);
+                    var doc = c.Ws.OpenDocuments.First(d => string.Equals(d.SourcePath, Path.GetFullPath(f.DocumentPath), StringComparison.OrdinalIgnoreCase));
+                    Assert.Equal(f.Excerpt, doc.SelectionText);
+                    if (i < s.WalkTotal) s.Next();
+                }
+            }
+        }
+
+        [Fact]
+        public void ProjectWalk_UncOrOutsideProjectPath_IsNotOpened_AndNextMovesOn()
+        {
+            using (var c = new Check())
+            {
+                var s = c.Session;
+                var rule = s.Backlog().First(r => r.Occurrences >= 3);
+                var unc = @"\\fileserver\docs\unc.htm";
+                var outside = Path.Combine(Path.GetDirectoryName(c.Ws.ProjectDir), "outside.htm");
+                c.Ws.WriteFile(outside, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<html><head><title>Outside</title></head><body><p>Outside.</p></body></html>");
+                var first = rule.Findings[0];
+                var second = rule.Findings[1];
+                first.DocumentPath = unc;
+                second.DocumentPath = outside;
+
+                s.ReviewRule(rule);
+                Assert.Same(first, s.Current);
+                Assert.Equal("Could not open unc.htm", s.Status);
+
+                s.Next();
+                Assert.Same(second, s.Current);
+                Assert.Equal("Could not open outside.htm", s.Status);
+
+                s.Next();
+                Assert.Equal(3, s.WalkPosition);
+                Assert.DoesNotContain(unc, c.Ws.OpenedByPlugin);
+                Assert.DoesNotContain(outside, c.Ws.OpenedByPlugin);
+                Assert.False(c.Ws.IsOpen(outside));
+            }
+        }
     }
 }
