@@ -33,11 +33,11 @@ Invoke-Ribbon "Lint Project"
 Wait-PaneDone 300 | Out-Null
 Send-E2E click "By rule" | Out-Null
 
-# 2. A rule in two files or more: its source reads "N in M files" with M of 2 or more.
+# 2. A rule in two files or more with automatic changes: its source reads "N in M files · Auto-fix", M of 2 or more.
 $rows = Rows
 $i = -1
-for ($k = 0; $k -lt $rows.Count; $k++) { if ($rows[$k].source -match ' in (\d+) files' -and [int]$Matches[1] -ge 2) { $i = $k; break } }
-Assert-E2E ($i -ge 0) "By Rule lists a rule in 2 files or more (sources: $(($rows.source) -join ' | '))"
+for ($k = 0; $k -lt $rows.Count; $k++) { if ($rows[$k].source -match ' in (\d+) files' -and [int]$Matches[1] -ge 2 -and $rows[$k].source -match 'Auto-fix') { $i = $k; break } }
+Assert-E2E ($i -ge 0) "By Rule lists a rule with automatic changes in 2 files or more (sources: $(($rows.source) -join ' | '))"
 $row = $rows[$i]
 Write-Host "   row $i`: $($row.text) ($($row.source))"
 Send-E2E rowMenu "(select only)" -Extra @{ index = $i } | Out-Null   # no item starts with that, so it only selects the row
@@ -74,7 +74,7 @@ Assert-E2E ($s5.pane.panel.walk.total -eq $p5.total) "Ignore leaves the walk's t
 AssertProject "after Ignore"
 
 # 6. Change a place House Style can fix in another file: Enter changes it and the walk moves on.
-KeyUntil "n" { $c = CardFile; [bool]$c -and $c -ne $firstFile -and (PaneButtons -contains "Change") } "N to reach a place House Style can change in another file"
+KeyUntil "n" { $c = CardFile; [bool]$c -and $c -ne $firstFile -and @((Get-E2EState).pane.buttons | Where-Object { $_.text -eq "Change" -and $_.enabled }).Count -eq 1 } "N to reach a place House Style can change in another file"
 $s6 = Get-E2EState
 $fileHere = CardFile
 $p6 = $s6.pane.panel.walk.position
