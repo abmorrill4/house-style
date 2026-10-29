@@ -536,7 +536,7 @@ namespace FlareAI.Flare.Tests
             try
             {
                 t.Start();
-                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+                if (!t.Join(180000)) throw new TimeoutException("The UI test didn't finish in 180 s.");   // a loaded CI runner took the suite from 50 s to 2 min (2026-10-29)
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);

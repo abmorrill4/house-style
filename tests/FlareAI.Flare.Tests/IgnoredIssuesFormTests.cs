@@ -220,7 +220,7 @@ namespace FlareAI.Flare.Tests
             t.SetApartmentState(ApartmentState.STA);
             t.IsBackground = true;
             t.Start();
-            if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s.");
+            if (!t.Join(180000)) throw new TimeoutException("The UI test didn't finish in 180 s.");   // a loaded CI runner took the suite from 50 s to 2 min (2026-10-29)
             if (error != null) throw new Exception(error.Message, error);
         }
 
