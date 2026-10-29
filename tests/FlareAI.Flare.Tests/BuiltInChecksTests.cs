@@ -22,13 +22,14 @@ namespace FlareAI.Flare.Tests
     public class BuiltInChecksTests : IDisposable
     {
         private readonly string _temp = Path.Combine(Path.GetTempPath(), "flareai-builtin-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+        private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
 
         // The writer's data folder (onboarding notes, UI state) is a temp folder: these tests never write to %APPDATA%.
         public BuiltInChecksTests() { FlareAI.Core.Paths.Root = Path.Combine(_temp, "root"); }
 
         public void Dispose()
         {
-            FlareAI.Core.Paths.Root = null;
+            FlareAI.Core.Paths.Root = _prevRoot;
             try { Directory.Delete(_temp, true); } catch (Exception) { }
         }
 
