@@ -377,6 +377,13 @@ namespace FlareAI.Flare.UI
 
         private CatalogRule Current() { return _list.SelectedItems.Count == 1 ? (CatalogRule)_list.SelectedItems[0].Tag : null; }
 
+        /// <summary>True for a built-in check: its layer is the one built in code (IsBuiltIn), not a guide's. Its words are in
+        /// code, so it has no Avoid line; its level can still change.</summary>
+        private bool IsBuiltIn(CatalogRule r)
+        {
+            return r != null && _style.Compose(_project).Layers.Any(l => l.IsBuiltIn && string.Equals(l.Name, r.Origin, StringComparison.OrdinalIgnoreCase));
+        }
+
         // ---- details --------------------------------------------------------------------------------------------
 
         private void ShowSelected()
@@ -414,15 +421,15 @@ namespace FlareAI.Flare.UI
             if (r.IsTable)
             {
                 if (r.IsPattern) sb.Append("Pattern: ").Append(r.Avoid.FirstOrDefault()).Append(nl);
-                else sb.Append("Avoid: ").Append(string.Join(", ", r.Avoid.Select(a => "'" + a + "'").ToArray())).Append(nl);
+                else if (!IsBuiltIn(r)) sb.Append("Avoid: ").Append(string.Join(", ", r.Avoid.Select(a => "'" + a + "'").ToArray())).Append(nl);
                 sb.Append(r.Action == "replace" ? "Use: '" + r.Use + "' (changed automatically)"
                         : r.Action == "remove" ? "Use: delete it (changed automatically)"
                         : "Use: rewrite it (the writer decides)").Append(nl);
                 if (!string.IsNullOrEmpty(r.Example)) sb.Append("Example: ").Append(r.Example).Append(nl);
             }
             if (r.Terms.Count > 0) sb.Append("About the words: ").Append(string.Join(", ", r.Terms.ToArray())).Append(nl);
-            if (r.Bad.Length > 0) sb.Append("Bad: ").Append(r.Bad).Append(nl);
-            if (r.Good.Length > 0) sb.Append("Good: ").Append(r.Good).Append(nl);
+            if (!string.IsNullOrEmpty(r.Bad)) sb.Append("Bad: ").Append(r.Bad).Append(nl);   // built-in checks have no examples: null
+            if (!string.IsNullOrEmpty(r.Good)) sb.Append("Good: ").Append(r.Good).Append(nl);
             sb.Append("Applies to: ").Append(r.Content.Count == 0 ? "everywhere" : string.Join(", ", r.Content.ToArray()));
             if (r.Products.Count > 0) sb.Append("; products: ").Append(string.Join(", ", r.Products.ToArray()));
             sb.Append(nl);
