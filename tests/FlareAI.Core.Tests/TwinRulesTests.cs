@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -125,6 +126,49 @@ namespace FlareAI.Core.Tests
             Assert.NotNull(cat.Find("Company.GlossaryTerms"));
             Assert.Empty(RuleChanges.TwinsOf(cat, "Company.GlossaryTerms"));
             Assert.Empty(RuleChanges.TwinsOf(cat, "no:such/1"));
+        }
+
+        [Fact]
+        public void TeamScopeCheckerChange_RequiresAnOwner()
+        {
+            Glossary("single sign-on");
+            var cat = RuleCatalog.Build(Engine().Compose(_topic));
+            var checker = cat.Find("Company.GlossaryTerms");
+            Assert.NotNull(checker);
+            var guide = Path.Combine(_root, "Guide");
+            Write(@"Guide\FlareAI\owners.txt", "lead@example.com\n");
+            var writer = Team.Load(guide, null, "pat@example.com");
+            Assert.False(writer.IsOwner);
+
+            // A writer who isn't listed can't change the guide's rules, the checker's included: nothing is written.
+            Assert.Throws<UnauthorizedAccessException>(() => GuideOverrides.Set(writer, checker.Key, "off", "Our spelling."));
+            Assert.Single(Directory.GetFiles(guide, "*", SearchOption.AllDirectories));
+
+            // An owner's change to the checker is written into the guide, by its key.
+            var owner = Team.Load(guide, null, "lead@example.com");
+            Assert.True(owner.IsOwner);
+            var result = RuleChanges.Change(owner, checker, new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = "Our spelling." }, null, _topic);
+            Assert.Equal(new[] { "Company.GlossaryTerms" }, result.Changed);
+        }
+
+        [Fact]
+        public void ProjectScopeCheckerChange_WritesARowNamedForTheChecker_OnlyWhenTicked()
+        {
+            Glossary("single sign-on");
+            var cat = RuleCatalog.Build(Engine().Compose(_topic));
+            var rule = cat.Find("company:terminology/6");
+            var twins = RuleChanges.TwinsOf(cat, "company:terminology/6");
+            Assert.NotNull(rule);
+
+            // Not ticked: the checker isn't changed, even though it's a twin.
+            var none = RuleChanges.Change(null, rule, new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Our spelling." }, twins, _topic);
+            Assert.DoesNotContain("Company.GlossaryTerms", none.Changed);
+
+            // Ticked: the checker gets a project row named for the checker, whether or not the other twins are ticked.
+            var choice = new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Our spelling.", AlsoCheckers = new List<string> { "Company.GlossaryTerms" } };
+            var ticked = RuleChanges.Change(null, rule, choice, twins, _topic);
+            Assert.Contains("Company.GlossaryTerms", ticked.Changed);
+            Assert.Contains("Company.GlossaryTerms", File.ReadAllText(ticked.File));
         }
 
         [Fact]
