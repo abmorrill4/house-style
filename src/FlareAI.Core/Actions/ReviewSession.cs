@@ -54,6 +54,8 @@ namespace FlareAI.Core.Actions
         private readonly Dismissals _dismissed;
         private readonly bool _project;
         private readonly List<StyleFinding> _findings = new List<StyleFinding>();
+        /// <summary>Rejected suggestions, kept aside (one per <see cref="Dismissals"/> key) so the writer can see and restore them.</summary>
+        private readonly List<StyleFinding> _ignored = new List<StyleFinding>();
         private readonly Dictionary<string, int> _usage = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         /// <summary>Other files this session wrote fixes in that stayed open in the editor (their undo history is there).</summary>
         private readonly Dictionary<string, IDocumentAdapter> _writtenIn = new Dictionary<string, IDocumentAdapter>(StringComparer.OrdinalIgnoreCase);
@@ -115,6 +117,9 @@ namespace FlareAI.Core.Actions
         /// <summary>The suggestions, in reading order (by file in a project report).</summary>
         public ReadOnlyCollection<StyleFinding> Findings { get { return _findings.AsReadOnly(); } }
 
+        /// <summary>The suggestions the writer ignored (rejected or dismissed earlier), kept out of <see cref="Findings"/>.</summary>
+        public ReadOnlyCollection<StyleFinding> Ignored { get { return _ignored.AsReadOnly(); } }
+
         public IDocumentAdapter Topic { get { return _doc; } }
         public bool IsProjectReport { get { return _project; } }
 
@@ -130,6 +135,8 @@ namespace FlareAI.Core.Actions
 
         /// <summary>The list changed (added, applied, removed, re-sorted): redraw it, keeping <see cref="Current"/> selected.</summary>
         public event Action ListChanged;
+        /// <summary>The ignored list changed (a suggestion was ignored, or dropped with its topic or file): redraw it.</summary>
+        public event Action IgnoredChanged;
         /// <summary>The session moved the selection (null clears it).</summary>
         public event Action<StyleFinding> SelectRequested;
         public event Action<string> StatusChanged;
@@ -140,6 +147,12 @@ namespace FlareAI.Core.Actions
 
         /// <summary>The topic's empty state.</summary>
         public const string NoIssuesInTopic = "No issues found in this topic.";
+        /// <summary>Status after one ignored issue came back.</summary>
+        public const string RestoredOneText = "Restored. The issue is back in the list.";
+        /// <summary>Status after several ignored issues came back.</summary>
+        public static string RestoredManyText(int n) { return "Restored " + n + " issues. They are back in the list."; }
+        /// <summary>Status when the restore could not be saved: the issue is back for now only.</summary>
+        public const string SaveFailedText = "Restored for now. House Style couldn't save this, so it may be hidden again next time.";
         private const string TextChanged = "The text changed. Lint the paragraph again.";
         private const string UndoneBack = "The change was undone. The issue is back.";
 
@@ -150,12 +163,34 @@ namespace FlareAI.Core.Actions
             try { h(e); } catch (Exception ex) { Diagnostics.Log("review event " + e, ex); }
         }
 
+        /// <summary>Parks a rejected suggestion in <see cref="Ignored"/>, once per dismissal key.</summary>
+        private void Park(StyleFinding f, string topicPath)
+        {
+            var key = Dismissals.Key(f, topicPath);
+            if (_ignored.Exists(m => Dismissals.Key(m, topicPath) == key)) return;
+            _ignored.Add(f);
+            RaiseIgnored();
+        }
+
+        /// <summary>Drops the ignored suggestions that match, and tells the view when any went.</summary>
+        private void DropIgnored(Predicate<StyleFinding> gone)
+        {
+            if (_ignored.RemoveAll(gone) > 0) RaiseIgnored();
+        }
+
+        private void RaiseIgnored()
+        {
+            var h = IgnoredChanged;
+            if (h != null) h();
+        }
+
         // ---- the list ---------------------------------------------------------------------------
 
         /// <summary>Forgets every suggestion (a new check starts).</summary>
         public void Clear()
         {
             _findings.Clear();
+            DropIgnored(f => true);
             _skippedRules.Clear();
             FocusRule = null;
             Current = null;
@@ -171,7 +206,7 @@ namespace FlareAI.Core.Actions
             var added = new List<StyleFinding>();
             foreach (var f in found)
             {
-                if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) continue;
+                if (_dismissed != null && _dismissed.IsDismissed(f, _doc.SourcePath)) { Park(f, _doc.SourcePath); continue; }
                 var key = ExemptRuleKey(f);
                 var topic = key == null ? null : Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
                 if (topic != null && Exemptions.Covers(_exemptions, topic, key, f.Excerpt, f.Before ?? ""))
@@ -216,6 +251,7 @@ namespace FlareAI.Core.Actions
             if (_project) return;
             RecheckApplied();   // an undone fix is live again, so the fresh lint below replaces it instead of duplicating it
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
+            DropIgnored(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);   // the fresh lint parks them again, once
             var own = Exemptions.TopicPathFor(_doc.SourcePath);
             if (own != null) _exemptIdentities.RemoveWhere(id => id.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal));
             RefreshExemptions();
@@ -226,6 +262,7 @@ namespace FlareAI.Core.Actions
         public void RemoveFiles(Func<string, bool> excluded)
         {
             _findings.RemoveAll(f => f.DocumentPath != null && excluded(f.DocumentPath));
+            DropIgnored(f => f.DocumentPath != null && excluded(f.DocumentPath));
             if (Current != null && !_findings.Contains(Current)) Current = null;
             Sort();
         }
@@ -1005,13 +1042,79 @@ namespace FlareAI.Core.Actions
         {
             var f = Current;
             if (f == null) return;
-            if (_dismissed != null) _dismissed.Dismiss(f, _doc.SourcePath);
-            RecordFeedback(f, _doc.SourcePath, "rejected", reason);
             var next = NextAfter(f);
-            _findings.Remove(f);
+            _findings.Remove(f);   // first, so the row leaves the list even if recording the decision fails
+            try
+            {
+                if (_dismissed != null) _dismissed.Dismiss(f, _doc.SourcePath);
+                RecordFeedback(f, _doc.SourcePath, "rejected", reason);
+            }
+            catch (Exception ex) { Diagnostics.Log("Reject", ex); }
+            Park(f, _doc.SourcePath);
             Sort();
             Select(next);
             Status = Summary() + "  Ignored. It stays hidden for this text.";
+        }
+
+        /// <summary>What <see cref="Restore"/> did: how many issues came back, and whether the restore was saved.</summary>
+        public sealed class RestoreResult
+        {
+            public int Restored { get; private set; }
+            public bool Saved { get; private set; }
+            public RestoreResult(int restored, bool saved) { Restored = restored; Saved = saved; }
+        }
+
+        /// <summary>
+        /// Brings ignored issues back: they are shown again now and no longer hidden on later checks. Issues that are
+        /// the same text come back together. One that no longer matches its text exactly comes back marked stale.
+        /// The first one restored is selected.
+        /// </summary>
+        public RestoreResult Restore(IList<StyleFinding> items)
+        {
+            var saved = true;
+            var back = new List<StyleFinding>();
+            if (items != null)
+            {
+                foreach (var f in items)
+                {
+                    if (f == null) continue;
+                    if (_dismissed != null && !_dismissed.Restore(f, _doc.SourcePath)) saved = false;
+                    RecordFeedback(f, _doc.SourcePath, "restored", null);
+                    var key = Dismissals.Key(f, _doc.SourcePath);
+                    foreach (var m in _ignored.FindAll(x => Dismissals.Key(x, _doc.SourcePath) == key))
+                    {
+                        _ignored.Remove(m);
+                        _findings.Add(m);
+                        back.Add(m);
+                    }
+                }
+            }
+            if (back.Count == 0 && (items == null || items.Count == 0)) return new RestoreResult(0, saved);
+
+            var doms = new Dictionary<string, XmlDocument>(StringComparer.OrdinalIgnoreCase);
+            var texts = new Dictionary<XmlNode, string>();
+            foreach (var f in back)
+            {
+                try
+                {
+                    var dom = DomOf(f, doms);
+                    if (dom == null) continue;
+                    if (!string.IsNullOrEmpty(f.Excerpt))
+                    {
+                        XmlText run; int start; bool exact;
+                        var found = FindingLocator.TryLocate(dom, f, out run, out start, out exact);
+                        f.IsStale = !(found && exact);
+                    }
+                    Record(f, dom, texts);
+                }
+                catch (Exception ex) { Diagnostics.Log("restore: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
+            }
+            Sort();
+            var first = _findings.Find(back.Contains);
+            if (first != null) Select(first);
+            RaiseIgnored();
+            Status = !saved ? SaveFailedText : back.Count == 1 ? RestoredOneText : RestoredManyText(back.Count);
+            return new RestoreResult(back.Count, saved);
         }
 
         /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>

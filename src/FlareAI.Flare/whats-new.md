@@ -14,6 +14,7 @@ New entries go in changes/<name>.md, not here: the nightly release adds them to 
 - Close in the issues pane now closes it, also when the pane sits next to Content Explorer.
 - Lint Project can leave files out. Right-click an issue and select Exclude File from Lint Project or Exclude Folder
   from Lint Project. Excluded Files at the top of the pane lists them, and Include Again lints them again.
+- You can now see the issues you ignored under Ignored Issues (n) and Restore them. If the text changed since you ignored one, it shows as text changed.
 - An issue that the AI review and your style rules both find is listed once, not twice.
 - Help opens the House Style user guide, now online at gethousestyle.com/guide.
 - Report a Problem has one box. Describe the problem or the change you'd like, and select Send.
