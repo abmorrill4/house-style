@@ -194,7 +194,7 @@ namespace FlareAI.Core.Tests
             // The copy predates the bundled defaults (its table was empty then; "this page" is one of them now).
             Edit(Style(@"Company\Google-overrides.htm"), x => { foreach (XmlNode tr in x.SelectNodes("//*[local-name()='tr'][*[local-name()='td']]")) tr.ParentNode.RemoveChild(tr); });
             // Rule changes the writer made (with who and when), and one typed in by hand.
-            GuideOverrides.Set(_userGuide, "google:words/2", "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
+            GuideOverrides.Set(_userGuide, "google:word-list/6", "off", "We say utilize.", "pat@example.com", new DateTime(2026, 9, 1));
             GuideOverrides.Set(_userGuide, "google:word-list/5", "error", "Hand edit.");
             // A rule added with Build style guide, and a rule the writer added to a bundled topic.
             GuideBuilder.Write(Style("From-our-content.htm"), new List<RuleCandidate> { new RuleCandidate { Avoid = "click on", Use = "click", Why = "Shorter.", Example = "Click on Save." } }, "From our content");
@@ -244,7 +244,7 @@ namespace FlareAI.Core.Tests
             Assert.True(GuideSeed.IsPersonal(_userGuide));
             var backup = Backups().Single();
             Assert.Equal(before.Keys.ToArray(), Files(backup).ToArray());
-            Assert.Contains("google:words/2", File.ReadAllText(Path.Combine(backup, @"Content\Resources\StyleGuide\Company\Google-overrides.htm")));
+            Assert.Contains("google:word-list/6", File.ReadAllText(Path.Combine(backup, @"Content\Resources\StyleGuide\Company\Google-overrides.htm")));
 
             Assert.Equal(new[]
             {
@@ -257,8 +257,8 @@ namespace FlareAI.Core.Tests
             }, Files(_userGuide).ToArray());
 
             var rows = RuleOverrides.Read(_userGuide, "My style guide");
-            Assert.Equal(new[] { "google:word-list/5", "google:words/2" }, rows.Select(r => r.RuleId).OrderBy(r => r).ToArray());
-            var mine = rows.Single(r => r.RuleId == "google:words/2");
+            Assert.Equal(new[] { "google:word-list/5", "google:word-list/6" }, rows.Select(r => r.RuleId).OrderBy(r => r).ToArray());
+            var mine = rows.Single(r => r.RuleId == "google:word-list/6");
             Assert.Equal("off", mine.Setting);
             Assert.Equal("pat@example.com", mine.By);
             Assert.Equal("2026-09-01", mine.Date);
@@ -268,7 +268,7 @@ namespace FlareAI.Core.Tests
             var engine = Engine(s);
             Assert.True(engine.IsOff(null, ThisPage));                                                  // the new bundled default arrives
             Assert.Empty(Hits(engine, ThisPageText, ThisPage));
-            Assert.True(engine.IsOff(null, "google:words/2"));                                          // my changes still apply
+            Assert.True(engine.IsOff(null, "google:word-list/6"));                                          // my changes still apply
             var rules = engine.Rules(null);
             Assert.Equal(1, rules.Count(r => r.Id == "company:terminology/1"));                         // my Terminology stands in for the bundled one
             Assert.Contains(rules, r => r.Text.Contains("the mobile app"));

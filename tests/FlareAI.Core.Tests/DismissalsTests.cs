@@ -35,5 +35,52 @@ namespace FlareAI.Core.Tests
             Assert.Equal(1, text.Split(new[] { "Google.Will = NO" }, StringSplitOptions.None).Length - 1);
             Assert.Contains("two actions in one step", ProjectRules.IgnoredAiRules(topic));
         }
+
+        [Fact]
+        public void Restore_RemovesTheKey_AndSurvivesReload()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var f = new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "It " };
+            Dismissals.Load(store).Dismiss(f, @"C:\p\A.htm");
+            Assert.True(Dismissals.Load(store).Restore(f, @"C:\p\A.htm"));
+            var again = Dismissals.Load(store);
+            Assert.False(again.IsDismissed(f, @"C:\p\A.htm"));
+        }
+
+        [Fact]
+        public void Restore_UnknownKey_DoesNothing()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var kept = new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "It " };
+            var other = new StyleFinding { Rule = "Google.Will", Excerpt = "will", Before = "They " };
+            Dismissals.Load(store).Dismiss(kept, @"C:\p\A.htm");
+            var before = File.ReadAllText(store);
+            Assert.True(Dismissals.Load(store).Restore(other, @"C:\p\A.htm"));
+            Assert.Equal(before, File.ReadAllText(store));
+            Assert.True(Dismissals.Load(store).IsDismissed(kept, @"C:\p\A.htm"));
+        }
+
+        [Fact]
+        public void Restore_WhenTheFileCantBeWritten_ReturnsFalse_AndLogsNoKey()
+        {
+            var store = Path.Combine(_root, "dismissed.json");
+            var f = new StyleFinding { Rule = "Google.Will", Excerpt = "ZQX-secret-wording", Before = "It " };
+            var d = Dismissals.Load(store);
+            d.Dismiss(f, @"C:\p\A.htm");
+            File.Delete(store);
+            Directory.CreateDirectory(store);   // a folder where the file should be: the write throws
+            var lines = new System.Collections.Generic.List<string>();
+            var oldSink = Diagnostics.Sink;
+            Diagnostics.Sink = l => { lock (lines) lines.Add(l); };
+            try
+            {
+                Assert.False(d.Restore(f, @"C:\p\A.htm"));
+                string logged;
+                lock (lines) logged = string.Join("\n", lines.ToArray());
+                Assert.Contains("dismissed.json", logged);
+                Assert.DoesNotContain("ZQX-secret-wording", logged);
+            }
+            finally { Diagnostics.Sink = oldSink; }
+        }
     }
 }

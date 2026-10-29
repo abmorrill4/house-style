@@ -52,7 +52,23 @@ namespace FlareAI.Core.Actions
             }
         }
 
-        private static string Key(StyleFinding f, string topicPath)
+        /// <summary>Brings a dismissed finding back. False when the file couldn't be written (the finding stays restored for this session).</summary>
+        public bool Restore(StyleFinding f, string topicPath)
+        {
+            lock (_gate)
+            {
+                if (!_keys.Remove(Key(f, topicPath)) || _path == null) return true;
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(_path));
+                    File.WriteAllText(_path, JsonConvert.SerializeObject(new List<string>(_keys), Formatting.Indented), ProjectRules.NoBom);
+                    return true;
+                }
+                catch (Exception ex) { Diagnostics.Log("dismissed.json", ex); return false; }
+            }
+        }
+
+        internal static string Key(StyleFinding f, string topicPath)
         {
             var file = (f.DocumentPath ?? topicPath ?? "").ToLowerInvariant();
             return file + "|" + f.Rule + "|" + f.Excerpt + "|" + (f.Before ?? "");

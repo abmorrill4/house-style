@@ -1,0 +1,1 @@
+- Ignored Issues (n) in the issues pane lists the issues you ignored, and Restore brings one back to the list. If its text changed, it shows as text changed.

@@ -1,0 +1,1 @@
+- You can now disable the built-in checks, such as heading order and alt text, with Disable Rule or in Rules.

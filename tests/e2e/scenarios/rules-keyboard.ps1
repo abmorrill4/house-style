@@ -46,6 +46,21 @@ Assert-E2E ((Get-Content $topic -Raw) -like "*Say members when you mean our cust
 
 Keys "^f"
 Assert-E2E ((Focused) -eq "Search rules") "Ctrl+F goes back to search (focus: $(Focused))"
+
+# A built-in check: search for it, reach Disable Rule by Tab, and its dialog says what the check is. Esc closes it.
+Keys "^a"
+Keys "headings go down"
+Keys "{ENTER}"
+Wait-Until { $d = Rules; $d -and $d.focus -eq "Rules" -and @($d.rows | Where-Object { $_.selected -and $_.text -like "Headings go down*" }).Count } 15 "Enter to select the heading rule" | Out-Null
+$tabs = 0
+while ((Focused) -ne "Disable Rule" -and $tabs -lt 5) { Keys "{TAB}"; $tabs++ }
+Assert-E2E ((Focused) -eq "Disable Rule") "Tab reaches Disable Rule for a built-in check (focus: $(Focused))"
+Keys "{ENTER}"
+$dis = Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" } } 15 "Enter on Disable Rule to open its dialog"
+Assert-E2E ((@($dis.text) -join " ") -like "*Built-in checks*") "the Disable Rule dialog starts with Built-in checks (text: $($dis.text))"
+Keys "{ESC}"
+Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" }) } 15 "Esc to close Disable Rule" | Out-Null
+
 Keys "{ESC}"
 Wait-Until { -not (Rules) } 15 "Esc to close Rules" | Out-Null
 Remove-Item $guide -Recurse -Force -ErrorAction SilentlyContinue
