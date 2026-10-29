@@ -1228,16 +1228,19 @@ namespace FlareAI.Core.Actions
             var guide = team != null ? team.GuideRoot : null;
             var personal = team != null && team.IsPersonal;
             var described = Describe(f, rule);
-            var others = rule != null ? f.AlsoRules : null;   // other rules on the same words: turning off this one would expose them
-            if (others != null)
+            List<RuleRef> others = null;   // other rules on the same words: turning off this one would expose them
+            if (rule != null)
             {
-                var readable = new List<RuleRef>();   // the rule's text, not its id
-                foreach (var o in others)
+                // The twins in the guide first, then the rules this issue was merged with that the guide doesn't list as twins.
+                others = new List<RuleRef>();
+                foreach (var t in _runner.TwinsOf(f.RuleId))
+                    if (t.Id != f.RuleId && !others.Exists(x => x.Id == t.Id)) others.Add(t);
+                foreach (var o in f.AlsoRules)
                 {
-                    var r = _runner.RuleFor(o.Id);
-                    readable.Add(new RuleRef { Id = o.Id, Layer = o.Layer, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
+                    if (o.Id == f.RuleId || others.Exists(x => x.Id == o.Id)) continue;
+                    var r = o.IsChecker ? null : _runner.RuleFor(o.Id);   // the rule's text, not its id
+                    others.Add(new RuleRef { Id = o.Id, Layer = o.Layer, IsChecker = o.IsChecker, Name = r != null ? _runner.SourceName(r.Layer, r.Id) + " · " + r.Section + ": " + r.Text : o.Name });
                 }
-                others = readable;
             }
             var choice = _host.ChooseRuleSetting(described, rule != null && guide != null, personal, others);
             if (choice == null) return;
@@ -1245,7 +1248,10 @@ namespace FlareAI.Core.Actions
             var target = choice.ForTeam ? guide : ProjectOverridesPath(path);
             var changed = new List<string>();
             var all = new List<StyleFinding> { f };
-            if (choice.AlsoOthers && others != null) foreach (var o in others) all.Add(new StyleFinding { RuleId = o.Id, Rule = o.Name, Layer = o.Layer, Source = "lint" });
+            if (others != null)
+                foreach (var o in others)
+                    if (o.IsChecker ? choice.AlsoCheckers.Contains(o.Id) : choice.AlsoOthers)
+                        all.Add(new StyleFinding { RuleId = o.Id, Rule = o.IsChecker ? o.Id : o.Name, Layer = o.Layer, Source = "lint" });
             foreach (var one in all)
             {
                 try
@@ -1279,7 +1285,18 @@ namespace FlareAI.Core.Actions
             if (choice.Setting == "off")
             {
                 if (f.Layer == "ai" && f.RuleId == null) IgnoredAi().Add(f.Rule);
-                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) : x.Rule == f.Rule);
+                // A checker has no id: its issues are found by its name, so a ticked checker clears every one of them.
+                var tickedCheckers = choice.AlsoCheckers;
+                _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) || (x.RuleId == null && x.Rule != null && tickedCheckers.Contains(x.Rule)) : x.Rule == f.Rule);
+                // A checker merged into the shown issue and left on still flags these words: keep its issue, named for it.
+                if (f.RuleId != null)
+                    foreach (var o in f.AlsoRules)
+                    {
+                        if (!o.IsChecker || tickedCheckers.Contains(o.Id) || _findings.Exists(x => x.RuleId == null && x.Rule == o.Id && x.Block == f.Block && x.Excerpt == f.Excerpt)) continue;
+                        var kept = Clone(f);
+                        kept.Rule = o.Id; kept.RuleId = null; kept.Layer = o.Layer ?? f.Layer; kept.AlsoRules = new List<RuleRef>();
+                        _findings.Add(kept);
+                    }
                 Sort();
             }
             // Where it was written goes to the log, not the status line.

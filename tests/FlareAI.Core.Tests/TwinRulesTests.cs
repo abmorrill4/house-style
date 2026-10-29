@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using FlareAI.Core.Actions;
+using FlareAI.Core.Editing;
 using FlareAI.Core.Style;
 using Xunit;
 
@@ -169,6 +170,145 @@ namespace FlareAI.Core.Tests
             var ticked = RuleChanges.Change(null, rule, choice, twins, _topic);
             Assert.Contains("Company.GlossaryTerms", ticked.Changed);
             Assert.Contains("Company.GlossaryTerms", File.ReadAllText(ticked.File));
+        }
+
+        // ---- Turn off this rule: the pane's twin list ------------------------------------------------
+
+        private const string Checker = "Company.GlossaryTerms";
+
+        private sealed class AnswerHost : IReviewHost
+        {
+            public RuleSettingChoice Choice;
+            public IList<RuleRef> Offered;
+            public bool Confirm(string message, string action) { return true; }
+            public RuleSettingChoice ChooseRuleSetting(string ruleText, bool canChangeTeamGuide, bool personalGuide, IList<RuleRef> otherRules) { Offered = otherRules; return Choice; }
+            public RuleSettingChoice ChooseRequest(RequestQuestion question) { return null; }
+            public string AskText(string title, string label, string initial, bool multiline) { return null; }
+            public IDocumentAdapter OpenDocument(string path) { return null; }
+            public bool PreviewBatch(BatchPlan plan) { return true; }
+            public bool SaveAndClose(IDocumentAdapter doc) { return false; }
+            public void ShowError(string whatHappened, string whatToDo, Exception details, string action) { throw new InvalidOperationException(whatHappened); }
+        }
+
+        private sealed class Pane
+        {
+            public ReviewSession Session;
+            public AnswerHost Host;
+            public List<string> Writes = new List<string>();
+            public StyleFinding Shown;
+            public List<StyleFinding> Others = new List<StyleFinding>();
+        }
+
+        /// <summary>A session over the real guide, showing company:terminology/6 on "Zelle Transfer" with the glossary checker (and any extra rules) merged in.</summary>
+        private Pane OpenPane(RuleSettingChoice choice, params RuleRef[] also)
+        {
+            Glossary("single sign-on", "identity provider");
+            Write(@"Content\Topic.htm", string.Format(Html, "<p>Send a Zelle Transfer now.</p><p>Send a Zelle Transfer again.</p>"));
+            var doc = new FakeDocumentAdapter(_topic, true);
+            var pane = new Pane { Host = new AnswerHost { Choice = choice } };
+            var runner = new ActionRunner(new FakeLlmClient(r => "[]"), new PromptBuilder(null), 1024, Engine(), _topic);
+            pane.Session = new ReviewSession(runner, doc, pane.Host, Dismissals.Load(Path.Combine(_root, "dismissed.json")), false)
+            {
+                CurrentTeam = () => null,
+                RecordFeedback = (f, topic, decision, reason) => null,
+                SetGuideRule = (team, id, setting, reason) => { pane.Writes.Add(id + "=" + setting); return Path.Combine(_root, "guide.htm"); },
+                SetProjectRule = (path, f, setting, reason, by) => pane.Writes.Add((f.RuleId ?? f.Rule) + "=" + setting),
+                IgnoredAiRules = p => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                SnippetUsage = p => 1
+            };
+            var runs = TextRuns.Of(new List<System.Xml.XmlNode> { BlockSelector.FindBody(doc.Document) }).Where(r => r.Value.Contains("Zelle Transfer")).ToList();
+            Func<int, StyleFinding> at = i => FindingLocator.FromLint(new LintHit { Start = runs[i].Value.IndexOf("Zelle Transfer", StringComparison.Ordinal), Length = 14, Match = "Zelle Transfer", Replacement = "Zelle transfer",
+                Rule = "Company.Terms", Severity = "warning", Message = "Spelling.", Layer = "company", RuleId = "company:terminology/6" }, runs[i]);
+            pane.Shown = at(0);
+            pane.Shown.AlsoRules.Add(new RuleRef { Id = Checker, Name = Checker, Layer = "company", IsChecker = true });
+            foreach (var r in also) pane.Shown.AlsoRules.Add(r);
+            pane.Session.Add(new[] { pane.Shown });
+            pane.Session.Current = pane.Shown;
+            return pane;
+        }
+
+        private static RuleSettingChoice Off(params string[] checkers)
+        {
+            return new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Our spelling.", AlsoCheckers = checkers.ToList() };
+        }
+
+        [Fact]
+        public void TurnOffRule_AddsOnlyTheTickedCheckers()
+        {
+            var other = new RuleRef { Id = "Vale.Spelling", Name = "Vale.Spelling", Layer = "company", IsChecker = true };
+
+            var ticked = OpenPane(Off(Checker));
+            ticked.Session.TurnOffRule();
+            Assert.Equal(new[] { "company:terminology/6=off", Checker + "=off" }, ticked.Writes);
+
+            var notTicked = OpenPane(Off());
+            notTicked.Session.TurnOffRule();
+            Assert.Equal(new[] { "company:terminology/6=off" }, notTicked.Writes);
+
+            var one = OpenPane(Off(Checker), other);
+            one.Session.TurnOffRule();
+            Assert.Equal(new[] { "company:terminology/6=off", Checker + "=off" }, one.Writes);
+            Assert.DoesNotContain("Vale.Spelling=off", one.Writes);
+        }
+
+        [Fact]
+        public void TurnOffRule_OffersTwinsThenLeftoverAlsoRules_WithoutDuplicatesOrItself()
+        {
+            var pane = OpenPane(null,
+                new RuleRef { Id = "company:terminology/6", Name = "itself", Layer = "company" },
+                new RuleRef { Id = "Vale.Spelling", Name = "Vale.Spelling", Layer = "company", IsChecker = true });
+            pane.Session.TurnOffRule();
+
+            var ids = pane.Host.Offered.Select(r => r.Id).ToList();
+            Assert.DoesNotContain("company:terminology/6", ids);
+            Assert.Equal(ids.Count, ids.Distinct().Count());
+            Assert.Equal(1, ids.Count(id => id == Checker));
+            Assert.True(ids.IndexOf(Checker) < ids.IndexOf("Vale.Spelling"));
+            Assert.Equal("Vale.Spelling", ids.Last());
+        }
+
+        [Fact]
+        public void TurnOffRule_TickedChecker_RemovesItsIssuesFromThePane()
+        {
+            var pane = OpenPane(Off(Checker));
+            var elsewhere = new StyleFinding { Rule = Checker, RuleId = null, Layer = "company", Source = "lint", Excerpt = "Zelle Transfer" };
+            pane.Session.Add(new[] { elsewhere });
+
+            pane.Session.TurnOffRule();
+
+            Assert.DoesNotContain(pane.Session.Findings, x => x.Rule == Checker);
+            Assert.DoesNotContain(pane.Shown, pane.Session.Findings);
+        }
+
+        [Fact]
+        public void TurnOffRule_UntickedChecker_KeepsItsIssueOnTheSameWords()
+        {
+            var pane = OpenPane(Off());
+
+            pane.Session.TurnOffRule();
+
+            var kept = pane.Session.Findings.Single();
+            Assert.Equal(Checker, kept.Rule);
+            Assert.Null(kept.RuleId);
+            Assert.Equal(pane.Shown.Excerpt, kept.Excerpt);
+            Assert.DoesNotContain(pane.Shown, pane.Session.Findings);
+        }
+
+        [Fact]
+        public void IsChecker_IsTrueOnlyForTheGeneratedGlossaryChecker()
+        {
+            Glossary("single sign-on", "identity provider");
+            var runner = new ActionRunner(new FakeLlmClient(r => "[]"), new PromptBuilder(null), 1024, Engine(), _topic);
+
+            var twins = runner.TwinsOf("company:terminology/6");
+
+            var checkers = twins.Where(t => t.IsChecker).Select(t => t.Id).ToList();
+            Assert.Contains(Checker, checkers);
+            Assert.All(checkers, id => Assert.EndsWith(".GlossaryTerms", id));   // not the variables checker or any other rule with no id
+            Assert.All(twins.Where(t => !t.IsChecker), t => Assert.Contains(":", t.Id));
+            Assert.Empty(runner.TwinsOf(Checker));
+            Assert.Empty(runner.TwinsOf(null));
+            Assert.Empty(new ActionRunner(new FakeLlmClient(r => "[]"), new PromptBuilder(null), 1024, null, _topic).TwinsOf("company:terminology/6"));
         }
 
         [Fact]
