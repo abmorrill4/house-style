@@ -50,6 +50,14 @@ namespace FlareAI.Scenarios.Rules
                 return Create(ws, "Content/topic.htm", who, owners, feedbackFolder);
             }
 
+            /// <summary>A topic written into a copy of a corpus project (its own StyleGuide folder, glossary and variables).</summary>
+            public static Team_ InCorpus(string project, string topicPath, string bodyXml, string who = Pat)
+            {
+                var ws = ReviewFixture.Corpus(project);
+                ws.WriteFile(topicPath, string.Format(ReviewFixture.Wrapper, bodyXml));
+                return Create(ws, topicPath, who, null, false);
+            }
+
             private static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder)
             {
                 var t = new Team_ { Who = who };
@@ -285,6 +293,53 @@ namespace FlareAI.Scenarios.Rules
                 Assert.Contains(t.Fx.Session.Findings, x => IsGlossary(x) && x.Excerpt.StartsWith("Single Sign-On"));   // the shared words stay flagged
                 t.Fx.Check();
                 Assert.Contains(t.Fx.Session.Findings, x => IsGlossary(x) && x.Excerpt.StartsWith("Single Sign-On"));
+            }
+        }
+
+        [Fact]
+        public void Story24e_TurningOffOneTerminologyRuleForTheProject_LeavesTheOtherTerminologyRow()
+        {
+            // #127 in real Flare: after Disable Rule on Single Sign-On (rule 6, with its Google twins), the Identity Provider row (rule 7) vanished too.
+            using (var t = Team_.OnTopic("<h1>Sign-in</h1><p>Enable Single Sign-On first.</p><p>The Identity Provider must be set up before any member can sign in.</p>"))
+            {
+                Assert.True(t.Flags(SignOn));
+                Assert.True(t.Flags("company:terminology/7"));
+                t.Fx.Session.Select(t.Fx.Session.Findings.First(x => x.RuleId == SignOn));
+                t.Fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = Reason, AlsoOthers = true };
+
+                t.Fx.Session.TurnOffRule();
+                t.Fx.Check();
+
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn);
+                Assert.Contains(t.Fx.Session.Findings, x => x.Excerpt.StartsWith("Identity Provider"));
+            }
+        }
+
+        [Fact]
+        public void Story24f_TheOverridesFlareWrote_StillLeaveTheOtherTerminologyRow()
+        {
+            // The exact overrides.ini the real Flare run wrote for Story24e's Disable Rule.
+            using (var t = Team_.OnTopic("<h1>Sign-in</h1><p>Enable Single Sign-On first.</p><p>The Identity Provider must be set up before any member can sign in.</p>"))
+            {
+                Assert.True(t.Flags("company:terminology/7"));
+                t.Ws.WriteFile(@"Content/Resources/StyleGuide/overrides.ini", "# Rules disabled for this project (House Style, \"Disable Rule\"). Vale syntax: Style.Rule = NO\r\n# by pat on 2026-10-29: reason\r\ncompany:terminology/6 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/640 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/641 = off\r\n");
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn);
+                Assert.Contains(t.Fx.Session.Findings, x => x.Excerpt.StartsWith("Identity Provider"));
+            }
+        }
+
+        [Fact]
+        public void Story24g_InTheDigitalBankingProject_TheOverridesFlareWrote_StillLeaveTheOtherTerminologyRow()
+        {
+            using (var t = Team_.InCorpus("DigitalBanking", "Content/billpay/twin-rules.htm", "<h1>Sign-in</h1><p>Enable Single Sign-On first.</p><p>The Identity Provider must be set up before any member can sign in.</p>"))
+            {
+                Assert.True(t.Flags(SignOn));
+                Assert.True(t.Flags("company:terminology/7"));
+                t.Ws.WriteFile(@"Content/Resources/StyleGuide/overrides.ini", "# Rules disabled for this project (House Style, \"Disable Rule\"). Vale syntax: Style.Rule = NO\r\n# by pat on 2026-10-29: reason\r\ncompany:terminology/6 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/640 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/641 = off\r\n");
+                t.Fx.Check();
+                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn);
+                Assert.Contains(t.Fx.Session.Findings, x => x.Excerpt.StartsWith("Identity Provider"));
             }
         }
 
