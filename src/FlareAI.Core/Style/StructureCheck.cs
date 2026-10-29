@@ -35,8 +35,8 @@ namespace FlareAI.Core.Style
         /// <summary>The built-in checks, in the order <see cref="Of"/> makes them. Their levels are the defaults Of sets.</summary>
         public static readonly ReadOnlyCollection<StructureRule> Rules = new ReadOnlyCollection<StructureRule>(new List<StructureRule>
         {
-            new StructureRule { Id = "structure:alt-text", Name = "Structure.AltText", Level = "error", Statement = "Images have alt text: describe what each one shows, or mark it decorative." },
-            new StructureRule { Id = "structure:one-h1", Name = "Structure.OneH1", Level = "warning", Statement = "A topic has one h1, its title; other headings are h2 or lower." },
+            new StructureRule { Id = "structure:alt-text", Name = "Structure.AltText", Level = "error", Statement = "Images have alt text. Describe what each one shows, or mark it decorative." },
+            new StructureRule { Id = "structure:one-h1", Name = "Structure.OneH1", Level = "warning", Statement = "A topic has one h1, its title. Other headings are h2 or lower." },
             new StructureRule { Id = "structure:heading-order", Name = "Structure.HeadingOrder", Level = "warning", Statement = "Headings go down one level at a time." },
             new StructureRule { Id = "structure:table-header", Name = "Structure.TableHeader", Level = "warning", Statement = "Tables have a header row of th cells." },
             new StructureRule { Id = "structure:link-text", Name = "Structure.LinkText", Level = "warning", Statement = "Link text says where the link goes." },

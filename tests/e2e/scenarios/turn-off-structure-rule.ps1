@@ -12,6 +12,8 @@ Set-Content $topic -Encoding UTF8 @"
 </body></html>
 "@
 $ini = Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini"
+# The app creates overrides.ini when the rule is turned off; make sure its folder exists.
+New-Item -ItemType Directory -Force (Split-Path $ini) | Out-Null
 
 function HeadingRows { @((Get-E2EState).pane.panel.rows | Where-Object { $_.rule -eq "Structure.HeadingOrder" }) }
 
