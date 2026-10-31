@@ -1,23 +1,13 @@
-# Installs the plugin into real Flare on the self-hosted "flare" runner (the owner's factory VM) and runs tests/e2e.
-# Triggered by pushes to this repository's branches, nightly and by hand, never by pull_request: for a pull_request event GitHub
-# runs the workflow file from the PR itself, so a fork could rewrite any guard here. Pushing a branch needs write
-# access (the owner, and the factory acting for the owner). A branch with an open PR shows this run on the PR too.
-# On a factory/* branch the scenarios the branch changed run first and stop at the first failure; only if they pass
-# does the full suite run, so a red from a changed scenario arrives in minutes.
+# Installs the plugin into real Flare on the self-hosted "flare" runner (the owner's Flare VM) and runs tests/e2e.
+# By hand only (workflow_dispatch): VM testing is not triggered by git. The build factory runs the e2e on the VMs before a merge
+# (scripts/vm-e2e.ps1 in the factory repo, which calls tests/e2e/Run-FlareE2E.ps1).
 name: e2e
 
 on:
-  push:
-    branches-ignore: ['factory/**']   # the factory runs the e2e itself, before it opens a PR
   workflow_dispatch:
-  schedule:
-    - cron: '23 10 * * *'   # nightly, well after the factory VM's 03:00 reset (owner's time, EST or EDT); the AI scenarios run here
 
 permissions:
   contents: read
-
-# No concurrency group: the single "flare" runner already runs one job at a time, and a group keeps only one waiting
-# run, cancelling the older ones.
 
 jobs:
   e2e:
@@ -28,13 +18,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 0   # a factory branch's diff from main decides whether the ai-* scenarios run
 
       - name: Check the Flare VM is ready
         shell: powershell
         # From main, so a branch can't change its own check. Exits 1 with the reason when the VM can't drive Flare.
         run: |
           $ErrorActionPreference = 'Continue'   # git's stderr is not an error here; its exit code decides
+          git fetch --no-tags --depth=1 origin main
           $check = Join-Path $env:RUNNER_TEMP 'Test-FlareReady.ps1'
           (git show origin/main:tests/e2e/Test-FlareReady.ps1) | Set-Content -Encoding UTF8 $check
           if ($LASTEXITCODE) { Write-Host "::error::main has no tests/e2e/Test-FlareReady.ps1."; exit 1 }
@@ -44,29 +34,15 @@ jobs:
       - name: Run the scenarios in Flare
         shell: powershell
         env:
-          # The ai-* scenarios need AI, so they run on main, nightly, by hand, and on the build factory's factory/*
-          # branches whose change touches the AI (aiPaths in tests/e2e/ai-paths.json on main), where they gate the merge (owner decision
-          # 2026-10-26). This runner also runs agent-written code from factory/* branches and keeps state between jobs,
-          # so it never gets ANTHROPIC_API_KEY. All its AI goes through the owner's Bifrost gateway
-          # (aigw.praeviderant.com) with a virtual key that is for this Flare VM only (owner, 2026-10-27; saved as
-          # FACTORY_TEST_ANTHROPIC_KEY, BIFROST_VK wins when set). Other branch pushes skip the ai-* scenarios.
-          HOUSESTYLE_TEST_BIFROST_KEY: ${{ (startsWith(github.ref_name, 'factory/') || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && (secrets.BIFROST_VK || secrets.FACTORY_TEST_ANTHROPIC_KEY) || '' }}
+          # The ai-* scenarios need AI. This runner keeps state between jobs, so it never gets ANTHROPIC_API_KEY. All its
+          # AI goes through the owner's Bifrost gateway (aigw.praeviderant.com) with a virtual key that is for this Flare
+          # VM only (owner, 2026-10-27; saved as FACTORY_TEST_ANTHROPIC_KEY, BIFROST_VK wins when set).
+          HOUSESTYLE_TEST_BIFROST_KEY: ${{ secrets.BIFROST_VK || secrets.FACTORY_TEST_ANTHROPIC_KEY || '' }}
           HOUSESTYLE_TEST_BIFROST_URL: ${{ vars.BIFROST_URL || 'https://aigw.praeviderant.com' }}
           ANTHROPIC_API_KEY: ''   # blanks any copy in the runner's own environment
         run: |
-          $factory = $env:GITHUB_REF_NAME -like 'factory/*'
-          if ($factory) {
-            # Only a change that touches the AI runs the ai-* scenarios. The list is read from main, so the branch
-            # can't change it. A change that needs them and has no key fails instead of skipping AI.
-            $aiPaths = ((git show origin/main:tests/e2e/ai-paths.json) -join "`n" | ConvertFrom-Json).aiPaths
-            $changed = @(git -c core.quotePath=false diff --name-only --no-renames origin/main...HEAD)
-            $touchesAi = @($changed | Where-Object { $_ -match $aiPaths }).Count -gt 0
-            if (-not $touchesAi) { $env:HOUSESTYLE_TEST_BIFROST_KEY = '' }
-            elseif (-not $env:HOUSESTYLE_TEST_BIFROST_KEY) { Write-Host "::error::This change touches the AI and needs the Bifrost key secret to run the ai-* scenarios."; exit 1 }
-          }
           $noAi = -not $env:HOUSESTYLE_TEST_BIFROST_KEY
-          if ($noAi) { Write-Host "Skipping the ai-* scenarios: this run has no key, or the change doesn't touch the AI." }
-          # Checked on every run, so any push shows whether this runner reaches the gateway. A run that needs it fails.
+          if ($noAi) { Write-Host "Skipping the ai-* scenarios: this run has no key." }
           try { $null = Invoke-WebRequest "$env:HOUSESTYLE_TEST_BIFROST_URL/health" -UseBasicParsing -TimeoutSec 10; Write-Host "The AI gateway answers." }
           catch {
             if (-not $noAi) { Write-Host "::error::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"; exit 1 }
@@ -75,21 +51,7 @@ jobs:
           # Seconds since the push, so it includes the runner wait, checkout and the ready check. -1 when this isn't a push.
           $queue = -1
           if ('${{ github.event_name }}' -eq 'push') { try { $queue = [int](([DateTimeOffset]::UtcNow) - ([DateTimeOffset]::FromUnixTimeSeconds([long]'${{ github.event.repository.pushed_at }}'))).TotalSeconds } catch { $queue = -1 } }
-          $out = "$env:RUNNER_TEMP\e2e-results"
-          $first = @()
-          if ($factory) { $first = @(& .\tests\e2e\Get-ChangedScenarios.ps1 -Base origin/main -NoAi:$noAi) }
-          if ($first.Count) {
-            Write-Host "Changed scenarios first, stopping at the first failure: $($first -join ', ')"
-            & .\tests\e2e\Run-FlareE2E.ps1 -Install -Scenario $first -StopOnFail -OutDir $out -NoAi:$noAi -QueueSeconds $queue
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            Write-Host "The changed scenarios passed. Running the full suite."
-            # Phase 1 installed, so carry its install time into the final rows.
-            $inst = -1
-            try { $inst = [int]@(Get-Content (Join-Path $out 'results.json') -Raw | ConvertFrom-Json)[0].installSeconds } catch { $inst = -1 }
-            & .\tests\e2e\Run-FlareE2E.ps1 -OutDir $out -NoAi:$noAi -QueueSeconds $queue -InstallSeconds $inst   # already installed; replaces results.json
-          } else {
-            & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir $out -NoAi:$noAi -QueueSeconds $queue
-          }
+          & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi -QueueSeconds $queue
           exit $LASTEXITCODE
 
       - name: Upload results
@@ -99,3 +61,4 @@ jobs:
           name: e2e-results
           path: ${{ runner.temp }}/e2e-results/
           if-no-files-found: ignore
+

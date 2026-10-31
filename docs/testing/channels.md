@@ -12,7 +12,7 @@ and which proves the fix. The full study is `planning/research/testing-channels.
 | 4 | `flare-tests` | any Windows runner | Pane and dialog layout and behavior in real, hidden WinForms | A `[Fact]` in `tests/FlareAI.Flare.Tests`: build the form inside `Sta(() => ...)`, assert on controls and accessible names |
 | 5 | `pester`, `vitest` | any runner | Release, guide publisher and e2e scripts; the feedback Worker | Pester 3: an `It` in `tests/<area>/*.Tests.ps1`. vitest: an `it(...)` in `tools/feedback-worker/test/` |
 | 6 | `conformance` | factory VM | The adapter against Flare's real editor | Not built yet (gap G1). Add the case to `tests/FlareAI.TestKit/Conformance/AdapterConformance.cs` so it runs on the sim now and in Flare once G1 lands |
-| 7 | `e2e` | factory VM | Docking, ribbon, Flare events, anything only visible in Flare | Copy `tests/e2e/scenarios/reopen-issues.ps1`: `Start-FlareE2E`, `Send-E2E open`, `Invoke-Ribbon "Lint Topic"`, `Wait-PaneDone`, `Assert-E2E` |
+| 7 | `e2e` | factory VM | Docking, ribbon, Flare events, anything only visible in Flare | Copy `tests/e2e/scenarios/lint-menu.ps1`: `Start-FlareE2E`, `Send-E2E open`, `Invoke-Ribbon "Lint Topic"`, `Wait-PaneDone`, `Assert-E2E` |
 
 **Until G1 lands, a FlareSim scenario doesn't prove an adapter or write-behavior bug for auto-fix.** Those go to
 fix-for-review. FlareSim models Flare's rules from notes, and only the real editor proves them.
@@ -23,3 +23,4 @@ Quick picks:
 - Pane logic (row states, Change All, Ignore): `scenarios` through `ReviewSession`. Pane layout: `flare-tests`.
 - Settings, DPAPI, first run, updates, installer script: `core`.
 - Docking, ribbon, context menu, check on save: `e2e`.
+

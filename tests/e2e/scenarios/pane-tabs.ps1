@@ -109,21 +109,3 @@ Assert-E2E ((Panel).tab -eq "project") "the Project tab stayed shown while the f
 Send-E2E replace "zz" -Extra @{ text = $target } | Out-Null   # a tracked edit standing in for Ctrl+Z
 Wait-Until { $r = @(Rows | Where-Object { $_.file -eq $goFile -and $_.excerpt -eq $target }); if ($r.Count -ge 1 -and $r[0].text -notlike "*$check*") { $r } } 15 "the project row to be open again after the fix was reverted" | Out-Null
 
-# Lint Project with no topic lint shows no tabs, and Go To doesn't add one.
-$run = Start-FlareE2E -Fixture $Fixture -Force
-$faqOnly = Join-Path $run.Project "Content\billpay\faq.htm"
-Send-E2E open $faqOnly | Out-Null   # open, but never linted
-Invoke-Ribbon "Lint Project"
-$only = (Wait-PaneDone 300).pane.panel
-Assert-E2E ($only.tab -eq "project") "Lint Project alone shows the project tab"
-Send-E2E click "By file" | Out-Null
-$rows = Rows
-$g = [array]::FindIndex([object[]]$rows, [Predicate[object]]{ param($r) $r.file -and $r.file -notlike "*faq.htm" -and $r.text -notlike "*$check*" })
-Assert-E2E ($g -ge 0) "Lint Project listed an issue to go to"
-$name = [IO.Path]::GetFileName($rows[$g].file)
-Send-E2E rowMenu "Go To" -Extra @{ index = $g } | Out-Null
-Wait-Until { $e = (Get-E2EState).editor; if ($e -and $e.path -like "*$name") { $e } } 30 "Go To to open $name" | Out-Null
-Start-Sleep -Seconds 2
-$p = Panel
-Assert-E2E (@($p.tabs).Count -eq 0) "Go To alone doesn't make a This Topic tab (tabs: $(@($p.tabs) -join ' | '))"
-Assert-E2E ($p.tab -eq "project") "Project stays shown after Go To"

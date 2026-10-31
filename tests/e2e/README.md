@@ -34,16 +34,11 @@ not as a bad fix. A pass that needed a retry is named in the factory's PR.
 
 ```powershell
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install          # build, install, run everything
-powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
+powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario lint-menu
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -NoAi             # skip ai-* scenarios (no key, no cost)
-powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario a,b -StopOnFail   # stop after the first failure
 ```
 
-`-StopOnFail` ends the run after the first scenario that fails. `results.json` is still written, with the rows so far.
-
-On a `factory/*` branch, CI runs the scenarios the branch added or changed first (`Get-ChangedScenarios.ps1`) with
-`-StopOnFail`. Only if they pass does it run the full suite in the same job. Other branches run the full suite once,
-as before.
+The factory runs the same entry point on its VMs (`scripts/vm-e2e.ps1` in the factory repo), one scenario per call. `e2e.yml` runs the full suite only when started by hand.
 
 It closes any running Flare. Don't run it while you have unsaved work in Flare.
 
@@ -66,12 +61,8 @@ It closes any running Flare. Don't run it while you have unsaved work in Flare.
 
 A `scenarios\*.ps1` file takes `-Fixture` and throws on failure. Use the module's functions: `Start-FlareE2E`,
 `Send-E2E <verb>` (`open`, `click`, `rowMenu`, `command`, `dialogClick`, `dialogSelect`, `state`, and the verbs below),
-`Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them, and start one through the company AI service with
-`Start-FlareE2E -Bifrost`. CI runs them on `main`, nightly, by hand, and on a build factory `factory/*` branch whose
-change touches the AI (`aiPaths` in `tests/e2e/ai-paths.json` on main), gating the merge. A factory branch's AI scenarios all go
-through the owner's Bifrost gateway (aigw.praeviderant.com), with the Flare VM's own key.
-Other branch pushes skip them, because their
-results vary from run to run. `Get-E2EHistory.ps1` shows how each scenario has done over recent runs.
+`Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them and start one with `Start-FlareE2E -Ai`.
+`e2e.yml` (by hand) runs them through the owner's Bifrost gateway with the Flare VM's own key. The factory's VM runs skip them.
 
 ### More verbs, state fields and helpers
 
@@ -100,7 +91,7 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`save`** saves the active topic as Ctrl+S does (check-on-save treats it as the writer's save). Returns `saved`.
 - **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
   instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
-  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`scenarios/export-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
+  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`scenarios/project-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
 - **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}" and lists the valid names.
   `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no
@@ -116,3 +107,6 @@ once. The rest run on Flare's UI thread and answer when they return.
 - Flare's `Plugins\FlareAI` folder must be a junction to `E:\HouseStyle\current`, not into AppData. Commands run
   from the Claude desktop app have their AppData writes redirected, so an install into AppData never reaches Flare.
 - Trial Flare works. The runner continues past the licensing wizard.
+
+
+

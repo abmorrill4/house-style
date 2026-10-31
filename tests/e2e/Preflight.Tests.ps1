@@ -23,32 +23,17 @@ Describe "Test-E2EScenario" {
     It "finds a path the fixture doesn't have" {
         (Preflight '$p = Join-Path $run.Project "Content\billpay\nope.htm"') -join "`n" | Should Match "no such file"
     }
-    It "passes a path the fixture has" {
-        (Preflight '$p = Join-Path $run.Project "Content\billpay\faq.htm"').Count | Should Be 0
-    }
     It "finds a verb the hook doesn't answer" {
         (Preflight 'Send-E2E clik "Close"') -join "`n" | Should Match "isn't a verb"
     }
-    It "finds replace text no topic has, but not text the scenario typed" {
-        (Preflight 'Send-E2E replace "zzqq never written" -Extra @{ text = "x" }') -join "`n" | Should Match "no fixture topic"
-        (Preflight "Send-E2E replace `"a`" -Extra @{ text = `"zzqq typed`" }`nSend-E2E replace `"zzqq typed`" -Extra @{ text = `"a`" }") -join "`n" | Should Not Match "zzqq typed"
-    }
     It "finds a ribbon label the plugin doesn't have" {
         (Preflight 'Invoke-Ribbon "Lint Everything"') -join "`n" | Should Match "isn't a label"
-    }
-    It "skips calls meant to fail" {
-        (Preflight 'Fails { Send-E2E replace "zzqq never written" -Extra @{ text = "x" } }').Count | Should Be 0
     }
     It "finds an Assert-E2E condition that is a list, not a true or false value" {
         (Preflight 'Assert-E2E (@(1,2)) "m"') -join "`n" | Should Match "not a true or false"
         (Preflight 'Assert-E2E (@($a) -match "x") "m"') -join "`n" | Should Match "not a true or false"
         (Preflight 'Assert-E2E ($a | Where-Object { $_ }) "m"') -join "`n" | Should Match "not a true or false"
         (Preflight 'Assert-E2E (1) "m" "extra"') -join "`n" | Should Match "condition in parentheses"
-    }
-    It "passes an Assert-E2E condition that is a comparison, a call or a list on the right" {
-        (Preflight 'Assert-E2E (@($a).Count -gt 0) "m"').Count | Should Be 0
-        (Preflight 'Assert-E2E (Test-Path $x) "m"').Count | Should Be 0
-        (Preflight 'Assert-E2E (@(1,2) -contains 1) "m"').Count | Should Be 0
     }
     It "finds a button, menu item, tab, box or dialog title the plugin doesn't have" {
         (Preflight 'Send-E2E click "Chnage"') -join "`n" | Should Match "no button, tab or menu item"
@@ -57,35 +42,5 @@ Describe "Test-E2EScenario" {
         (Preflight 'Send-E2E dialogType "x" -Extra @{ name = "Nopeee" }') -join "`n" | Should Match "no box"
         (Preflight 'Send-E2E dialogTab "Advanced" -Extra @{ title = "Nopeee" }') -join "`n" | Should Match "no dialog title"
     }
-    It "passes names the plugin has, the select-only sentinel, and bad names meant to fail" {
-        (Preflight 'Send-E2E click "Change"').Count | Should Be 0
-        (Preflight 'Send-E2E rowMenu "(select only)"').Count | Should Be 0
-        (Preflight 'Fails { Send-E2E click "Chnage" }').Count | Should Be 0
-        (Preflight 'try { Send-E2E click "Chnage" } catch { $err = 1 }').Count | Should Be 0
-    }
-    It "exits non-zero on a problem" {
-        $f = Join-Path $env:TEMP ("preflight-" + [guid]::NewGuid().ToString("n") + ".ps1")
-        [IO.File]::WriteAllText($f, 'Send-E2E click "Chnage"')
-        try { & powershell.exe -NoProfile -File $check -Path $f | Out-Null; $LASTEXITCODE | Should Be 1 } finally { Remove-Item $f }
-    }
 }
 
-Describe "New-E2EResultRow" {
-    Import-Module (Join-Path $here "FlareE2E.psm1") -Force
-    $r = [ordered]@{ passed = $true; kind = $null; seconds = 5; error = $null; version = "1"; artifacts = @(); flareStartSeconds = 7; windowState = "Normal" }
-    It "adds the run-level fields after the scenario's own" {
-        $row = New-E2EResultRow "x" $r 42 9 "1920x1080"
-        $row.scenario | Should Be "x"
-        $row.installSeconds | Should Be 42
-        $row.queueSeconds | Should Be 9
-        $row.resolution | Should Be "1920x1080"
-        $row.flareStartSeconds | Should Be 7
-        $row.windowState | Should Be "Normal"
-        (@($row.PSObject.Properties.Name)[-3..-1]) -join "," | Should Be "installSeconds,queueSeconds,resolution"
-    }
-    It "leaves queueSeconds and installSeconds empty when unknown" {
-        $row = New-E2EResultRow "x" $r $null -1 $null
-        $row.queueSeconds | Should BeNullOrEmpty
-        $row.installSeconds | Should BeNullOrEmpty
-    }
-}

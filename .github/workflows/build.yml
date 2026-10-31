@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      publish: ${{ steps.diff.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,11 +38,14 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           # Fail safe: if the diff can't be read or is empty, run everything.
-          files=$(git diff --name-only --no-renames "$BASE" HEAD) || { echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          files=$(git diff --name-only --no-renames "$BASE" HEAD) || { echo "code=true" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0; }
           if [ -z "$files" ] || echo "$files" | grep -qvE '^(docs/.*|[^/]*)[.]md$'; then code=true; else code=false; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          # The Confluence publisher has its own tests: they run only when it, its tests or the guide it publishes change.
+          if echo "$files" | grep -qE '^(scripts/publish-guide-to-confluence[.]ps1|tests/publish-guide/|styleguide/)' || [ -z "$files" ]; then publish=true; else publish=false; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   build:
     needs: changes
@@ -76,10 +80,17 @@ jobs:
             throw "This PR changes src/ or styleguide/ but adds no changes/<name>.md note for writers. Add one, or the no-notes label if writers won't notice."
           }
 
-      - name: Guide publisher tests (mock Confluence, Windows PowerShell 5.1)
+      - name: Script tests (Pester, Windows PowerShell 5.1)
         shell: powershell
         # The tests use Pester 3.x syntax; runners also have Pester 5, which Invoke-Pester would pick by default.
-        run: Import-Module Pester -MaximumVersion 3.99 -Force; Invoke-Pester tests/publish-guide, tests/release, tests/e2e -EnableExit
+        # The guide publisher's mock-Confluence tests run only when the publisher or the guide it publishes changes.
+        env:
+          PUBLISH: ${{ needs.changes.outputs.publish }}
+        run: |
+          Import-Module Pester -MaximumVersion 3.99 -Force
+          $paths = @('tests/release', 'tests/e2e')
+          if ($env:PUBLISH -ne 'false') { $paths += 'tests/publish-guide' }
+          Invoke-Pester $paths -EnableExit
 
       - name: Bench gate (lint only, offline)
         shell: pwsh
@@ -223,3 +234,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
