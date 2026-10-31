@@ -5,7 +5,7 @@ and which proves the fix. The full study is `planning/research/testing-channels.
 
 | # | Channel (`-Channel`) | Runs on | Proves | Add a test |
 |---|---|---|---|---|
-| 1 | `rule-fixtures` | any Windows runner | A lint rule fires, or doesn't, in each markup context | Edit the rule row in `styleguide/Company/`, run `FlareAI.FixtureGen.exe`, commit `tests/fixtures/rules`. A case you can't fix yet goes in `tests/baselines/rule-fixtures.known-failures.json` (that list only shrinks) |
+| 1 | `rule-fixtures` | any Windows runner | A lint rule fires, or doesn't, in each markup context | Edit the rule row in `styleguide/Company/`, run `FlareAI.FixtureGen.exe`, commit `tests/fixtures/rules`. |
 | 1 | `bench` | any Windows runner | Lint and guide text across the corpus, against the baseline | Add or fix a span label in `corpus/DigitalBanking/labels.jsonl`, then `FlareAI.Bench.exe --no-ai --update-baseline` on purpose |
 | 2 | `core` | any Windows runner | Engine, settings, updates, IO, prompts, parsing | A `[Fact]` in `tests/FlareAI.Core.Tests`, beside the class it tests |
 | 3 | `scenarios` | any Windows runner | Document edits, undo, Change and Ignore, the review session, governance, AI flows with a scripted model | A `[Fact]` in `tests/FlareAI.Scenarios/<Area>/`: `using (var fx = ReviewFixture.Scratch(body, ScriptedReview.Review(...)))`, drive `fx.Session`, assert on `fx.Doc.Xml` |

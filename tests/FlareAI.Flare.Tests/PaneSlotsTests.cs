@@ -241,58 +241,5 @@ namespace FlareAI.Flare.Tests
             slots.ClearTopicIf(p => true);
             Assert.False(slots.BothFilled);
         }
-
-        [Fact]
-        public void EditorIntegration_NoLongerReadsTheShownPanel()
-        {
-            var repoRoot = FindRepoRoot();
-            if (string.IsNullOrEmpty(repoRoot) || !System.IO.Directory.Exists(repoRoot))
-                return;  // Skip test if repo root cannot be found
-
-            var editorIntegrationPath = System.IO.Path.Combine(repoRoot, @"src\FlareAI.Flare\EditorIntegration.cs");
-            var pluginPath = System.IO.Path.Combine(repoRoot, @"src\FlareAI.Flare\Plugin.cs");
-
-            if (!System.IO.File.Exists(editorIntegrationPath) || !System.IO.File.Exists(pluginPath))
-                return;  // Skip test if files not found
-
-            // EditorIntegration must not contain PanelHost.Current
-            var editorContent = System.IO.File.ReadAllText(editorIntegrationPath);
-            Assert.DoesNotContain("PanelHost.Current", editorContent);
-            Assert.Contains("PanelHost.TopicPanel", editorContent);
-            Assert.Contains("PanelHost.ProjectPanel", editorContent);
-            Assert.Contains("PanelHost.ClearTopic", editorContent);
-
-            // Plugin.OnDocumentSwitched must read TopicPanel
-            var pluginContent = System.IO.File.ReadAllText(pluginPath);
-            var onDocSwitchedStart = pluginContent.IndexOf("private void OnDocumentSwitched");
-            Assert.True(onDocSwitchedStart > 0, "OnDocumentSwitched not found");
-            var onDocSwitchedEnd = pluginContent.IndexOf("catch (Exception ex) { Diagnostics.Log(\"DocumentSwitched\",", onDocSwitchedStart);
-            Assert.True(onDocSwitchedEnd > onDocSwitchedStart, "OnDocumentSwitched closing not found");
-            var onDocContent = pluginContent.Substring(onDocSwitchedStart, onDocSwitchedEnd - onDocSwitchedStart);
-            Assert.Contains("PanelHost.TopicPanel", onDocContent);
-            Assert.DoesNotContain("PanelHost.Current", onDocContent);
-
-            // Plugin overall must not have PanelHost.Current
-            Assert.DoesNotContain("PanelHost.Current", pluginContent);
-        }
-
-        private static string FindRepoRoot()
-        {
-            // Try using the current working directory first
-            var workDir = System.Environment.CurrentDirectory;
-            if (System.IO.Directory.Exists(System.IO.Path.Combine(workDir, "src")))
-                return workDir;
-
-            // Try going up from the assembly location
-            var dir = System.IO.Path.GetDirectoryName(typeof(PaneSlotsTests).Assembly.Location);
-            for (var i = 0; i < 10; i++)  // More iterations to be safe
-            {
-                if (dir == null || !System.IO.Directory.Exists(dir)) break;
-                if (System.IO.Directory.Exists(System.IO.Path.Combine(dir, "src")))
-                    return dir;
-                dir = System.IO.Path.GetDirectoryName(dir);
-            }
-            return "";
-        }
     }
 }

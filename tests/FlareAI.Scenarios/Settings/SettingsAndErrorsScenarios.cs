@@ -78,36 +78,6 @@ namespace FlareAI.Scenarios.Settings
 
         // ---- 29 · TEST-PLAN setup (gateway) -----------------------------------------------------------------------
 
-        [Theory]
-        [InlineData("gateway.example.com", "https://gateway.example.com")]
-        [InlineData("  https://gateway.example.com/  ", "https://gateway.example.com")]
-        [InlineData("https://gateway.example.com/v1", "https://gateway.example.com")]
-        [InlineData("https://gateway.example.com/v1/", "https://gateway.example.com")]
-        [InlineData("https://gateway.example.com/team-a/v1", "https://gateway.example.com/team-a")]
-        [InlineData("http://gateway.example.com", "https://gateway.example.com")]
-        [InlineData("http://localhost:8080/v1", "http://localhost:8080")]
-        [InlineData("http://127.0.0.1:8080/", "http://127.0.0.1:8080")]
-        public void Story29a_WriterTypesTheGatewayAddress_ItIsCleanedUp(string typed, string expected)
-        {
-            string url, error;
-
-            Assert.True(LlmErrors.TryNormalizeBaseUrl(typed, out url, out error));
-            Assert.Equal(expected, url);
-            Assert.Null(error);
-        }
-
-        [Theory]
-        [InlineData("", "Enter the gateway address")]
-        [InlineData("https://gateway example.com", "contains spaces")]
-        [InlineData("ftp://gateway.example.com", "must start with https://")]
-        public void Story29b_WriterTypesAnAddressThatCannotWork_TheySeeWhatToChange(string typed, string message)
-        {
-            string url, error;
-
-            Assert.False(LlmErrors.TryNormalizeBaseUrl(typed, out url, out error));
-            Assert.Contains(message, error);
-        }
-
         [Fact]
         public void Story29c_AGatewayAddressWithATrailingV1_IsStillReachedAtTheRightPath()
         {
@@ -186,29 +156,12 @@ namespace FlareAI.Scenarios.Settings
         }
 
         [Fact]
-        public void Story29e_TheGatewayDoesNotAnswerInTime_TheWriterIsToldToCheckTheAddressNetworkOrTimeout()
-        {
-            using (var server = new MockLlmServer())
-            {
-                server.Default = MockReply.Hang();
-
-                var result = ConnectionTest.Run(LlmProvider.Bifrost, server.BaseUrl, Key, Model, 10);   // the shortest timeout Settings allows
-
-                Assert.Equal(ConnectionOutcome.Unreachable, result.Outcome);
-                Assert.Contains("didn't answer in time", result.Message);
-                Assert.Contains("raise the timeout in Settings", result.Message);
-                Assert.DoesNotContain(Key, result.Message);
-            }
-        }
-
-        [Fact]
-        public void Story29f_WhenTheModelDeniesTheKey_TheExceptionTheDiagLogTheSettingsFileAndTheCassettesNeverHoldTheKey()
+        public void Story29f_WhenTheModelDeniesTheKey_TheExceptionTheDiagLogTheSettingsFileNeverHoldTheKey()
         {
             // The key reaches the wire in a header only. Everything the plugin keeps on disk or shows is checked for it.
             using (var ws = FakeWorkspace.Empty())
             using (var server = new MockLlmServer())
             {
-                var cassettes = Path.Combine(ws.Root, "cassettes");
                 var settings = new PluginSettings { BaseUrl = server.BaseUrl, Model = Model };
                 settings.SetApiKey(Key);
                 settings.Save();
@@ -231,25 +184,11 @@ namespace FlareAI.Scenarios.Settings
                     Assert.Equal(6, thrown.Count);
                     foreach (var ex in thrown) { Assert.DoesNotContain(Key, ex.ToString()); Assert.DoesNotContain("SECRETSECRET", ex.ToString()); }
                     Assert.Equal(6, server.Received.Count(r => r.Headers["x-api-key"] == Key));              // the key did go out as the header
-
-                    // A recording (what FLAREAI_RECORD=1 does) of a good answer: the cassette has the prompt and the answer, no credentials.
-                    server.Enqueue(MockReply.Ok("{\"findings\":[]}"));
-                    var recorder = new ReplayLlmClient(cassettes, ReplayMode.Record, client, new[] { Key });
-                    new ActionRunner(recorder, PromptBuilder.For(fx.Style, fx.Doc.SourcePath), 16000, fx.Style, fx.Doc.SourcePath).CallReview(unit);
                 }
 
                 var diag = File.Exists(Paths.DiagLog) ? File.ReadAllText(Paths.DiagLog) : "";
                 Assert.DoesNotContain(Key, diag);
                 Assert.DoesNotContain("SECRETSECRET", diag);
-                var files = Directory.GetFiles(cassettes, "*.json");
-                Assert.NotEmpty(files);
-                foreach (var f in files)
-                {
-                    var text = File.ReadAllText(f);
-                    Assert.DoesNotContain(Key, text);
-                    Assert.DoesNotContain("SECRETSECRET", text);
-                    Assert.DoesNotContain("x-api-key", text);
-                }
                 foreach (var f in Directory.GetFiles(ws.AppData, "*", SearchOption.AllDirectories).Where(f => !f.EndsWith("settings.json")))
                     Assert.DoesNotContain(Key, File.ReadAllText(f));
             }

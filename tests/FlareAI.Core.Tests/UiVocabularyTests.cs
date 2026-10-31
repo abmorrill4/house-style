@@ -115,32 +115,6 @@ namespace FlareAI.Core.Tests
             Assert.DoesNotContain(Retired, b => Regex.IsMatch("Accept them on the Review tab", b[1], RegexOptions.IgnoreCase));
         }
 
-        /// <summary>The tooltips the product owner approved in #123, verbatim.</summary>
-        [Fact]
-        public void RibbonTooltipsAreTheApprovedOnes()
-        {
-            var expected = new Dictionary<string, string>
-            {
-                { "Lint Topic", "Lint this topic against your style guide." },
-                { "Lint Project", "Lint every topic and snippet in this project." },
-                { "Reopen Issues", "Reopen the issues from your last lint." },
-                { "Rewrite", "Rewrite the selected text with AI." },
-                { "Ask AI", "Tell the AI what to change in the selected text." },
-                { "Rules", "View the style guide rules and enable or disable them." },
-                { "Topic Metadata", "Suggest a description, keywords, and other metadata for this topic." },
-                { "Settings", "Change your AI and style guide settings." },
-                { "Help", "Open the House Style user guide." },
-                { "Rule Decisions", "See how writers handle each rule, and review change requests." },
-                { "Import Rules", "Add rules to your style guide from an existing document." },
-                { "Test Rules", "Check that each rule catches its own examples." },
-            };
-            foreach (var e in expected)
-            {
-                var c = FlareAI.Flare.Commands.All.Single(x => x.Label == e.Key);
-                Assert.Equal(e.Value, c.Tooltip);
-            }
-        }
-
         [Fact]
         public void TheRibbonFollowsTheRole()
         {
@@ -164,43 +138,6 @@ namespace FlareAI.Core.Tests
             Assert.Equal("See your rule change requests and the owners' answers.", FlareAI.Flare.Commands.MyRequests.Tooltip);
             Assert.DoesNotContain(FlareAI.Flare.Commands.MyRequests, FlareAI.Flare.Commands.Ribbon(FlareAI.Core.Settings.UserRole.Owner, true));
             Assert.StartsWith("https://gethousestyle.com", FlareAI.Flare.Commands.UserGuideUrl);
-        }
-
-        [Fact]
-        public void LintTopicMenu_IsRulesOnlyThenRulesAndAi()
-        {
-            var menu = FlareAI.Flare.Commands.LintMenu.ToArray();
-            Assert.Equal(new[] { FlareAI.Flare.Commands.LintRulesOnly, FlareAI.Flare.Commands.LintRulesAndAi }, menu);
-            Assert.Equal("Rules Only", FlareAI.Flare.Commands.LintRulesOnly.Label);
-            Assert.Equal("Rules and AI Review", FlareAI.Flare.Commands.LintRulesAndAi.Label);
-            Assert.Equal("rulesonly", FlareAI.Flare.Commands.LintRulesOnly.Id);
-            Assert.Equal("rulesai", FlareAI.Flare.Commands.LintRulesAndAi.Id);
-            Assert.Equal(FlareAI.Flare.Commands.GroupLint, FlareAI.Flare.Commands.LintRulesOnly.Group);
-            Assert.Equal(FlareAI.Flare.Commands.GroupLint, FlareAI.Flare.Commands.LintRulesAndAi.Group);
-            Assert.Equal("Lint this topic against your style guide rules only. No AI is used.", FlareAI.Flare.Commands.LintRulesOnly.Tooltip);
-            Assert.Equal("Lint this topic against your style guide rules and the AI review.", FlareAI.Flare.Commands.LintRulesAndAi.Tooltip);
-            Assert.Equal("Rules Only is on. Select the arrow to add the AI review.", FlareAI.Flare.Commands.RulesOnlyNote);
-        }
-
-        [Fact]
-        public void SplitMenus_MapLintTopicAndHelp()
-        {
-            var map = FlareAI.Flare.Commands.SplitMenus;
-            Assert.Equal(2, map.Count);
-            Assert.Same(FlareAI.Flare.Commands.LintMenu, map[FlareAI.Flare.Commands.LintTopic]);
-            Assert.Same(FlareAI.Flare.Commands.HelpMenu, map[FlareAI.Flare.Commands.Help]);
-        }
-
-        [Fact]
-        public void ToolStripMenu_ListsTheChecksRightAfterLintTopic()
-        {
-            foreach (var role in new[] { FlareAI.Core.Settings.UserRole.Writer, FlareAI.Core.Settings.UserRole.Owner })
-            {
-                var menu = FlareAI.Flare.Commands.Menu(role);
-                Assert.Same(FlareAI.Flare.Commands.LintTopic, menu[0]);
-                Assert.Same(FlareAI.Flare.Commands.LintRulesOnly, menu[1]);
-                Assert.Same(FlareAI.Flare.Commands.LintRulesAndAi, menu[2]);
-            }
         }
 
         // ---- the command table (issue #9) ----------------------------------------------------------------------

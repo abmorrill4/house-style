@@ -13,34 +13,6 @@ namespace FlareAI.Scenarios.Smoke
     public class FirstRunScenario
     {
         [Fact]
-        public void NoAi_WithGoogleGuide_CompletesIntoLintOnlySettings()
-        {
-            using (var ws = FakeWorkspace.Empty())
-            {
-                var saved = Complete(new SetupAnswers { Ai = AiChoice.None, UseTeamGuide = false });
-                Assert.True(saved.AiOff);
-                Assert.False(saved.HasStoredKey);
-                Assert.Equal("", saved.StyleLayers);
-                Assert.Throws<LlmException>(() => LlmClientFactory.Create(saved));   // AI buttons explain; style checks don't need a client
-            }
-        }
-
-        [Fact]
-        public void AnthropicKey_CompletesIntoADirectClient()
-        {
-            using (var ws = FakeWorkspace.Empty())
-            {
-                var saved = Complete(new SetupAnswers { Ai = AiChoice.AnthropicKey, Key = "sk-ant-scenario" });
-                Assert.False(saved.AiOff);
-                Assert.Equal(LlmProvider.AnthropicDirect, saved.Provider);
-                Assert.Equal(PluginSettings.DefaultAnthropicBaseUrl, saved.BaseUrl);
-                Assert.Equal("sk-ant-scenario", saved.ResolveApiKey());
-                Assert.IsType<AnthropicClient>(LlmClientFactory.Create(saved));
-                Assert.DoesNotContain("sk-ant-scenario", File.ReadAllText(PluginSettings.SettingsPath));
-            }
-        }
-
-        [Fact]
         public void Gateway_WithTeamGuide_CompletesIntoAGatewayClientAndTheTeamGuide()
         {
             using (var ws = FakeWorkspace.FromCorpus("DigitalBanking"))

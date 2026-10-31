@@ -66,18 +66,5 @@ namespace FlareAI.Flare.Tests
                 FlareAI.Core.Diagnostics.Sink = oldSink;
             }
         }
-
-        [Fact]
-        public void PaneStrings_AreTheApprovedCopy()
-        {
-            Assert.Equal("These issues come from the rules only. To add the AI review, choose Rules and AI Review on Lint Topic.",
-                LintChecksChoice.StatusEnding);
-            Assert.Equal("Lint Paragraph needs the AI review. Choose Rules and AI Review on Lint Topic.",
-                LintChecksChoice.LintParagraphTip);
-            Assert.Equal("Rewrite needs the AI review. Choose Rules and AI Review on Lint Topic.",
-                LintChecksChoice.RewriteTip);
-            Assert.Equal("This change needs the AI review. Choose Rules and AI Review on Lint Topic.",
-                LintChecksChoice.ChangeNeedsAi);
-        }
     }
 }

@@ -9,7 +9,7 @@ using FlareAI.FixtureGen;
 
 namespace FlareAI.RuleFixtures.Tests
 {
-    /// <summary>One failed check. The id names the check, the rule, the context and the case, and is what the known-failures list holds.</summary>
+    /// <summary>One failed check. The id names the check, the rule, the context and the case.</summary>
     public sealed class Failure
     {
         public string Check, RuleId, Context, Cause;

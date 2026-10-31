@@ -1,7 +1,7 @@
 # FlareAI.TestKit
 
 Test-support library for scenario tests (`tests/FlareAI.Scenarios`). It lets a test drive real Core flows offline:
-a Flare-faithful fake editor, recorded or scripted model answers, a localhost HTTP mock of the model endpoints, and a
+a Flare-faithful fake editor, scripted model answers, a localhost HTTP mock of the model endpoints, and a
 temp workspace. No test-framework dependency, so the conformance suite can also run inside Flare.
 
 ## Editor: `FlareSimDocument`
@@ -36,14 +36,6 @@ FlareSim control). `AdapterConformance.RunAll(open, insideFlare)` runs them; the
 
 ## Model clients
 
-- `ReplayLlmClient` (strict or record). `ReplayLlmClient.ForScenario("review/check-one-topic")` replays
-  `tests/cassettes/review/check-one-topic/`; with `FLAREAI_RECORD=1` it records through a live `AnthropicClient`
-  (key from `ANTHROPIC_API_KEY`, which `scripts\Load-DotEnv.ps1` loads from `.env`, or read from `.env` directly; model from
-  `FLAREAI_RECORD_MODEL`, default `PluginSettings.DefaultModel`). Strict mode throws `CassetteMissingException` on a miss and
-  lists it in `Misses` (call `AssertNoMisses()`: Core may swallow the exception). Replayed answers go through
-  `AnthropicClient.Check`, so a recorded `max_tokens`/`refusal`/bad JSON fails as it would live. A live failure throws
-  before anything is written: write failure cassettes by hand with `Cassette.Write(Cassette.Build(...))`, or use
-  `ScriptedLlmClient`.
 - `ScriptedLlmClient`: queued replies (`Then`, `ThenText`, `ThenFail`), then rules (`When`, `WhenTask`, `Always`), else it
   throws. `ScriptedLlmClient.Failing(LlmFailure, status)` and `ScriptedLlmClient.Reply.Failure(...)` produce every
   `LlmFailure` (`Http` with any status, e.g. 401/403/429/500, `Network`, `Truncated`, `Refusal`, `Contract`) the way the
@@ -53,36 +45,6 @@ FlareSim control). `AdapterConformance.RunAll(open, insideFlare)` runs them; the
   `Unauthorized()` (401), `ModelDenied()` (403), `RateLimited()` (429), `ServerError(500|529)`, `Error(status, type, msg)`,
   `Malformed()` (200, HTML body), `TruncatedBody()` (200, half the body, connection dropped), `Hang()`, and `.After(ms)`
   for slow answers. `Received` lists the requests (headers kept in memory only).
-
-### Cassette format (`flareai-cassette/1`)
-
-One file per distinct request: `<cassette dir>/<task>-<first 16 hex of key>.json`, UTF-8 without BOM.
-
-```json
-{
-  "format": "flareai-cassette/1",
-  "key": "<SHA-256 hex>",
-  "task": "review",
-  "recorded_at": "2026-10-21T12:00:00.0000000Z",
-  "request": {
-    "model": "claude-sonnet-5-5", "effort": "medium", "max_tokens": 16000,
-    "system_sha256": "...", "packs_sha256": "...", "terms_sha256": "...", "schema_sha256": "... or null",
-    "images": 0,
-    "user": "<the full user prompt, for reading diffs>"
-  },
-  "response": {
-    "text": "{\"findings\":[]}", "model": "claude-sonnet-5-5", "stop_reason": "end_turn",
-    "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
-               "cache_creation_input_tokens": 0, "ephemeral_1h_input_tokens": 0 }
-  }
-}
-```
-
-- `key` is SHA-256 over the canonical JSON of task, system, packs, terms, user, schema and image digests. Model, effort and
-  max_tokens are recorded for reading only: re-routing a task does not invalidate cassettes; a prompt or guide change does.
-- No header, API key, virtual key or credential is part of a cassette. Before writing, the configured secrets (the record
-  key, `ANTHROPIC_API_KEY`, `BIFROST_VK`) and anything shaped like `sk-ant-…` are replaced by `[REDACTED]`; the file is then
-  re-read and deleted, with an exception, if a secret or an auth header name (`x-api-key`, `x-bf-vk`, `authorization`) survived.
 
 ## Workspace: `FakeWorkspace`
 

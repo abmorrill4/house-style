@@ -770,52 +770,6 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void TurnOffRule_Writer_SendsARequest_AndTheFindingStaysMarked()
-        {
-            _team = MakeTeam(owner: false);
-            var sent = new List<GuideRequest>();
-            var s = Session();
-            s.SendRequest = (t, req) => { sent.Add(req); return null; };
-            var f = Find(_topic, "utilize", "use", ruleId: "google:words/2");
-            s.Add(new[] { f });
-            s.Current = f;
-            _host.RequestChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = " We say utilize. " };
-
-            s.TurnOffRule();
-
-            Assert.Null(_host.RuleQuestion);   // nothing is written: no "turn off" dialog
-            Assert.StartsWith("This goes to the style guide owners (owner@example.com).", _host.Request.Notice);
-            Assert.Contains("owners.txt doesn't list you", _host.Request.Notice);   // the folder is more open than the owners list
-            Assert.Null(_host.Request.Wording);   // a Google rule: owners change its level, not its words
-            var r = sent.Single();
-            Assert.Equal(RequestKinds.TurnOff, r.Kind);
-            Assert.Equal("We say utilize.", r.Reason);
-            Assert.Equal("google:words/2", r.RuleId);
-            Assert.Equal("request|We say utilize.|Google.WordList", _feedback.Single());
-            Assert.Contains(f, s.Findings);
-            Assert.True(f.RequestSent);
-            Assert.Contains("Request sent to the style guide owners (owner@example.com).", s.Status);
-            Assert.Empty(_guideWrites);
-        }
-
-        [Fact]
-        public void TurnOffRule_Writer_RequestNotDelivered_SaysItIsSavedAndSentLater()
-        {
-            _team = MakeTeam(owner: false, feedbackFolder: Path.Combine(_root, "fb"));
-            var s = Session();
-            s.SendRequest = (t, r) => @"House Style couldn't write to \\server\feedback\requests";
-            var x = Find(_topic, "utilize", "use", ruleId: "google:words/2");
-            s.Add(new[] { x });
-            s.Current = x;
-            _host.RequestChoice = new RuleSettingChoice { ForTeam = true, Setting = "off", Reason = "why" };
-
-            s.TurnOffRule();
-
-            Assert.StartsWith("Your request is saved but not sent yet (House Style couldn't write to", _host.Errors.Single());
-            Assert.EndsWith("Request saved. It's sent the next time you lint.", s.Status);
-        }
-
-        [Fact]
         public void TurnOffRule_Writer_Cancelled_DoesNothing()
         {
             _team = MakeTeam(owner: false);

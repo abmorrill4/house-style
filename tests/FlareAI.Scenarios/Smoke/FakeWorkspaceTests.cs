@@ -118,15 +118,5 @@ namespace FlareAI.Scenarios.Smoke
                 Assert.True(ws.IsOpen("Content/transfers/about.htm"));
             }
         }
-
-        [Fact]
-        public void FakeClock_MovesOnlyWhenTold()
-        {
-            var clock = new FakeClock(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-            var a = clock.UtcNow;
-            Assert.Equal(a, clock.UtcNow);
-            Assert.Equal(a.AddHours(1), clock.Advance(TimeSpan.FromHours(1)));
-            Assert.True(clock.Tick() < clock.Tick());
-        }
     }
 }

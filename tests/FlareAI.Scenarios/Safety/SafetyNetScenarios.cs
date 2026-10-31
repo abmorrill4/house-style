@@ -99,38 +99,15 @@ namespace FlareAI.Scenarios.Safety
             }
         }
 
-        [Fact]
-        public void Story12a_AnAnswerThatDropsAVariable_IsRefused_AndTheTopicIsUnchanged()
+        [Theory]
+        [InlineData("<p MadCap:conditions=\"Default.Print\">Open the product and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>", "Dropped or altered: MadCap:variable")]
+        [InlineData("<p MadCap:conditions=\"Default.Online\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>", "MadCap:conditions=\"Default.Print\"")]
+        [InlineData("<p MadCap:conditions=\"Default.Print\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide-2.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>", "Dropped or altered: MadCap:xref")]
+        [InlineData("<p MadCap:conditions=\"Default.Print\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or the console today.</p>", "Dropped or altered: MadCap:snippetText")]
+        [InlineData("<p MadCap:conditions=\"Default.Print\">Open <b>the product and see the guide today.</p>", "not well-formed")]
+        public void Story12_AnAnswerThatBreaksTheMarkup_IsRefused_AndTheTopicIsUnchanged(string body, string message)
         {
-            Refused("<p MadCap:conditions=\"Default.Print\">Open the product and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>",
-                    "Dropped or altered: MadCap:variable");
-        }
-
-        [Fact]
-        public void Story12b_AnAnswerThatChangesAConditionValue_IsRefused_AndTheTopicIsUnchanged()
-        {
-            Refused("<p MadCap:conditions=\"Default.Online\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>",
-                    "MadCap:conditions=\"Default.Print\"");
-        }
-
-        [Fact]
-        public void Story12c_AnAnswerThatRenamesAnXref_IsRefused_AndTheTopicIsUnchanged()
-        {
-            Refused("<p MadCap:conditions=\"Default.Print\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide-2.htm\">the guide</MadCap:xref> or <MadCap:snippetText src=\"Resources/Snippets/term.flsnp\" /> today.</p>",
-                    "Dropped or altered: MadCap:xref");
-        }
-
-        [Fact]
-        public void Story12d_AnAnswerThatUnwrapsASnippet_IsRefused_AndTheTopicIsUnchanged()
-        {
-            Refused("<p MadCap:conditions=\"Default.Print\">Open <MadCap:variable name=\"General.ProductName\" /> and see <MadCap:xref href=\"guide.htm\">the guide</MadCap:xref> or the console today.</p>",
-                    "Dropped or altered: MadCap:snippetText");
-        }
-
-        [Fact]
-        public void Story12e_AnAnswerThatIsNotWellFormedXhtml_IsRefused_AndTheTopicIsUnchanged()
-        {
-            Refused("<p MadCap:conditions=\"Default.Print\">Open <b>the product and see the guide today.</p>", "not well-formed");
+            Refused(body, message);
         }
 
         [Fact]

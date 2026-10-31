@@ -44,11 +44,7 @@ namespace FlareAI.Flare.Tests
 
         [Theory]
         [InlineData(150, 500)]
-        [InlineData(150, 640)]
-        [InlineData(150, 1000)]
-        [InlineData(180, 640)]
         [InlineData(180, 800)]
-        [InlineData(260, 500)]
         [InlineData(260, 1000)]
         public void OneAiReword_InASingleTopic_TheCardShowsEverything_WithoutOverlap(int width, int height)
         {

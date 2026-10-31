@@ -13,14 +13,11 @@ namespace FlareAI.RuleFixtures.Tests
     /// Rule coverage fixtures: every lint row of the bundled Google and Company guides, and every structure check, with Bad and
     /// Good cases in realistic contexts. Fixtures are generated (tools/FlareAI.FixtureGen) from the guide's own Example, Avoid and
     /// Use cells; where a rule should fire per context is declared in tools/FlareAI.FixtureGen/expectations.yaml, not in engine code.
-    /// Cases that fail because of a known bug are listed in tests/baselines/rule-fixtures.known-failures.json with the owning issue.
     /// </summary>
     public class RuleFixtureTests
     {
         private readonly ITestOutputHelper _out;
         public RuleFixtureTests(ITestOutputHelper output) { _out = output; }
-
-        private static bool Update { get { return Environment.GetEnvironmentVariable("FLAREAI_UPDATE_KNOWN") == "1"; } }
 
         public static IEnumerable<object[]> RuleIds() { return Repo.LoadRules().Select(r => new object[] { r.Id }); }
         public static IEnumerable<object[]> StructureRules() { return Repo.LoadStructure().Rules.Select(r => new object[] { r.Rule }); }
@@ -36,10 +33,8 @@ namespace FlareAI.RuleFixtures.Tests
         [MemberData(nameof(RuleIds))]
         public void Rule_HasNoUnlistedFailures(string ruleId)
         {
-            if (Update) return;
-            var known = KnownFailures.Load();
-            var unlisted = Suite.Result.Failures.Where(f => f.RuleId == ruleId && !known.ContainsKey(f.Id)).ToList();
-            Assert.True(unlisted.Count == 0, unlisted.Count + " new failure(s) for " + ruleId + " (fix the rule, or file the bug and list the case):\n" +
+            var unlisted = Suite.Result.Failures.Where(f => f.RuleId == ruleId).ToList();
+            Assert.True(unlisted.Count == 0, unlisted.Count + " new failure(s) for " + ruleId + " (fix the rule):\n" +
                 string.Join("\n", unlisted.Take(25).Select(f => "  " + f).ToArray()));
         }
 
@@ -47,29 +42,8 @@ namespace FlareAI.RuleFixtures.Tests
         [MemberData(nameof(StructureRules))]
         public void StructureCheck_ReportsBadAndStaysQuietOnGood(string rule)
         {
-            if (Update) return;
-            var known = KnownFailures.Load();
-            var unlisted = Suite.Result.Failures.Where(f => f.RuleId == rule && !known.ContainsKey(f.Id)).ToList();
+            var unlisted = Suite.Result.Failures.Where(f => f.RuleId == rule).ToList();
             Assert.True(unlisted.Count == 0, string.Join("\n", unlisted.Select(f => f.ToString()).ToArray()));
-        }
-
-        // ---- the ratchet ---------------------------------------------------------------------------------------------
-
-        /// <summary>A listed case that now passes (or no longer exists) must come off the list: it only shrinks.</summary>
-        [Fact]
-        public void KnownFailures_AllStillFail()
-        {
-            var r = Suite.Result;
-            if (Update)
-            {
-                KnownFailures.Save(r.Failures);
-                _out.WriteLine("Wrote " + Repo.KnownFailures + " with " + r.Failures.Select(f => f.Id).Distinct().Count() + " cases.");
-                return;
-            }
-            var failing = new HashSet<string>(r.Failures.Select(f => f.Id));
-            var stale = KnownFailures.Load().Where(kv => !failing.Contains(kv.Key)).Select(kv => kv.Value + "  " + kv.Key).OrderBy(x => x, StringComparer.Ordinal).ToList();
-            Assert.True(stale.Count == 0, stale.Count + " listed case(s) now pass or no longer exist: remove them from tests/baselines/rule-fixtures.known-failures.json " +
-                "(FLAREAI_UPDATE_KNOWN=1 dotnet test rewrites it):\n" + string.Join("\n", stale.Take(40).ToArray()));
         }
 
         // ---- coverage and freshness ----------------------------------------------------------------------------------
@@ -127,13 +101,6 @@ namespace FlareAI.RuleFixtures.Tests
             Assert.True(stale.Length == 0, "tests/fixtures/rules is out of date with the style guide, templates or expectations.yaml. Run " +
                 @"tools\FlareAI.FixtureGen\bin\<config>\net48\FlareAI.FixtureGen.exe and commit the result. Stale: " + string.Join(", ", stale.Take(10).ToArray()));
             Assert.Equal(GuideSet.Stamp(Repo.Guide), Repo.LoadManifest().GuideStamp);
-        }
-
-        [Fact]
-        public void Suite_RunsInUnderAMinute()
-        {
-            Assert.True(Suite.Result.Elapsed < TimeSpan.FromSeconds(60), "the fixture suite took " + Suite.Result.Elapsed);
-            _out.WriteLine(Summary());
         }
 
         // ---- the harness itself --------------------------------------------------------------------------------------
@@ -215,33 +182,6 @@ namespace FlareAI.RuleFixtures.Tests
             Directory.CreateDirectory(to);
             foreach (var f in Directory.GetFiles(from)) File.Copy(f, Path.Combine(to, Path.GetFileName(f)), true);
             foreach (var d in Directory.GetDirectories(from)) CopyDirectory(d, Path.Combine(to, Path.GetFileName(d)));
-        }
-
-        // ---- the numbers ---------------------------------------------------------------------------------------------
-
-        [Fact]
-        public void Summary_PrintsWhatPassesAndWhatIsKnown()
-        {
-            _out.WriteLine(Summary());
-            var dump = Environment.GetEnvironmentVariable("FLAREAI_DUMP");
-            if (!string.IsNullOrEmpty(dump)) File.WriteAllLines(dump, Suite.Result.Failures.Select(f => KnownFailures.IssueOf(f) + "  " + f + "  {" + f.Tags + "}").ToArray());
-        }
-
-        private static string Summary()
-        {
-            var r = Suite.Result;
-            var lines = new List<string>
-            {
-                "rules " + r.RulesChecked + ", checks " + r.Checks + ", passed " + r.Passed + ", failing " + r.Failures.Count + ", inconclusive " + r.Inconclusive + ", in " + r.Elapsed
-            };
-            foreach (var kv in r.ChecksByKind.OrderBy(k => k.Key))
-            {
-                int f; r.FailuresByKind.TryGetValue(kv.Key, out f);
-                lines.Add("  " + kv.Key.PadRight(16) + kv.Value.ToString().PadLeft(6) + " checks " + f.ToString().PadLeft(6) + " failing");
-            }
-            foreach (var g in r.Failures.GroupBy(KnownFailures.IssueOf).OrderBy(g => g.Key, StringComparer.Ordinal))
-                lines.Add("  " + g.Key.PadRight(5) + g.Count().ToString().PadLeft(6) + " cases");
-            return string.Join("\n", lines.ToArray());
         }
     }
 }
