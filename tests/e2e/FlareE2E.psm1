@@ -74,14 +74,11 @@ function Get-FlareWindow([string]$Name) {
 .PARAMETER Ai       Turn AI review on (needs ANTHROPIC_API_KEY, from the environment or the repo's .env).
 .PARAMETER Force    Close a Flare that is already running (its unsaved work is lost).
 .PARAMETER Settings More plugin settings for this run (for example StyleLayers, to point at a team guide).
-.PARAMETER Bifrost  Turn AI on through the company AI service (Bifrost) instead of Anthropic. Needs
-                    HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY. Name such scenarios ai-* too. With -Ai
-                    and only the Bifrost key set, the scenario goes through Bifrost anyway.
 #>
 function Start-FlareE2E {
-    param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Bifrost, [switch]$Force, [string]$RunRoot = (Get-E2ERoot), [hashtable]$Settings = @{})
+    param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Force, [hashtable]$Settings = @{})
     # A run with only the Bifrost key (a factory branch on the Flare VM) sends every AI scenario through the gateway.
-    if ($Ai -and -not $env:ANTHROPIC_API_KEY -and $env:HOUSESTYLE_TEST_BIFROST_KEY) { $Bifrost = $true }
+    $Bifrost = $Ai -and -not $env:ANTHROPIC_API_KEY -and $env:HOUSESTYLE_TEST_BIFROST_KEY
     if ($Bifrost) {
         if (-not $env:HOUSESTYLE_TEST_BIFROST_URL -or -not $env:HOUSESTYLE_TEST_BIFROST_KEY) { throw "-Bifrost needs HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY." }
         $Ai = $true
@@ -96,7 +93,7 @@ function Start-FlareE2E {
     # Program Files on the dev PC; Program Files (x86) where Flare's MSI was installed directly (the factory VM).
     $flare = @("$env:ProgramFiles", "${env:ProgramFiles(x86)}") | ForEach-Object { Join-Path $_ "MadCap Software\MadCap Flare 22\Flare.app\Flare.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $flare) { throw "Flare 22 isn't installed." }
-    $dir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss")
+    $dir = Join-Path (Get-E2ERoot) (Get-Date -Format "yyyyMMdd-HHmmss")
     $hook = Join-Path $dir "hook"
     $appdata = Join-Path $hook "appdata"
     New-Item -ItemType Directory -Force $appdata | Out-Null
@@ -292,3 +289,4 @@ function Assert-E2E([object]$Condition, [string]$Message) {
 }
 
 Export-ModuleMember -Function Get-E2ERoot, New-E2EResultRow, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Invoke-RibbonMenu, Get-E2ESetting, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot
+
