@@ -70,9 +70,9 @@ once. The rest run on Flare's UI thread and answer when they return.
   through Flare's dock as a writer's do.
   `Assert-E2E ((Send-E2E paneFocus).value.focused) "list focused"; [System.Windows.Forms.SendKeys]::SendWait("^{ENTER}")`
 - **`paneType`** (`name`, `arg`) picks `arg` in a pane combo box or types it in a pane text box, by accessible name.
-  Fails "No box named {name}". `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
+  Fails "No box named {name}" and lists the valid names. `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
 - **`paneMenu`** (`arg`) clicks the item that starts with `arg` in the pane's open menu (Ignore's reasons or the row
-  menu). Fails "No open menu" or "No menu item {arg}". `SendWait("{DELETE}"); Send-E2E paneMenu "It's correct"`
+  menu). Fails "No open menu" or "No menu item {arg}" (which lists the valid items). `SendWait("{DELETE}"); Send-E2E paneMenu "It's correct"`
 - **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one and fails "Flare didn't resize
   the docked pane." `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
 - **`paneFloat`** (`width`, `height`, both optional) floats the docked pane as Flare's Float command does and sizes the
@@ -88,7 +88,7 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
   instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
   `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`scenarios/export-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
-- **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}".
+- **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}" and lists the valid names.
   `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no
   topic is open. `pane.size` is `{ width, height }`. A dialog's or the pane's `buttons` give check boxes and option

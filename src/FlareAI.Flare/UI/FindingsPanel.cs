@@ -1305,7 +1305,8 @@ namespace FlareAI.Flare.UI
             if (menu == null) throw new InvalidOperationException("No open menu");
             var hit = menu.Items.Cast<ToolStripItem>().FirstOrDefault(m => !(m is ToolStripSeparator) && m.Available && m.Enabled &&
                                                                          m.Text.Replace("&", "").TrimEnd('…').StartsWith(prefix ?? "", StringComparison.Ordinal));
-            if (hit == null) throw new InvalidOperationException("No menu item " + prefix);
+            if (hit == null) throw new InvalidOperationException("No menu item " + prefix + E2EHook.Valid(
+                menu.Items.Cast<ToolStripItem>().Where(m => !(m is ToolStripSeparator) && m.Available).Select(m => m.Text.Replace("&", "").TrimEnd('…'))));
             menu.Close();
             hit.PerformClick();
         }
