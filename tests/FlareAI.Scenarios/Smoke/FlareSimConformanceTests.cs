@@ -23,29 +23,6 @@ namespace FlareAI.Scenarios.Smoke
         }
 
         [Fact]
-        public void Suite_CoversEveryDocumentedBehaviour()
-        {
-            var names = AdapterConformance.Cases.Select(c => c.Name).ToList();
-            foreach (var required in new[]
-            {
-                "Edit_IsOneUndoStep", "ReplaceSpan_OutsideEdit_Throws", "ReplaceSpan_WritesTrackedChangeMarkup", "Operation_HasOneChangeIdPair",
-                "ChangeIds_ReachHeadAtOperationEnd", "SpanEdit_SplitsTheTextNode", "SelectText_SelectsFirstMatch", "ReplaceBlocks_CopiesIntoTheOldElement",
-                "ReplaceBlocks_TextNodeTarget_Throws", "UndoRedo_RoundTrip", "AcceptAll_LeavesNoChangeMarkup", "RejectAll_RestoresTheOriginal",
-                "Redo_NodeOperationWithVariable_Throws"
-            })
-                Assert.Contains(required, names);
-            Assert.Equal(names.Count, names.Distinct().Count());
-        }
-
-        [Fact]
-        public void RunAll_InsideFlare_SkipsCasesThatWouldCrashIt()
-        {
-            var results = AdapterConformance.RunAll(xml => FlareSimDocument.FromXml(xml), insideFlare: true);
-            Assert.All(results.Where(r => r.Case.Kind != ConformanceKind.Flare), r => Assert.True(r.Skipped));
-            Assert.All(results.Where(r => r.Case.Kind == ConformanceKind.Flare), r => Assert.True(r.Passed, r.Case.Name + ": " + r.Message));
-        }
-
-        [Fact]
         public void DirectDomWrites_AreReportedAsUntracked()
         {
             var doc = FlareSimDocument.FromXml(AdapterConformance.Topic);

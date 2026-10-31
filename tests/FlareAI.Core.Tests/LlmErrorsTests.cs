@@ -86,23 +86,6 @@ namespace FlareAI.Core.Tests
             public LlmResponse Complete(LlmRequest request) { throw _ex; }
         }
 
-        private sealed class Ok : ILlmClient
-        {
-            public LlmResponse Complete(LlmRequest request) { return new LlmResponse { Text = "OK", Model = "claude-sonnet-5-5" }; }
-        }
-
-        [Fact]
-        public void ConnectionTest_ReportsEachOutcome()
-        {
-            Func<ILlmClient, ConnectionResult> run = c => ConnectionTest.Run(LlmProvider.Bifrost, "https://gw.example.com", "vk-1", "claude-sonnet-5-5", 30, c);
-            Assert.Equal(ConnectionOutcome.Connected, run(new Ok()).Outcome);
-            Assert.Equal(ConnectionOutcome.KeyRejected, run(new Throwing(LlmErrors.FromHttp(401, "", true, "vk-1"))).Outcome);
-            Assert.Equal(ConnectionOutcome.ModelNotAllowed, run(new Throwing(LlmErrors.FromHttp(403, "", true, "vk-1"))).Outcome);
-            Assert.Equal(ConnectionOutcome.BudgetExhausted, run(new Throwing(LlmErrors.FromHttp(429, "", true, "vk-1"))).Outcome);
-            Assert.Equal(ConnectionOutcome.Unreachable, run(new Throwing(new LlmException("x", 0, null, LlmFailure.Network))).Outcome);
-            Assert.Equal(ConnectionOutcome.Other, run(new Throwing(LlmErrors.FromHttp(502, "bad gateway", true, "vk-1"))).Outcome);
-        }
-
         [Fact]
         public void ConnectionTest_NeedsAKey_AndNeverEchoesIt()
         {

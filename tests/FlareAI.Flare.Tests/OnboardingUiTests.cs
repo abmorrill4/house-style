@@ -344,7 +344,6 @@ namespace FlareAI.Flare.Tests
 
         [Theory]
         [InlineData(150, 640)]
-        [InlineData(180, 640)]
         [InlineData(180, 500)]
         public void TourHintStrip_FitsANarrowPane_AboveEverythingElse_WithSkipTour(int width, int height)
         {

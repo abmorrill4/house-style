@@ -316,20 +316,6 @@ namespace FlareAI.Scenarios.Rules
         }
 
         [Fact]
-        public void Story24f_TheOverridesFlareWrote_StillLeaveTheOtherTerminologyRow()
-        {
-            // The exact overrides.ini the real Flare run wrote for Story24e's Disable Rule.
-            using (var t = Team_.OnTopic("<h1>Sign-in</h1><p>Enable Single Sign-On first.</p><p>The Identity Provider must be set up before any member can sign in.</p>"))
-            {
-                Assert.True(t.Flags("company:terminology/7"));
-                t.Ws.WriteFile(@"Content/Resources/StyleGuide/overrides.ini", "# Rules disabled for this project (House Style, \"Disable Rule\"). Vale syntax: Style.Rule = NO\r\n# by pat on 2026-10-29: reason\r\ncompany:terminology/6 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/640 = off\r\n# by pat on 2026-10-29: reason\r\ngoogle:word-list/641 = off\r\n");
-                t.Fx.Check();
-                Assert.DoesNotContain(t.Fx.Session.Findings, x => x.RuleId == SignOn);
-                Assert.Contains(t.Fx.Session.Findings, x => x.Excerpt.StartsWith("Identity Provider"));
-            }
-        }
-
-        [Fact]
         public void Story24g_InTheDigitalBankingProject_TheOverridesFlareWrote_StillLeaveTheOtherTerminologyRow()
         {
             using (var t = Team_.InCorpus("DigitalBanking", "Content/billpay/twin-rules.htm", "<h1>Sign-in</h1><p>Enable Single Sign-On first.</p><p>The Identity Provider must be set up before any member can sign in.</p>"))

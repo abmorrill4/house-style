@@ -1,4 +1,0 @@
-{
-  "about": "Rule fixture cases that fail today, by owning issue. Case ids are check|rule|context|case. CI fails on a failure not listed here and on a listed case that now passes: only ever remove entries (run with FLAREAI_UPDATE_KNOWN=1 after a fix).",
-  "issues": {}
-}

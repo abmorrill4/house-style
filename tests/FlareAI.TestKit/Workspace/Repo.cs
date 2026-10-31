@@ -20,7 +20,6 @@ namespace FlareAI.TestKit.Workspace
 
         public static string Corpus { get { return Path.Combine(Root, "corpus"); } }
         public static string StyleGuide { get { return Path.Combine(Root, "styleguide"); } }
-        public static string CassettesRoot { get { return Path.Combine(Root, Path.Combine("tests", "cassettes")); } }
         public static string Fixtures { get { return Path.Combine(Root, Path.Combine("tests", "fixtures")); } }
 
         /// <summary>A value from the git-ignored .env at the repo root (as scripts\Load-DotEnv.ps1 reads it), or null.</summary>

@@ -14,7 +14,6 @@ namespace FlareAI.RuleFixtures.Tests
         public static string Guide { get { return Path.Combine(Root, "styleguide"); } }
         public static string FixtureDir { get { return Path.Combine(Root, @"tests\fixtures\rules"); } }
         public static string GenDir { get { return Path.Combine(Root, @"tools\FlareAI.FixtureGen"); } }
-        public static string KnownFailures { get { return Path.Combine(Root, @"tests\baselines\rule-fixtures.known-failures.json"); } }
 
         private static string FindRoot()
         {

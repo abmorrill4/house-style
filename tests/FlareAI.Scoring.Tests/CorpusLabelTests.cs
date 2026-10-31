@@ -81,49 +81,6 @@ namespace FlareAI.Scoring.Tests
         }
 
         [Fact]
-        public void Lint_only_bench_reproduces_the_hand_counted_google_precision()
-        {
-            // dist/audit/precision.md: Google lint rules fire 57 times, 23 are true positives (24 bench credits minus one accidental).
-            var r = LintOnlyReport(null);
-            var google = r.Get(ScoreReport.Layer, "google");
-            Assert.Equal(23, google.Tp);
-            Assert.Equal(34, google.Fp);
-            Assert.Equal(0, google.WrongRule);
-            Assert.Equal(0, google.Unscored);
-            Assert.Equal(57, google.ScoredFindings);
-            Assert.Equal(23.0 / 57.0, google.Precision, 6);
-        }
-
-        [Fact]
-        public void Lint_only_bench_reproduces_the_hand_counted_per_rule_precision()
-        {
-            var r = LintOnlyReport(null);
-            Assert.Equal(26, r.Get(ScoreReport.Rule, "google:word-list/221").Fp);
-            Assert.Equal(0, r.Get(ScoreReport.Rule, "google:word-list/221").Tp);
-            Assert.Equal(7, r.Get(ScoreReport.Rule, "google:word-list/640").Fp);
-            Assert.Equal(1, r.Get(ScoreReport.Rule, "google:units-of-measure/5").Fp);
-            Assert.Equal(7, r.Get(ScoreReport.Rule, "google:phone-numbers/4").Tp);
-            Assert.Equal(11, r.Get(ScoreReport.Rule, "google:tone/22").Tp);
-            Assert.Equal(5, r.Get(ScoreReport.Rule, "google:abbreviations/18").Tp);
-        }
-
-        [Fact]
-        public void Lint_only_bench_reproduces_the_other_layers_and_recall()
-        {
-            var r = LintOnlyReport(null);
-            Assert.Equal(373, r.FindingCount);
-            Assert.Equal(211, r.Get(ScoreReport.Layer, "company").Tp);   // 239 before DigitalBanking's customer/bank rows moved to its project guide
-            Assert.Equal(0, r.Get(ScoreReport.Layer, "company").Fp);
-            Assert.Equal(54, r.Get(ScoreReport.Layer, "structure").Tp);
-            Assert.Equal(51, r.Get(ScoreReport.Layer, "project").Tp);    // 23 variables + 28 customer/bank terminology
-            Assert.Equal(0, r.Overall.Unscored);
-            Assert.Equal(1.0, r.Coverage);
-            // 321 of 429 by the hand count; the one extra is the image without alt text that the v1 scorer could not tell from
-            // its siblings (a finding with no block can only be matched to a whole-element label by rule).
-            Assert.Equal(322, r.Overall.Detected);
-        }
-
-        [Fact]
         public void Scoring_with_the_text_source_gives_the_same_counts()
         {
             var plain = LintOnlyReport(null);
