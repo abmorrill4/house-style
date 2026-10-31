@@ -40,3 +40,23 @@ Describe "Test-E2EScenario" {
         (Preflight 'Fails { Send-E2E replace "zzqq never written" -Extra @{ text = "x" } }').Count | Should Be 0
     }
 }
+
+Describe "New-E2EResultRow" {
+    Import-Module (Join-Path $here "FlareE2E.psm1") -Force
+    $r = [ordered]@{ passed = $true; kind = $null; seconds = 5; error = $null; version = "1"; artifacts = @(); flareStartSeconds = 7; windowState = "Normal" }
+    It "adds the run-level fields after the scenario's own" {
+        $row = New-E2EResultRow "x" $r 42 9 "1920x1080"
+        $row.scenario | Should Be "x"
+        $row.installSeconds | Should Be 42
+        $row.queueSeconds | Should Be 9
+        $row.resolution | Should Be "1920x1080"
+        $row.flareStartSeconds | Should Be 7
+        $row.windowState | Should Be "Normal"
+        (@($row.PSObject.Properties.Name)[-3..-1]) -join "," | Should Be "installSeconds,queueSeconds,resolution"
+    }
+    It "leaves queueSeconds and installSeconds empty when unknown" {
+        $row = New-E2EResultRow "x" $r $null -1 $null
+        $row.queueSeconds | Should BeNullOrEmpty
+        $row.installSeconds | Should BeNullOrEmpty
+    }
+}

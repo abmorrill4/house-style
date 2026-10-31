@@ -5,6 +5,8 @@ plugin's settings isolated in the run folder. A failure saves Flare's state (JSO
 Closes any running Flare: don't run it while you have unsaved work in Flare.
 A watchdog ends a scenario that runs past -ScenarioMinutes: it saves a screenshot and the open windows' titles, then
 kills Flare, which also frees a UI Automation call stuck on an unresponsive window.
+-QueueSeconds is how long the job waited before this run (-1 when unknown). Each results.json row also records
+installSeconds, flareStartSeconds, resolution and windowState (see README.md).
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
 #>
@@ -16,6 +18,7 @@ param(
     [string]$RepoRoot,                        # the checkout to build and test, when this harness runs from a copy (the factory)
     [string]$OutDir,
     [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
+    [int]$QueueSeconds = -1,                  # seconds the job waited before this run; -1 means unknown
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
 )
 $ErrorActionPreference = "Stop"
@@ -26,11 +29,16 @@ $repo = if ($RepoRoot) { Resolve-Path $RepoRoot } else { Resolve-Path (Join-Path
 if (-not $Fixture) { $Fixture = Join-Path $repo "corpus\DigitalBanking" }
 $Fixture = Resolve-Path $Fixture
 
+$installSeconds = $null
 if ($Install) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
     Get-Process Flare -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru | Wait-Process -Timeout 30
     & (Join-Path $repo "scripts\install-plugin.ps1")
     if ($LASTEXITCODE) { throw "install-plugin.ps1 failed" }
+    $installSeconds = [int]$sw.Elapsed.TotalSeconds
 }
+# The size this 5.1 process sees: it is DPI-unaware, so a scaled desktop reports the scaled size.
+$resolution = try { Add-Type -AssemblyName System.Windows.Forms; $b = [System.Windows.Forms.SystemInformation]::VirtualScreen; "$($b.Width)x$($b.Height)" } catch { $null }
 
 $files = @(Get-ChildItem (Join-Path $repo "tests\e2e\scenarios") -Filter *.ps1) + @(foreach ($d in $ScenarioDir) { if ($d) { Get-ChildItem $d -Filter *.ps1 } }) |
     Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }
@@ -67,7 +75,7 @@ function Invoke-Once($f, $tag) {
     $hung = Join-Path $out "$tag-hung.txt"
     $cmd = "& {$watchdog} $PID $($ScenarioMinutes * 60) $(& $q (Join-Path $out "$tag-hung.png")) $(& $q $hung)"
     $dog = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList "-NoProfile", "-EncodedCommand", ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd)))
-    $r = [ordered]@{ passed = $false; kind = $null; seconds = 0; error = $null; version = $null; artifacts = @() }
+    $r = [ordered]@{ passed = $false; kind = $null; seconds = 0; error = $null; version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null }
     (Get-Module FlareE2E).Invoke({ $script:Run = $null })   # no state from the scenario before
     try {
         & $f.FullName -Fixture $Fixture | Out-Host   # to the console, not into this function's result
@@ -90,6 +98,9 @@ function Invoke-Once($f, $tag) {
     } finally {
         Stop-Process -Id $dog.Id -Force -ErrorAction SilentlyContinue
         try { $r.version = (Get-Module FlareE2E).Invoke({ $script:Run.Version }) } catch { }
+        foreach ($p in "FlareStartSeconds", "WindowState") {   # StrictMode: only present once Flare was launched
+            try { $r[($p.Substring(0, 1).ToLower() + $p.Substring(1))] = (Get-Module FlareE2E).Invoke({ param($n) if ($script:Run -and $script:Run.PSObject.Properties[$n]) { $script:Run.$n } }, $p) } catch { }
+        }
         Stop-FlareE2E
         $r.seconds = [int]((Get-Date) - $start).TotalSeconds
     }
@@ -105,7 +116,7 @@ foreach ($f in $files) {
     # Mistakes a static check finds cost no Flare launch.
     $problems = try { @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo) } catch { @("the preflight check itself failed: $($_.Exception.Message)") }
     if ($problems.Count) {
-        $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @() }
+        $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null }
     } else {
         $r = Invoke-Once $f $f.BaseName
     }
@@ -120,8 +131,7 @@ foreach ($f in $files) {
     }
     if ($r.passed) { Write-Host "   PASS$(if ($r.Contains('firstTry')) { ' (on retry)' })" -ForegroundColor Green }
     else { Write-Host "   $($r.kind.ToUpper()) FAILURE: $($r.error)" -ForegroundColor Red; Write-Host "::error::$($f.BaseName) ($($r.kind) failure): $($r.error)" }
-    $row = [ordered]@{ scenario = $f.BaseName }; foreach ($k in $r.Keys) { $row[$k] = $r[$k] }
-    $results += [pscustomobject]$row
+    $results += New-E2EResultRow $f.BaseName $r $installSeconds $QueueSeconds $resolution
     $status = if ($r.passed) { "PASS" } else { "FAIL-$($r.kind)" }
     try { Add-Content $history ("{0}`t{1}`t{2}`t{3}s`t{4}`t{5}`t{6}" -f (Get-Date -Format s), $f.BaseName, $status, $r.seconds, $head, ($r.error -replace '\s+', ' '), $out) } catch { }
 }

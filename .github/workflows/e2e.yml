@@ -69,7 +69,10 @@ jobs:
             if (-not $noAi) { Write-Host "::error::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"; exit 1 }
             Write-Host "::warning::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"
           }
-          & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi
+          # Seconds since the push, so it includes the runner wait, checkout and the ready check. -1 when this isn't a push.
+          $queue = -1
+          if ('${{ github.event_name }}' -eq 'push') { try { $queue = [int](([DateTimeOffset]::UtcNow) - ([DateTimeOffset]::FromUnixTimeSeconds([long]'${{ github.event.repository.pushed_at }}'))).TotalSeconds } catch { $queue = -1 } }
+          & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi -QueueSeconds $queue
           exit $LASTEXITCODE
 
       - name: Upload results

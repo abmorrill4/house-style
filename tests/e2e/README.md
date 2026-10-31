@@ -23,6 +23,10 @@ Each failure is a **VM failure** or a **test failure**:
   reports ready, a scenario failing before it starts Flare, and anything after the plugin is ready, hangs included,
   since a fix can deadlock Flare.
 
+Each `results.json` row also has `installSeconds` (empty without `-Install`), `flareStartSeconds`, `queueSeconds`
+(empty when unknown), `resolution` and `windowState`. The run-level values repeat on every row, and the Flare fields
+are empty when the scenario failed before Flare started.
+
 The summary line counts both kinds. The factory reports a fix whose only failures are VM failures as a VM problem,
 not as a bad fix. A pass that needed a retry is named in the factory's PR.
 
