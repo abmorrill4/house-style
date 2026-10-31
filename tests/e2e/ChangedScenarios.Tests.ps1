@@ -8,6 +8,7 @@ function New-Repo([scriptblock]$Change) {
     New-Item -ItemType Directory -Force $s | Out-Null
     foreach ($n in "one", "two", "ai-x") { Set-Content (Join-Path $s "$n.ps1") "# $n" }
     Set-Content (Join-Path $d "other.txt") "a"
+    $ErrorActionPreference = "Continue"   # git writes progress to stderr; CI runs Pester with Stop
     $g = { git -C $d -c user.email=t@t -c user.name=t @args 2>&1 | Out-Null }
     & $g init -b main; & $g add -A; & $g commit -m base
     & $g checkout -b topic
