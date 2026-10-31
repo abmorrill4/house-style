@@ -333,6 +333,7 @@ namespace FlareAI.Flare.UI
             _keyLabel.Text = AiChoices.KeyLabel(choice);
             A11y.Name(_key, AiChoices.KeyLabel(choice), "Write only: a stored key is never shown back. Leave blank to keep the stored key.");
             _testResult.Text = "";
+            RefreshKeyStatus();
             _ai.Reflow();
             _modelNoteBlock.Visible = AiChoices.UsesModelPickers(choice);   // AI off or a gateway: the lists don't come from a key
             _adv.Reflow();
@@ -437,7 +438,11 @@ namespace FlareAI.Flare.UI
         private string KeyForLoading()
         {
             var typed = _key.Text.Trim();
-            return typed.Length > 0 ? typed : _settings.ResolveApiKey();
+            if (typed.Length > 0) return typed;
+            if (AiChoices.Of(_settings) == Choice) return _settings.ResolveApiKey();
+            if (Choice != AiChoice.AnthropicKey) return null;
+            var env = Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
+            return string.IsNullOrEmpty(env) ? null : env;
         }
 
         private void LoadModels()
@@ -531,8 +536,9 @@ namespace FlareAI.Flare.UI
 
         private void RefreshKeyStatus()
         {
-            if (_settings.HasStoredKey) _keyStatus.Text = "A key is stored (protected). Leave the box blank to keep it.";
-            else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName))) _keyStatus.Text = "Using " + PluginSettings.EnvKeyName + " from the environment.";
+            var mine = AiChoices.Of(_settings) == Choice;
+            if (mine && _settings.HasStoredKey) _keyStatus.Text = "A key is stored (protected). Leave the box blank to keep it.";
+            else if (Choice == AiChoice.AnthropicKey && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName))) _keyStatus.Text = "Using " + PluginSettings.EnvKeyName + " from the environment.";
             else _keyStatus.Text = "No key yet.";
             _clearKey.Enabled = _settings.HasStoredKey;
         }

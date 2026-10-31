@@ -57,6 +57,7 @@ namespace FlareAI.Core.Settings
         /// <summary>
         /// Sets the provider and the AI switch. <see cref="AiChoice.None"/> also removes the stored key, so nothing
         /// secret stays behind; the provider and address are kept so choosing AI again restores them.
+        /// A change of provider also removes the stored key, because a key only works with the provider it came from.
         /// </summary>
         public static void Apply(PluginSettings s, AiChoice c)
         {
@@ -64,6 +65,7 @@ namespace FlareAI.Core.Settings
             if (c == AiChoice.None) { s.SetApiKey(null); return; }
             var was = s.Provider;
             s.Provider = Provider(c);
+            if (was != s.Provider) s.SetApiKey(null);
             // The address belongs to the provider: switching drops the other one's (the Anthropic address is fixed).
             if (c == AiChoice.AnthropicKey && (was == LlmProvider.Bifrost || string.IsNullOrEmpty(s.BaseUrl) || s.BaseUrl.Contains("/v1")))
                 s.BaseUrl = PluginSettings.DefaultAnthropicBaseUrl;
