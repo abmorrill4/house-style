@@ -96,12 +96,12 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   - Commit messages are a short summary line plus a body listing what changed and why.
 - **Issues** use labels `bug`, `enhancement`, `trust`, `pilot`, `security`, `ready-for-release`, at least one `area:*`
   label, plus one origin label: `from:tester`, `from:owner` or `from:research`.
-  The `ready` and `factory:*` labels are set by the private build factory, abmorrill4/house-style-factory.
+  The owner adds the `ready` label when an issue is specced and can be built by the factory.
 - **The roadmap** is the project board at https://github.com/users/abmorrill4/projects/2. There are no phases,
   milestones or themes. Every open issue has its own `When` (Now, Next, Later) on the board, and its `area:*` label
   puts it in a product area.
-- **The build factory, the work loop and their rules** live in the private repo abmorrill4/house-style-factory, not
-  here. This repo holds only the plugin, its tests, its CI and its releases.
+- **The build factory** is one local script (`scripts/factory.ps1`) in the private repo abmorrill4/house-style-factory,
+  not here. This repo holds only the plugin, its tests, its CI and its releases.
 - **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the
   last tag, it tags the next patch version on `main` and starts `build.yml` on it, which signs and publishes.
   - **To stop releases,** disable the workflow (`gh workflow disable nightly`).

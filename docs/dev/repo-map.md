@@ -37,14 +37,11 @@ folders whole, and never read `corpus/` wholesale (it is generated test data).
 | One fixture per lint rule | `tests/FlareAI.RuleFixtures.Tests`, data in `tests/fixtures/rules` |
 | Real WinForms, hidden | `tests/FlareAI.Flare.Tests` |
 | Real Flare, no clicking | `tests/e2e` (`Run-FlareE2E.ps1`, `scenarios/*.ps1`) |
-| Scripts (Pester 3) | `tests/factory`, `tests/release`, `tests/publish-guide`, `tests/agent` |
+| Scripts (Pester 3) | `tests/factory`, `tests/release`, `tests/publish-guide` |
 | Feedback Worker (vitest) | `tools/feedback-worker/test` |
-
-The `testing` skill says which of these to use first.
 
 ## Other places
 - `styleguide/Company/` holds team rule rows. `styleguide/Google/` is generated, never edited by hand.
 - `changes/<name>.md` holds one note per writer-visible change (`changes/README.md`).
-- The build factory (its agents, skills, review workflow, routing rules and scripts) lives in the private repo
-  abmorrill4/house-style-factory, not here.
+- The build factory (one local script) lives in the private repo abmorrill4/house-style-factory, not here.
 - `docs/api-dump.txt` is the real Flare API and `docs/flare-api-notes.md` the verified Flare behavior.
