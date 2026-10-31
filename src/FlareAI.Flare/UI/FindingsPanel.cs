@@ -136,7 +136,7 @@ namespace FlareAI.Flare.UI
             if (_list.Items.Count > 0)
             {
                 _list.Focus();
-                if (_list.SelectedItems.Count == 0) _list.Items[0].Selected = true;
+                if (_list.SelectedItems.Count == 0) FirstSelectable().Selected = true;
             }
             else
             {
@@ -321,6 +321,7 @@ namespace FlareAI.Flare.UI
             _list.SelectedIndexChanged += (s, e) => QueueSelectionChanged();
             _list.DoubleClick += (s, e) => Safe.Run("Change", Accept);
             _list.KeyDown += (s, e) => Safe.Run("List key", () => OnListKey(s, e));
+            _list.MouseDown += (s, e) => Safe.Run("File heading", () => OnListMouseDown(e));
             _list.ContextMenuStrip = BuildRowMenu();
 
             // The card: what, why, impact, and the decision.
@@ -666,11 +667,14 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>Accessible names, descriptions and a reading-order tab sequence (status, triage, list, card, bar).</summary>
+        private const string IssuesHelp = "Issues in reading order. Each row starts with its severity. A filled circle is an error, a triangle is a warning and an open circle is a suggestion. Enter changes the issue. Delete ignores it.";
+        private const string HeadingHelp = "File headings collapse with Left and Right.";
+
         private void NameControls()
         {
             A11y.Name(this, PaneTitle, "Issues in the open topic, with a card for the selected one.");
             A11y.Name(_progress, "Progress");
-            A11y.Name(_list, "Issues", "Issues in reading order. Each row starts with its severity. A filled circle is an error, a triangle is a warning and an open circle is a suggestion. Enter changes the issue. Delete ignores it.");
+            A11y.Name(_list, "Issues", IssuesHelp);
             A11y.Name(_result, "Result of the last batch");
             A11y.Name(_cardDiff, "What changes", "The text around the change, with removed words struck through and added words underlined.");
             A11y.Name(_cardWhy, "Why", "The reason, the guide rule and its example.");
@@ -1023,6 +1027,17 @@ namespace FlareAI.Flare.UI
             var fore = !_list.Enabled ? SystemColors.GrayText : selected && focused ? SystemColors.HighlightText : item.ForeColor;
             var grey = selected && focused ? SystemColors.HighlightText : SystemColors.GrayText;
             using (var brush = new SolidBrush(back)) g.FillRectangle(brush, b);
+            if (item.Tag is FileHeading)
+            {
+                var headFore = !_list.Enabled ? SystemColors.GrayText : selected && focused ? SystemColors.HighlightText : SystemColors.WindowText;
+                using (var bold = new Font(_list.Font, FontStyle.Bold))
+                {
+                    var whole = new Rectangle(b.X + S(4), b.Y, Math.Max(1, b.Width - 2 * S(4)), b.Height);
+                    TextRenderer.DrawText(g, item.Text, bold, whole, headFore, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                }
+                if ((e.State & ListViewItemStates.Focused) != 0 && focused) ControlPaint.DrawFocusRectangle(g, b, headFore, back);
+                return;
+            }
             var meta = item.SubItems.Count > 1 ? item.SubItems[1].Text : "";
             var font = item.Font ?? _list.Font;
             var pad = S(4);
@@ -1202,7 +1217,8 @@ namespace FlareAI.Flare.UI
             foreach (ListViewItem i in _list.Items)
             {
                 var f = i.Tag as StyleFinding;
-                rows.Add(new { text = i.Text, source = i.SubItems.Count > 1 ? i.SubItems[1].Text : "", file = f == null ? null : f.DocumentPath, rule = f == null ? null : f.Rule, excerpt = f == null ? null : f.Excerpt, layer = f == null ? null : f.Layer });
+                var head = i.Tag as FileHeading;
+                rows.Add(new { text = i.Text, source = i.SubItems.Count > 1 ? i.SubItems[1].Text : "", file = f == null ? null : f.DocumentPath, rule = f == null ? null : f.Rule, excerpt = f == null ? null : f.Excerpt, layer = f == null ? null : f.Layer, heading = head != null, collapsed = head != null && head.Collapsed });
             }
             // Tab bar captions without the & mnemonics
             var tabCaptions = new List<string>();
@@ -1282,6 +1298,27 @@ namespace FlareAI.Flare.UI
             return shown;
         }
 
+        /// <summary>Selects the first file heading whose text contains <paramref name="text"/> and clicks it (collapses or expands the file); returns the heading's text.</summary>
+        internal string E2EClickHeading(string text)
+        {
+            ListViewItem hit = null;
+            var texts = new List<string>();
+            foreach (ListViewItem i in _list.Items)
+            {
+                if (!(i.Tag is FileHeading)) continue;
+                texts.Add(i.Text);
+                if (hit == null && i.Text.IndexOf(text ?? "", StringComparison.Ordinal) >= 0) hit = i;
+            }
+            if (hit == null) throw new InvalidOperationException("No file heading " + text + E2EHook.Valid(texts));
+            var key = ((FileHeading)hit.Tag).Key;
+            var shownText = hit.Text;
+            _list.SelectedItems.Clear();
+            hit.Selected = true; hit.Focused = true;
+            _list.Focus();
+            ToggleFile(key, null);
+            return shownText;
+        }
+
         /// <summary>
         /// Brings the pane's window forward and puts the keyboard focus in the issues list, selecting the first row when
         /// none is. False when the focus didn't arrive (a modal dialog is open, say).
@@ -1290,7 +1327,7 @@ namespace FlareAI.Flare.UI
         {
             var form = FindForm();
             if (form != null && form.CanFocus) form.Activate();
-            if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; }
+            if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) { var first = FirstSelectable(); first.Selected = true; first.Focused = true; }
             _list.Focus();
             return ListHasFocus;
         }
@@ -1333,6 +1370,41 @@ namespace FlareAI.Flare.UI
                 if (form.ShowDialog(this) == DialogResult.OK) _status.Text = FalsePositiveForm.Sent;
         }
 
+        /// <summary>
+        /// By file keys. On a heading: Left collapses, Right expands, Enter toggles (never changes an issue). On an issue row:
+        /// Left collapses its file, and Rebuild selects the heading. True when the key was used.
+        /// </summary>
+        /// <summary>A click on a file heading collapses or expands that file.</summary>
+        private void OnListMouseDown(MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || e.Clicks != 1) return;
+            var item = _list.GetItemAt(e.X, e.Y);
+            var heading = item == null ? null : item.Tag as FileHeading;
+            if (heading == null) return;
+            item.Selected = true; item.Focused = true;
+            var key = heading.Key;
+            // The ListView raises its own selection events during MouseDown, so the rebuild waits until it is done.
+            if (IsHandleCreated) BeginInvoke((Action)(() => { if (!IsDisposed) Safe.Run("File heading", () => ToggleFile(key, null)); }));
+            else ToggleFile(key, null);
+        }
+
+        private bool FileKey(KeyEventArgs e)
+        {
+            var plain = !e.Shift && !e.Control && !e.Alt;
+            var h = CurrentHeading();
+            if (h != null)
+            {
+                if (e.KeyCode == Keys.Enter) { if (plain) ToggleFile(h.Key, null); return true; }
+                if (e.KeyCode == Keys.Delete) return true;
+                if (plain && e.KeyCode == Keys.Left) { ToggleFile(h.Key, true); return true; }
+                if (plain && e.KeyCode == Keys.Right) { ToggleFile(h.Key, false); return true; }
+                return false;
+            }
+            var f = Current();
+            if (f != null && plain && e.KeyCode == Keys.Left) { ToggleFile(ReviewSession.FileKey(f), true); return true; }
+            return false;
+        }
+
         private void OnListKey(object sender, KeyEventArgs e)
         {
             if (RuleRows)
@@ -1342,6 +1414,7 @@ namespace FlareAI.Flare.UI
                 return;
             }
             if ((e.KeyCode == Keys.Escape || e.KeyCode == Keys.Back) && _session.FocusRule != null) { _session.EndRuleReview(); e.Handled = true; e.SuppressKeyPress = true; return; }
+            if (ByFileRows && FileKey(e)) { e.Handled = true; e.SuppressKeyPress = true; return; }
             if (WalkKey(e)) { e.Handled = true; e.SuppressKeyPress = true; return; }
             if (e.KeyCode == Keys.Enter && e.Shift) { _session.OpenFileOfCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.Enter && e.Control) { _session.GoToCurrent(); FocusWalkList(); e.Handled = true; e.SuppressKeyPress = true; }
@@ -1562,12 +1635,15 @@ namespace FlareAI.Flare.UI
             }
             _actions.Visible = true; _ruleActions.Visible = false;
             var keep = Current();
+            var keepHeading = CurrentHeading();
             var focus = _session.FocusRule;
+            var byFileRows = ByFileRows;
             _list.BeginUpdate();
             try
             {
                 _list.Items.Clear(); _list.Groups.Clear();
-                foreach (var f in new List<StyleFinding>(_session.Findings))   // a snapshot: the session's list is never read while it changes
+                if (byFileRows) BuildFileRows(keep, keepHeading, focus);
+                else foreach (var f in new List<StyleFinding>(_session.Findings))   // a snapshot: the session's list is never read while it changes
                 {
                     if (focus != null && RuleBacklog.KeyOf(f) != focus) continue;
                     if (!_session.Filter.IsAll && !_session.Filter.Shows(f)) continue;
@@ -1590,6 +1666,78 @@ namespace FlareAI.Flare.UI
 
         /// <summary>The list shows one row per rule (a project check, By rule, not reviewing one rule).</summary>
         private bool RuleRows { get { return _files != null && _byRule.Checked && _session.FocusRule == null; } }
+
+        /// <summary>The list shows file headings and each file's issues (a project check, By file, not reviewing one rule).</summary>
+        private bool ByFileRows { get { return _files != null && _byFile.Checked && _session.FocusRule == null; } }
+
+        /// <summary>A file heading row in the By file view. The row is ordinary list text; the file's issue rows are left out while it is collapsed.</summary>
+        private sealed class FileHeading { public string Key; public int Count; public bool Collapsed; }
+
+        /// <summary>The selected file heading, or null.</summary>
+        private FileHeading CurrentHeading()
+        {
+            return _list.SelectedItems.Count == 1 ? _list.SelectedItems[0].Tag as FileHeading : null;
+        }
+
+        /// <summary>The first issue row, else the first row, else null.</summary>
+        private ListViewItem FirstSelectable()
+        {
+            foreach (ListViewItem i in _list.Items) if (i.Tag is StyleFinding) return i;
+            return _list.Items.Count > 0 ? _list.Items[0] : null;
+        }
+
+        private void ToggleFile(string key, bool? collapse)
+        {
+            _session.SetCollapsed(key, collapse ?? !_session.IsCollapsed(key));
+        }
+
+        /// <summary>The heading's text: state, file and how many issues the file has (the same collapsed or expanded).</summary>
+        private string HeadingText(string key, int count, bool collapsed)
+        {
+            var name = key.Length == 0 ? System.IO.Path.GetFileName(_doc.SourcePath ?? "") : RelativeToContent(key);
+            return (collapsed ? "▸" : "▾") + " " + name + " · " + Plural.Of(count, "issue");
+        }
+
+        /// <summary>By file: a heading row before each file's issues; a collapsed file keeps its heading and loses its issue rows.</summary>
+        private void BuildFileRows(StyleFinding keep, FileHeading keepHeading, string focus)
+        {
+            var keys = new List<string>();
+            var byKey = new Dictionary<string, List<StyleFinding>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in new List<StyleFinding>(_session.Findings))   // a snapshot: the session's list is never read while it changes
+            {
+                if (focus != null && RuleBacklog.KeyOf(f) != focus) continue;
+                if (!_session.Filter.IsAll && !_session.Filter.Shows(f)) continue;
+                var key = ReviewSession.FileKey(f);
+                List<StyleFinding> rows;
+                if (!byKey.TryGetValue(key, out rows)) { byKey[key] = rows = new List<StyleFinding>(); keys.Add(key); }
+                rows.Add(f);
+            }
+            ListViewItem pick = null, headingPick = null, keepHeadingRow = null;
+            var keepKey = keep == null ? null : ReviewSession.FileKey(keep);
+            foreach (var key in keys)
+            {
+                var rows = byKey[key];
+                var collapsed = _session.IsCollapsed(key);
+                var heading = new FileHeading { Key = key, Count = rows.Count, Collapsed = collapsed };
+                var head = new ListViewItem(new[] { HeadingText(key, rows.Count, collapsed), "" }) { Tag = heading };
+                _list.Items.Add(head);
+                if (keepKey != null && string.Equals(key, keepKey, StringComparison.OrdinalIgnoreCase)) headingPick = head;
+                if (keepHeading != null && string.Equals(key, keepHeading.Key, StringComparison.OrdinalIgnoreCase)) keepHeadingRow = head;
+                if (collapsed) continue;
+                foreach (var f in rows)
+                {
+                    var item = new ListViewItem(new[] { A11y.SeverityGlyph(f.Severity) + " " + ProposalText(f), LayerLabel(f) }) { Tag = f };
+                    item.ToolTipText = A11y.SeverityLabel(f.Severity) + ". " + A11y.SeverityHelp(f.Severity) + "\n" + LayerLabel(f) + " · " + ReadableRule(f) + "\n" + f.Suggestion;
+                    Restyle(item);
+                    _list.Items.Add(item);
+                    if (f == keep) pick = item;
+                }
+            }
+            if (pick == null && keep != null && headingPick != null && _session.IsCollapsed(keepKey)) pick = headingPick;
+            if (pick == null) pick = keepHeadingRow;
+            if (pick == null) pick = FirstSelectable();
+            if (pick != null) { pick.Selected = true; pick.Focused = true; }
+        }
 
         /// <summary>The selected rule row, or null.</summary>
         private BacklogRule CurrentRule()
@@ -2058,6 +2206,7 @@ namespace FlareAI.Flare.UI
                 _cardHead.Text = _session.Findings.Count == 0 ? ""
                                : rows ? (_list.Items.Count == 0 ? "" : "Select a rule to see why it matters and where it appears.")
                                : "Select an issue to see what changes and why.";
+                if (!rows && ByFileRows) _list.AccessibleDescription = IssuesHelp + " " + HeadingHelp;
                 UpdateButtons();
                 return;
             }
@@ -2068,7 +2217,7 @@ namespace FlareAI.Flare.UI
             _cardHead.Text = A11y.SeverityLabel(f.Severity) + "  ·  " + LayerLabel(f) + "  ·  " + KindLabel(f) + (f.IsFixed ? (f.FixedByEdit || f.MarkedFixed ? "  ·  fixed" : "  ·  changed") : f.IsStale ? "  ·  text changed" : "")
                              + (where.Length > 0 ? "\n" + where : "");
 
-            _list.AccessibleDescription = (_cardHead.Text + ". " + f.Suggestion).Replace("\n", " ");   // what a screen reader says for the selected row
+            _list.AccessibleDescription = (_cardHead.Text + ". " + f.Suggestion).Replace("\n", " ") + (ByFileRows ? " " + HeadingHelp : "");   // what a screen reader says for the selected row
 
             // What: the words around it, and the change marked.
             if (!string.IsNullOrEmpty(f.Before)) DiffView.Segments(_cardDiff, new List<DiffSegment> { new DiffSegment { Kind = DiffKind.Same, Text = "…" + f.Before } }, true);
