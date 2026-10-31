@@ -245,7 +245,7 @@ namespace FlareAI.Core.Settings
             ProtectedApiKey = Convert.ToBase64String(enc);
         }
 
-        /// <summary>Stored key first, then the environment variable. Null if neither.</summary>
+        /// <summary>Stored key first, then the environment variable, which is used only for Anthropic direct. Null if neither.</summary>
         public string ResolveApiKey()
         {
             if (!string.IsNullOrEmpty(ProtectedApiKey))
@@ -257,6 +257,7 @@ namespace FlareAI.Core.Settings
                 }
                 catch (CryptographicException) { /* different user/machine — fall through */ }
             }
+            if (Provider != LlmProvider.AnthropicDirect) return null;
             var env = Environment.GetEnvironmentVariable(EnvKeyName);
             return string.IsNullOrEmpty(env) ? null : env;
         }

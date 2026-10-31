@@ -16,6 +16,25 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void ResolveApiKey_UsesTheEnvironmentKeyForAnthropicDirectOnly()
+        {
+            var old = System.Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
+            System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-env");
+            try
+            {
+                var s = new PluginSettings();
+                s.Provider = LlmProvider.AnthropicDirect;
+                Assert.Equal("sk-env", s.ResolveApiKey());
+                s.Provider = LlmProvider.Bifrost;
+                Assert.Null(s.ResolveApiKey());
+            }
+            finally
+            {
+                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, old);
+            }
+        }
+
+        [Fact]
         public void AutoUpdate_IsOnByDefault_TheSettingDecides_UnlessThePolicyFileDoes()
         {
             Assert.True(new PluginSettings().AutoUpdate);

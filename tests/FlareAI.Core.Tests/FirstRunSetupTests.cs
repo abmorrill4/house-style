@@ -78,6 +78,23 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void SwitchingProvider_DropsTheStoredKey()
+        {
+            var s = new PluginSettings();
+            s.SetApiKey("sk-ant-direct");
+            AiChoices.Apply(s, AiChoice.Gateway);
+            Assert.False(s.HasStoredKey);
+
+            s.SetApiKey("vk-gw");
+            AiChoices.Apply(s, AiChoice.AnthropicKey);
+            Assert.False(s.HasStoredKey);
+
+            s.SetApiKey("sk-ant-keep");
+            AiChoices.Apply(s, AiChoice.AnthropicKey);
+            Assert.True(s.HasStoredKey);
+        }
+
+        [Fact]
         public void OldSettingsFiles_ReadAsAiOn()
         {
             // A file written before AiOff existed: the property is missing, so AI stays on with the same provider.
