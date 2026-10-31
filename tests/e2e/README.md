@@ -36,7 +36,14 @@ not as a bad fix. A pass that needed a retry is named in the factory's PR.
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install          # build, install, run everything
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -NoAi             # skip ai-* scenarios (no key, no cost)
+powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario a,b -StopOnFail   # stop after the first failure
 ```
+
+`-StopOnFail` ends the run after the first scenario that fails. `results.json` is still written, with the rows so far.
+
+On a `factory/*` branch, CI runs the scenarios the branch added or changed first (`Get-ChangedScenarios.ps1`) with
+`-StopOnFail`. Only if they pass does it run the full suite in the same job. Other branches run the full suite once,
+as before.
 
 It closes any running Flare. Don't run it while you have unsaved work in Flare.
 

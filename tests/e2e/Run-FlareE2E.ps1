@@ -7,6 +7,7 @@ A watchdog ends a scenario that runs past -ScenarioMinutes: it saves a screensho
 kills Flare, which also frees a UI Automation call stuck on an unresponsive window.
 -QueueSeconds is how long the job waited before this run (-1 when unknown). Each results.json row also records
 installSeconds, flareStartSeconds, resolution and windowState (see README.md).
+-StopOnFail ends the run after the first scenario that fails; results.json is still written, with the rows so far.
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario reopen-issues
 #>
@@ -18,6 +19,8 @@ param(
     [string]$RepoRoot,                        # the checkout to build and test, when this harness runs from a copy (the factory)
     [string]$OutDir,
     [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
+    [switch]$StopOnFail,                      # stop after the first scenario that fails; results.json is still written
+    [int]$InstallSeconds = -1,                # install time from an earlier run in the same job (a run without -Install); -1 means unknown
     [int]$QueueSeconds = -1,                  # seconds the job waited before this run; -1 means unknown
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
 )
@@ -29,7 +32,7 @@ $repo = if ($RepoRoot) { Resolve-Path $RepoRoot } else { Resolve-Path (Join-Path
 if (-not $Fixture) { $Fixture = Join-Path $repo "corpus\DigitalBanking" }
 $Fixture = Resolve-Path $Fixture
 
-$installSeconds = $null
+$installSeconds = if ($InstallSeconds -ge 0) { $InstallSeconds } else { $null }
 if ($Install) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Get-Process Flare -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru | Wait-Process -Timeout 30
@@ -134,6 +137,7 @@ foreach ($f in $files) {
     $results += New-E2EResultRow $f.BaseName $r $installSeconds $QueueSeconds $resolution
     $status = if ($r.passed) { "PASS" } else { "FAIL-$($r.kind)" }
     try { Add-Content $history ("{0}`t{1}`t{2}`t{3}s`t{4}`t{5}`t{6}" -f (Get-Date -Format s), $f.BaseName, $status, $r.seconds, $head, ($r.error -replace '\s+', ' '), $out) } catch { }
+    if ($StopOnFail -and -not $r.passed) { Write-Host "Stopping after the first failure (-StopOnFail)."; break }
 }
 $results | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $out "results.json")
 $failed = @($results | Where-Object { -not $_.passed })

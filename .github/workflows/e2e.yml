@@ -2,6 +2,8 @@
 # Triggered by pushes to this repository's branches, nightly and by hand, never by pull_request: for a pull_request event GitHub
 # runs the workflow file from the PR itself, so a fork could rewrite any guard here. Pushing a branch needs write
 # access (the owner, and the factory acting for the owner). A branch with an open PR shows this run on the PR too.
+# On a factory/* branch the scenarios the branch changed run first and stop at the first failure; only if they pass
+# does the full suite run, so a red from a changed scenario arrives in minutes.
 name: e2e
 
 on:
@@ -72,7 +74,21 @@ jobs:
           # Seconds since the push, so it includes the runner wait, checkout and the ready check. -1 when this isn't a push.
           $queue = -1
           if ('${{ github.event_name }}' -eq 'push') { try { $queue = [int](([DateTimeOffset]::UtcNow) - ([DateTimeOffset]::FromUnixTimeSeconds([long]'${{ github.event.repository.pushed_at }}'))).TotalSeconds } catch { $queue = -1 } }
-          & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir "$env:RUNNER_TEMP\e2e-results" -NoAi:$noAi -QueueSeconds $queue
+          $out = "$env:RUNNER_TEMP\e2e-results"
+          $first = @()
+          if ($factory) { $first = @(& .\tests\e2e\Get-ChangedScenarios.ps1 -Base origin/main -NoAi:$noAi) }
+          if ($first.Count) {
+            Write-Host "Changed scenarios first, stopping at the first failure: $($first -join ', ')"
+            & .\tests\e2e\Run-FlareE2E.ps1 -Install -Scenario $first -StopOnFail -OutDir $out -NoAi:$noAi -QueueSeconds $queue
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            Write-Host "The changed scenarios passed. Running the full suite."
+            # Phase 1 installed, so carry its install time into the final rows.
+            $inst = -1
+            try { $inst = [int]@(Get-Content (Join-Path $out 'results.json') -Raw | ConvertFrom-Json)[0].installSeconds } catch { $inst = -1 }
+            & .\tests\e2e\Run-FlareE2E.ps1 -OutDir $out -NoAi:$noAi -QueueSeconds $queue -InstallSeconds $inst   # already installed; replaces results.json
+          } else {
+            & .\tests\e2e\Run-FlareE2E.ps1 -Install -OutDir $out -NoAi:$noAi -QueueSeconds $queue
+          }
           exit $LASTEXITCODE
 
       - name: Upload results
