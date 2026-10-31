@@ -128,6 +128,7 @@ function Start-FlareE2E {
         if (-not $env:ANTHROPIC_API_KEY) { throw "-Ai needs ANTHROPIC_API_KEY (environment or .env)." }
     }
     $env:HOUSESTYLE_E2E_DIR = $hook
+    $launched = Get-Date
     try { $proc = Start-Process $flare -ArgumentList "`"$($flprj.FullName)`"" -PassThru }
     finally { Remove-Item Env:HOUSESTYLE_E2E_DIR; if ($Bifrost) { $env:ANTHROPIC_API_KEY = $savedKey } }
     $script:Run = [pscustomobject]@{ Dir = $dir; Hook = $hook; AppData = $appdata; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
@@ -145,8 +146,20 @@ function Start-FlareE2E {
     $script:Run | Add-Member PluginReady (Get-Date)   # Run-FlareE2E: after this, every failure is the plugin's (a test failure)
     $script:Run | Add-Member Version ((Get-Content (Join-Path $hook "ready.json") | ConvertFrom-Json).version)
     Wait-Until { $w = Get-FlareWindow; $w -and $w.Name -like "$($flprj.Name)*" } 120 "the project to open" | Out-Null
+    $script:Run | Add-Member FlareStartSeconds ([int]((Get-Date) - $launched).TotalSeconds)
+    $script:Run | Add-Member WindowState $(try { "$((Get-FlareWindow).Patterns.Window.Pattern.WindowVisualState.Value)" } catch { $null })
     $script:Run | Add-Member ProjectOpen (Get-Date)   # the heartbeat is checked from here: opening a project may block the UI thread
     return $script:Run
+}
+
+# One results.json row: the scenario's own fields first (their order is unchanged), then the run-level values.
+function New-E2EResultRow($Scenario, $Result, $InstallSeconds, [int]$QueueSeconds, $Resolution) {
+    $row = [ordered]@{ scenario = $Scenario }
+    foreach ($k in $Result.Keys) { $row[$k] = $Result[$k] }
+    $row.installSeconds = $InstallSeconds
+    $row.queueSeconds = if ($QueueSeconds -lt 0) { $null } else { $QueueSeconds }
+    $row.resolution = $Resolution
+    [pscustomobject]$row
 }
 
 function Stop-FlareE2E {
@@ -275,4 +288,4 @@ function Save-E2EScreenshot([Parameter(Mandatory)][string]$Name) {
 
 function Assert-E2E([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" } }
 
-Export-ModuleMember -Function Get-E2ERoot, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Invoke-RibbonMenu, Get-E2ESetting, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot
+Export-ModuleMember -Function Get-E2ERoot, New-E2EResultRow, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Invoke-RibbonMenu, Get-E2ESetting, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot
