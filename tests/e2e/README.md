@@ -82,6 +82,12 @@ once. The rest run on Flare's UI thread and answer when they return.
   none is. It returns `focused`, false while a modal dialog is open. Then send keys yourself with SendKeys, so they go
   through Flare's dock as a writer's do.
   `Assert-E2E ((Send-E2E paneFocus).value.focused) "list focused"; [System.Windows.Forms.SendKeys]::SendWait("^{ENTER}")`
+  In the By file view the row it selects is the first issue row, not a file heading.
+- **`paneRow`** (`arg`) is part of a file heading's text in the By file view. It selects that heading and clicks it,
+  which collapses the file or expands it again. It returns the heading's `text` from before the click. Fails
+  "No file heading {arg}" and lists the headings. `Send-E2E paneRow "billpay\faq.htm"`
+  Each row in `pane.panel.rows` also has `heading` (true for a file heading) and `collapsed` (true for a collapsed
+  file's heading).
 - **`paneType`** (`name`, `arg`) picks `arg` in a pane combo box or types it in a pane text box, by accessible name.
   Fails "No box named {name}" and lists the valid names. `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
 - **`paneMenu`** (`arg`) clicks the item that starts with `arg` in the pane's open menu (Ignore's reasons or the row

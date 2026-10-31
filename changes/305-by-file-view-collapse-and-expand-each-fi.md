@@ -1,0 +1,1 @@
+- Collapse and expand each file's issues in the By file view of Lint Project. Click a file name, or press Left or Right, to hide or show its issues.

@@ -65,6 +65,7 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _collapsedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         /// <summary>The project or topic the current lint covers, while its remembered rule is still to be looked for; null once found.</summary>
         private string _rememberScope;
         /// <summary>A walk wrote the remembered rule during the lint that is running, so the next lint must not drop it.</summary>
@@ -207,6 +208,7 @@ namespace FlareAI.Core.Actions
             DropIgnored(f => true);
             _skippedRules.Clear();
             _walkedRules.Clear();
+            _collapsedFiles.Clear();
             FocusRule = null;
             _walk = null;
             WalkFinished = false;
@@ -359,6 +361,22 @@ namespace FlareAI.Core.Actions
         /// <summary>Open issues the <see cref="Filter"/> shows.</summary>
         public List<StyleFinding> Visible() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && Filter.Shows(f)); }
 
+        /// <summary>The key a file's issues are collapsed under (the list's file headings use the same one).</summary>
+        public static string FileKey(StyleFinding f) { return f.DocumentPath ?? ""; }
+
+        /// <summary>True when the By file view hides this file's issue rows.</summary>
+        public bool IsCollapsed(string key) { return _collapsedFiles.Contains(key ?? ""); }
+
+        /// <summary>Collapses or expands a file in the By file view. Only hides rows: no issue, count or selection rule changes.</summary>
+        public void SetCollapsed(string key, bool collapsed)
+        {
+            key = key ?? "";
+            var changed = collapsed ? _collapsedFiles.Add(key) : _collapsedFiles.Remove(key);
+            if (!changed) return;
+            var h = ListChanged;
+            if (h != null) h();
+        }
+
         /// <summary>Open proposals in the topic itself (not in snippets), for the editor markers.</summary>
         public List<StyleFinding> OpenTopicFindings() { return _findings.FindAll(f => !f.IsFixed && !f.IsStale && f.DocumentPath == null); }
 
@@ -437,6 +455,8 @@ namespace FlareAI.Core.Actions
         {
             var shown = f != null && _findings.Contains(f) && Filter.Shows(f) ? f : null;
             Current = shown;
+            // A jump to an issue in a collapsed file opens that file so the issue's row exists.
+            if (shown != null && _project && FocusRule == null && IsCollapsed(FileKey(shown))) SetCollapsed(FileKey(shown), false);
             if (Current != null && InWalk && _project) GoTo(Current, true);
             var h = SelectRequested;
             if (h != null) h(shown);
@@ -473,16 +493,25 @@ namespace FlareAI.Core.Actions
             Select(next);
         }
 
+        /// <summary>
+        /// The next open issue after <paramref name="cur"/> (wrapping). In a project check with no rule focus, issues in
+        /// collapsed files are skipped; when nothing else is open, the first issue in a collapsed file is returned.
+        /// </summary>
         public StyleFinding NextAfter(StyleFinding cur)
         {
             var open = Visible();
             if (open.Count == 0) return null;
+            var useCollapsed = _project && FocusRule == null;
             var start = cur == null ? -1 : _findings.IndexOf(cur);
             for (var i = 1; i <= _findings.Count; i++)
             {
                 var f = _findings[(start + i + _findings.Count) % _findings.Count];
-                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
+                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)
+                    && !(useCollapsed && IsCollapsed(FileKey(f)))) return f;
             }
+            if (!useCollapsed) return null;
+            foreach (var f in _findings)
+                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && IsCollapsed(FileKey(f))) return f;
             return null;
         }
 

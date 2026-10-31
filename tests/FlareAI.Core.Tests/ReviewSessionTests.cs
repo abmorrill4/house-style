@@ -1181,6 +1181,106 @@ namespace FlareAI.Core.Tests
             Assert.Equal(2, s.FixAllCandidates().Count);
         }
 
+        // ---- collapsed files (By file view) -----------------------------------------------------
+
+        private StyleFinding[] ThreeFiles(ReviewSession s)
+        {
+            var third = Find(_topic, "utilize", "use", documentPath: _topicPath);
+            var first = Find(_other, "utilize", "use", documentPath: _otherPath);
+            var middle = Find(_snippet, "utilize", "use", documentPath: _snippetPath);
+            s.Add(new[] { third, first, middle });
+            return new[] { first, middle, third };   // path order: other, snippet, topic
+        }
+
+        [Fact]
+        public void Next_SkipsCollapsedFiles()
+        {
+            var s = Session(project: true);
+            var f = ThreeFiles(s);
+            s.SetCollapsed(_snippetPath, true);
+            s.Select(f[0]);
+
+            s.Next();
+
+            Assert.Same(f[2], s.Current);
+            Assert.True(s.IsCollapsed(_snippetPath));
+        }
+
+        [Fact]
+        public void Next_ReturnsACollapsedIssueOnlyWhenNothingElseIsOpen()
+        {
+            var s = Session(project: true);
+            var f = ThreeFiles(s);
+            s.Select(f[0]);
+            s.SetCollapsed(_snippetPath, true);
+            s.SetCollapsed(_topicPath, true);
+            var raised = 0;
+            s.ListChanged += () => raised++;
+
+            s.Next();
+
+            Assert.Same(f[1], s.Current);
+            Assert.False(s.IsCollapsed(_snippetPath));
+            Assert.True(s.IsCollapsed(_topicPath));
+            Assert.True(raised > 0);
+        }
+
+        [Fact]
+        public void Reject_JumpSkipsCollapsedFiles()
+        {
+            var s = Session(project: true);
+            var f = ThreeFiles(s);
+            s.SetCollapsed(_snippetPath, true);
+            s.Select(f[0]);
+
+            s.Reject("fine here");
+
+            Assert.Same(f[2], s.Current);
+            Assert.True(s.IsCollapsed(_snippetPath));
+        }
+
+        [Fact]
+        public void Clear_ForgetsCollapsedFiles()
+        {
+            var s = Session(project: true);
+            ThreeFiles(s);
+            s.SetCollapsed(_snippetPath, true);
+
+            s.Clear();
+
+            Assert.False(s.IsCollapsed(_snippetPath));
+        }
+
+        [Fact]
+        public void Collapsing_ChangesNoFindingCount()
+        {
+            var s = Session(project: true);
+            ThreeFiles(s);
+            var findings = s.Findings.Count; var open = s.Open().Count; var summary = s.Summary();
+
+            s.SetCollapsed(_snippetPath, true);
+
+            Assert.Equal(findings, s.Findings.Count);
+            Assert.Equal(open, s.Open().Count);
+            Assert.Equal(summary, s.Summary());
+            Assert.True(s.IsCollapsed(_snippetPath.ToUpperInvariant()));   // the key ignores case
+        }
+
+        [Fact]
+        public void SetCollapsed_OutsideProjectReport_DoesNotAffectNext()
+        {
+            var s = Session(project: false);
+            var a = Find(_topic, "utilize", "use");
+            var b = Find(_topic, "utilize", "use", occurrence: 1);
+            s.Add(new[] { a, b });
+            s.Select(a);
+            s.SetCollapsed(ReviewSession.FileKey(b), true);
+
+            s.Next();
+
+            Assert.Same(b, s.Current);
+        }
+
         /// <summary>Answers the session's questions and records what it asked.</summary>
         private sealed class FakeHost : IReviewHost
         {
