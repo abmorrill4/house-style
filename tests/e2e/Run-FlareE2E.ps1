@@ -20,6 +20,7 @@ param(
     [string]$OutDir,
     [string[]]$ScenarioDir,                   # more folders of scenarios to run after these (the factory's holdout set)
     [switch]$StopOnFail,                      # stop after the first scenario that fails; results.json is still written
+    [int]$InstallSeconds = -1,                # install time from an earlier run in the same job (a run without -Install); -1 means unknown
     [int]$QueueSeconds = -1,                  # seconds the job waited before this run; -1 means unknown
     [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
 )
@@ -31,7 +32,7 @@ $repo = if ($RepoRoot) { Resolve-Path $RepoRoot } else { Resolve-Path (Join-Path
 if (-not $Fixture) { $Fixture = Join-Path $repo "corpus\DigitalBanking" }
 $Fixture = Resolve-Path $Fixture
 
-$installSeconds = $null
+$installSeconds = if ($InstallSeconds -ge 0) { $InstallSeconds } else { $null }
 if ($Install) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Get-Process Flare -ErrorAction SilentlyContinue | Stop-Process -Force -PassThru | Wait-Process -Timeout 30

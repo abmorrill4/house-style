@@ -34,10 +34,39 @@ Describe "Get-ChangedScenarios" {
 }
 
 Describe "Run-FlareE2E -StopOnFail" {
-    $text = Get-Content (Join-Path $here "Run-FlareE2E.ps1") -Raw
-    It "is a switch parameter" { $text | Should Match '\[switch\]\$StopOnFail' }
-    It "breaks out of the loop before results.json is written" {
-        $text.IndexOf('-StopOnFail)."; break') | Should BeGreaterThan 0
-        $text.IndexOf('-StopOnFail)."; break') | Should BeLessThan $text.IndexOf('results.json")')
+    # Runs the real script (Windows PowerShell 5.1) over stub scenarios: b fails, so c must not run.
+    function Invoke-Stubs([switch]$StopOnFail) {
+        $d = Join-Path $env:TEMP ("stubs-" + [guid]::NewGuid().ToString("n")); $out = Join-Path $d "out"
+        New-Item -ItemType Directory -Force $d | Out-Null
+        Set-Content (Join-Path $d "zz-a.ps1") 'param($Fixture)'
+        Set-Content (Join-Path $d "zz-b.ps1") 'param($Fixture); throw "boom"'
+        Set-Content (Join-Path $d "zz-c.ps1") ('param($Fixture); Set-Content "' + (Join-Path $d "c-ran.txt") + '" x')
+        $cmd = "& '" + (Join-Path $here "Run-FlareE2E.ps1") + "' -ScenarioDir '$d' -Scenario zz-a,zz-b,zz-c -OutDir '$out'" + $(if ($StopOnFail) { " -StopOnFail" } else { "" }) + "; exit `$LASTEXITCODE"
+        & powershell.exe -NoProfile -Command $cmd 2>&1 | Out-Null
+        $code = $LASTEXITCODE
+        $rows = @((Get-Content (Join-Path $out "results.json") -Raw | ConvertFrom-Json) | ForEach-Object { $_ })
+        $ran = Test-Path (Join-Path $d "c-ran.txt")
+        Remove-Item $d -Recurse -Force
+        @{ Code = $code; Rows = ($rows | ForEach-Object { $_.scenario }) -join ","; CRan = $ran }
+    }
+    It "stops after the first failure and keeps the rows so far" {
+        $r = Invoke-Stubs -StopOnFail
+        $r.Rows | Should Be "zz-a,zz-b"
+        $r.CRan | Should Be $false
+        $r.Code | Should Be 1
+    }
+    It "runs every scenario without -StopOnFail" {
+        $r = Invoke-Stubs
+        $r.Rows | Should Be "zz-a,zz-b,zz-c"
+        $r.CRan | Should Be $true
+        $r.Code | Should Be 1
+    }
+    It "records a given -InstallSeconds on every row" {
+        $d = Join-Path $env:TEMP ("stubs-" + [guid]::NewGuid().ToString("n")); New-Item -ItemType Directory -Force $d | Out-Null
+        Set-Content (Join-Path $d "zz-a.ps1") 'param($Fixture)'
+        & powershell.exe -NoProfile -File (Join-Path $here "Run-FlareE2E.ps1") -ScenarioDir $d -Scenario zz-a -OutDir (Join-Path $d "out") -InstallSeconds 77 2>&1 | Out-Null
+        $row = @(Get-Content (Join-Path $d "out\results.json") -Raw | ConvertFrom-Json)[0]
+        Remove-Item $d -Recurse -Force
+        $row.installSeconds | Should Be 77
     }
 }
