@@ -8,6 +8,7 @@ name: e2e
 
 on:
   push:
+    branches-ignore: ['factory/**']   # the factory runs the e2e itself, before it opens a PR
   workflow_dispatch:
   schedule:
     - cron: '23 10 * * *'   # nightly, well after the factory VM's 03:00 reset (owner's time, EST or EDT); the AI scenarios run here
