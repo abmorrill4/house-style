@@ -395,7 +395,9 @@ namespace FlareAI.Flare.Tests
                 Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("It's correct")).Message);
                 var ignore = All(panel).OfType<Button>().Single(b => b.Text.StartsWith("Ignore", StringComparison.Ordinal) && b.Visible);
                 ignore.PerformClick();   // opens the reasons menu, as Delete in the list does
-                Assert.Equal("No menu item Nope", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("Nope")).Message);
+                var noItem = Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("Nope")).Message;
+                Assert.StartsWith("No menu item Nope", noItem);
+                Assert.Contains("Skip", noItem);
                 panel.E2EMenuPick("Skip");   // by name (Skip for Now records nothing another test could see)
                 Pump(null, 300);
                 Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => panel.E2EMenuPick("It's correct")).Message);

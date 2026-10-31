@@ -24,6 +24,21 @@ namespace FlareAI.Flare
     {
         public const string EnvVar = "HOUSESTYLE_E2E_DIR";
 
+        /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
+        internal static readonly string[] Verbs =
+        {
+            "state", "command", "open", "click", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "paneFocus", "paneType", "paneMenu", "paneSize", "paneFloat", "replace", "select", "save", "saveAs"
+        };
+
+        /// <summary>" (valid: a, b, c)" for an error message, cut after 30 names, or " (none)" when there are none.</summary>
+        internal static string Valid(IEnumerable<string> names)
+        {
+            var all = names.ToList();
+            if (all.Count == 0) return " (none)";
+            return " (valid: " + string.Join(", ", all.Take(30)) + (all.Count > 30 ? ", ..." : "") + ")";
+        }
+
         private readonly string _dir;
         private readonly Func<string, Action> _command;
         private readonly Func<string, bool> _open;
@@ -138,7 +153,7 @@ namespace FlareAI.Flare
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
                 case "saveAs": SetSavePath(arg); return null;
-                default: throw new ArgumentException("Unknown verb " + verb);
+                default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
         }
 
@@ -205,14 +220,15 @@ namespace FlareAI.Flare
         }
 
         /// <summary>Selects the dialog's tab whose text is <paramref name="text"/>.</summary>
-        private static void Tab(Control root, string text)
+        internal static void Tab(Control root, string text)
         {
             foreach (var tabs in All(root).OfType<TabControl>().Where(t => t.Visible))
             {
                 var page = tabs.TabPages.Cast<TabPage>().FirstOrDefault(p => p.Text.Replace("&", "") == text);
                 if (page != null) { tabs.SelectedTab = page; return; }
             }
-            throw new InvalidOperationException("No tab " + text);
+            throw new InvalidOperationException("No tab " + text + Valid(All(root).OfType<TabControl>().Where(t => t.Visible)
+                .SelectMany(t => t.TabPages.Cast<TabPage>()).Select(p => p.Text.Replace("&", ""))));
         }
 
         /// <summary>
@@ -263,15 +279,17 @@ namespace FlareAI.Flare
         private Form Dialog(string title)
         {
             var f = Application.OpenForms.Cast<Form>().FirstOrDefault(x => IsOurs(x) && x.Text.Contains(title));
-            if (f == null) throw new InvalidOperationException("No open dialog titled " + title);
+            if (f == null) throw new InvalidOperationException("No open dialog titled " + title +
+                Valid(Application.OpenForms.Cast<Form>().Where(IsOurs).Select(x => x.Text)));
             return f;
         }
 
         /// <summary>Clicks the visible, enabled button whose text (without "&amp;" or "…") starts with <paramref name="text"/>.</summary>
-        private static void Click(Control root, string text)
+        internal static void Click(Control root, string text)
         {
             var b = All(root).OfType<ButtonBase>().FirstOrDefault(x => x.Visible && x.Enabled && Label(x).StartsWith(text, StringComparison.Ordinal));
-            if (b == null) throw new InvalidOperationException("No enabled button " + text);
+            if (b == null) throw new InvalidOperationException("No enabled button " + text +
+                Valid(All(root).OfType<ButtonBase>().Where(x => x.Visible && x.Enabled).Select(Label)));
             var button = b as Button;
             if (button != null) button.PerformClick();
             else b.GetType().GetMethod("OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(b, new object[] { EventArgs.Empty });
@@ -283,7 +301,7 @@ namespace FlareAI.Flare
             return f.Visible && (f.GetType().Namespace ?? "").StartsWith("FlareAI", StringComparison.Ordinal) || f.Visible && f.Controls.OfType<FindingsPanel>().Any();
         }
 
-        private static string Label(ButtonBase b) { return b.Text.Replace("&", "").TrimEnd('…'); }
+        internal static string Label(ButtonBase b) { return b.Text.Replace("&", "").TrimEnd('…'); }
 
         private static void Select(Control root, int index)
         {
@@ -297,21 +315,24 @@ namespace FlareAI.Flare
         }
 
         /// <summary>Selects the first row of the dialog's list view whose text contains <paramref name="text"/>, as a click would.</summary>
-        private static void SelectRow(Control root, string text)
+        internal static void SelectRow(Control root, string text)
         {
             var list = All(root).OfType<ListView>().FirstOrDefault(x => x.Visible);
             if (list == null) throw new InvalidOperationException("No list view in the dialog");
             var item = list.Items.Cast<ListViewItem>().FirstOrDefault(i => i.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
-            if (item == null) throw new InvalidOperationException("No row with " + text);
+            if (item == null) throw new InvalidOperationException("No row with " + text +
+                Valid(list.Items.Cast<ListViewItem>().Take(10).Select(i => i.Text)));
             list.SelectedItems.Clear();
             item.Selected = true; item.Focused = true; item.EnsureVisible();
         }
 
         /// <summary>Types <paramref name="text"/> into the dialog's text box (or picks it in the list) named <paramref name="name"/>.</summary>
-        private static void Type(Control root, string name, string text)
+        internal static void Type(Control root, string name, string text)
         {
             var box = All(root).FirstOrDefault(x => x.Visible && (x is TextBox || x is ComboBox) && x.AccessibleName == name);
-            if (box == null) throw new InvalidOperationException("No box named " + name);
+            if (box == null) throw new InvalidOperationException("No box named " + name +
+                Valid(All(root).Where(x => x.Visible && (x is TextBox || x is ComboBox) && !string.IsNullOrEmpty(x.AccessibleName) && !(x is TextBox && ((TextBox)x).UseSystemPasswordChar))
+                    .Select(x => x.AccessibleName)));
             var combo = box as ComboBox;
             if (combo != null && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.SelectedItem = combo.Items.Cast<object>().First(i => i.ToString() == text);
             else box.Text = text;
