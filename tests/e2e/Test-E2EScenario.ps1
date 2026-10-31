@@ -6,6 +6,8 @@ scenario and records a scenario with problems as a "preflight" failure without s
   - it has no control characters (a "\b" or "\f" written through another language's string escapes)
   - every Send-E2E verb is one E2EHook.cs answers
   - every Invoke-Ribbon or Invoke-RibbonMenu label is a string in the plugin's source
+  - every button, menu item, tab, box name and dialog title a Send-E2E call names is a string in the plugin's source
+  - every Assert-E2E call has a condition and a message, and the condition is not a list or pipeline
   - every literal path under the run's project (Join-Path $run.Project "...") exists in the fixture
   - the text of every Send-E2E replace or select is in a fixture topic, or is text the scenario itself typed
 .EXAMPLE powershell.exe -File tests\e2e\Test-E2EScenario.ps1 -Path tests\e2e\scenarios\pane-tabs.ps1
@@ -49,6 +51,24 @@ function Literal($el) {
     if ($el -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and -not $el.NestedExpressions.Count) { return $el.Value }
     $null
 }
+# UI text is checked against the plugin source as plain text. Some dialog labels come from Core (ReviewSession), so Core counts too.
+# $uiText has & and a trailing ellipsis removed, the way the hook compares button and menu text.
+$allText = $source + "`n" + ((Get-ChildItem (Join-Path $RepoRoot "src\FlareAI.Core") -Recurse -Filter *.cs | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n")
+$uiText = ($allText -replace '&', '') -replace '(\u2026|…)"', '"'
+function Norm([string]$s) { ($s -replace '&', '').TrimEnd([char]0x2026) }
+function IsList($n) {
+    while ($n -is [System.Management.Automation.Language.ParenExpressionAst]) {
+        $pl = $n.Pipeline
+        if ($pl -isnot [System.Management.Automation.Language.PipelineAst]) { return $false }
+        if ($pl.PipelineElements.Count -gt 1) { return $true }
+        $e = $pl.PipelineElements[0]
+        if ($e -isnot [System.Management.Automation.Language.CommandExpressionAst]) { return $false }
+        $n = $e.Expression
+    }
+    $n -is [System.Management.Automation.Language.ArrayExpressionAst] -or $n -is [System.Management.Automation.Language.ArrayLiteralAst]
+}
+$filterOps = 'Ieq', 'Ine', 'Igt', 'Ige', 'Ilt', 'Ile', 'Ilike', 'Inotlike', 'Imatch', 'Inotmatch', 'Ceq', 'Cne', 'Cgt', 'Cge', 'Clt', 'Cle', 'Clike', 'Cnotlike', 'Cmatch', 'Cnotmatch'
+
 # Text the scenario types itself (Send-E2E replace ... -Extra @{ text = "..." }) can be the target of a later replace.
 $typed = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true) | ForEach-Object {
     foreach ($kv in $_.KeyValuePairs) { if ((Literal $kv.Item1) -eq "text") { $kv.Item2.Extent.Text.Trim('"', "'") } }
@@ -61,8 +81,14 @@ $written = @($ast.FindAll({ param($n)
         ($n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -match '^(Set|Add|Out|Copy|Move|New)-') -or
         ($n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -match 'Write|Copy|Move|Create') }, $true) |
     ForEach-Object { $_.FindAll({ param($v) $v -is [System.Management.Automation.Language.VariableExpressionAst] }, $true) | ForEach-Object { $_.VariablePath.UserPath } })
-# A call inside Fails { ... } is meant to fail, so it's not checked.
-function InFails($n) { for ($p = $n.Parent; $p; $p = $p.Parent) { if ($p -is [System.Management.Automation.Language.CommandAst] -and $p.GetCommandName() -eq "Fails") { return $true } }; $false }
+# A call inside Fails { ... } or the body of a try that has a catch is meant to fail, so it's not checked.
+function InFails($n) {
+    for ($p = $n.Parent; $p; $p = $p.Parent) {
+        if ($p -is [System.Management.Automation.Language.CommandAst] -and $p.GetCommandName() -eq "Fails") { return $true }
+        if ($p -is [System.Management.Automation.Language.TryStatementAst] -and $p.CatchClauses.Count -and $p.Body.Extent.StartOffset -le $n.Extent.StartOffset -and $n.Extent.EndOffset -le $p.Body.Extent.EndOffset) { return $true }
+    }
+    $false
+}
 
 foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
     if (InFails $c) { continue }
@@ -72,6 +98,28 @@ foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Lan
     switch ($cmd) {
         "Send-E2E" {
             if ($first -and $verbs -notcontains $first) { Problem "Send-E2E $first isn't a verb E2EHook.cs answers ($($verbs -join ', '))." $c.Extent }
+            if ($first -and $verbs -contains $first -and $first -ne "(select only)") {
+                $arg = if ($args1.Count -ge 2) { Literal $args1[1] } else { $null }
+                if ($arg -and $arg -ne "(select only)") {
+                    $n = Norm $arg
+                    $found = $true
+                    if ($first -in "click", "dialogClick", "paneMenu", "rowMenu") { $found = $uiText.Contains('"' + $n) }
+                    elseif ($first -eq "dialogTab") { $found = $uiText.Contains('"' + $n + '"') }
+                    if (-not $found) { Problem "Send-E2E $first `"$arg`": no button, tab or menu item with that text in the plugin source." $c.Extent }
+                }
+                foreach ($h in $c.FindAll({ param($x) $x -is [System.Management.Automation.Language.HashtableAst] }, $true)) {
+                    foreach ($kv in $h.KeyValuePairs) {
+                        $key = Literal $kv.Item1; $val = Literal $(if ($kv.Item2 -is [System.Management.Automation.Language.PipelineAst] -and $kv.Item2.PipelineElements.Count -eq 1 -and $kv.Item2.PipelineElements[0] -is [System.Management.Automation.Language.CommandExpressionAst]) { $kv.Item2.PipelineElements[0].Expression })
+                        if (-not $val) { continue }
+                        if ($key -eq "name" -and ($first -in "dialogType", "paneType") -and -not $allText.Contains('"' + $val + '"')) {
+                            Problem "Send-E2E $first -Extra name `"$val`": no box with that name in the plugin source." $c.Extent
+                        }
+                        if ($key -eq "title" -and -not $allText.Contains($val)) {
+                            Problem "Send-E2E $first -Extra title `"$val`": no dialog title with that text in the plugin source." $c.Extent
+                        }
+                    }
+                }
+            }
             if ($first -in "replace", "select" -and $args1.Count -ge 2) {
                 $text = Literal $args1[1]
                 if ($text -and -not ($typed | Where-Object { $_.Contains($text) }) -and
@@ -80,10 +128,23 @@ foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Lan
                 }
             }
         }
+        "Assert-E2E" {
+            $hint = "this is a list or pipeline, not a true or false value. Compare it, for example (@(`$x).Count -gt 0)."
+            $named = @($c.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })
+            if ($named.Count -or $args1.Count -ne 2) { Problem "Assert-E2E takes a condition in parentheses and a message." $c.Extent; continue }
+            $cond = $args1[0]
+            $bad = IsList $cond
+            if (-not $bad -and $cond -is [System.Management.Automation.Language.ParenExpressionAst]) {
+                $e = $cond.Pipeline.PipelineElements | Select-Object -First 1
+                $x = if ($e -is [System.Management.Automation.Language.CommandExpressionAst]) { $e.Expression }
+                if ($x -is [System.Management.Automation.Language.BinaryExpressionAst] -and ([string]$x.Operator) -in $filterOps -and (IsList $x.Left)) { $bad = $true }
+            }
+            if ($bad) { Problem "Assert-E2E $($cond.Extent.Text): $hint" $c.Extent }
+        }
         { $_ -in "Invoke-Ribbon", "Invoke-RibbonMenu" } {
             foreach ($a in $args1) {
                 $label = Literal $a
-                if ($label -and -not $source.Contains("`"$label`"")) { Problem "$cmd `"$label`" isn't a label in src\FlareAI.Flare." $c.Extent }
+                if ($label -and -not $source.Contains("`"$label`"")) { Problem "$cmd `"$label`" isn't a label in the plugin source." $c.Extent }
             }
         }
         "Join-Path" {
@@ -100,4 +161,4 @@ foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Lan
 }
 
 $problems | ForEach-Object { Write-Output $_ }
-exit $problems.Count
+exit ([Math]::Min($problems.Count, 255))   # a count of 256 would otherwise exit 0

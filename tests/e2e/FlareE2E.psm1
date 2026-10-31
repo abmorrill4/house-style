@@ -286,6 +286,9 @@ function Save-E2EScreenshot([Parameter(Mandatory)][string]$Name) {
     $bmp.Save((Join-Path $dir "$Name.png"))
 }
 
-function Assert-E2E([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" } }
+function Assert-E2E([object]$Condition, [string]$Message) {
+    if ($Condition -isnot [bool]) { throw "FAIL: Assert-E2E needs a true or false value but got $(if ($null -eq $Condition) { 'nothing' } else { $Condition.GetType().Name }): $Message" }
+    if (-not $Condition) { throw "FAIL: $Message" }
+}
 
 Export-ModuleMember -Function Get-E2ERoot, New-E2EResultRow, Start-FlareE2E, Stop-FlareE2E, Send-E2E, Get-E2EState, Wait-PaneDone, Invoke-Ribbon, Invoke-RibbonMenu, Get-E2ESetting, Test-PaneOnScreen, Assert-E2E, Wait-Until, Confirm-MessageBox, Save-E2EScreenshot

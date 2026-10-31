@@ -8,6 +8,8 @@ Before each scenario starts Flare, `Test-E2EScenario.ps1` checks it in seconds:
 - it parses
 - it has no control characters
 - its verbs and ribbon labels exist
+- every `Assert-E2E` has a condition and a message, and the condition is a true or false value, not a list or pipeline
+- the buttons, menu items, tabs, box names and dialog titles it names exist in the plugin's source
 - the fixture has its paths and replace text
 
 A scenario with problems fails as a **preflight failure**, with no Flare launch. Each scenario run also adds one line

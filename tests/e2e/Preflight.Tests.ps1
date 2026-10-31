@@ -39,6 +39,35 @@ Describe "Test-E2EScenario" {
     It "skips calls meant to fail" {
         (Preflight 'Fails { Send-E2E replace "zzqq never written" -Extra @{ text = "x" } }').Count | Should Be 0
     }
+    It "finds an Assert-E2E condition that is a list, not a true or false value" {
+        (Preflight 'Assert-E2E (@(1,2)) "m"') -join "`n" | Should Match "not a true or false"
+        (Preflight 'Assert-E2E (@($a) -match "x") "m"') -join "`n" | Should Match "not a true or false"
+        (Preflight 'Assert-E2E ($a | Where-Object { $_ }) "m"') -join "`n" | Should Match "not a true or false"
+        (Preflight 'Assert-E2E (1) "m" "extra"') -join "`n" | Should Match "condition in parentheses"
+    }
+    It "passes an Assert-E2E condition that is a comparison, a call or a list on the right" {
+        (Preflight 'Assert-E2E (@($a).Count -gt 0) "m"').Count | Should Be 0
+        (Preflight 'Assert-E2E (Test-Path $x) "m"').Count | Should Be 0
+        (Preflight 'Assert-E2E (@(1,2) -contains 1) "m"').Count | Should Be 0
+    }
+    It "finds a button, menu item, tab, box or dialog title the plugin doesn't have" {
+        (Preflight 'Send-E2E click "Chnage"') -join "`n" | Should Match "no button, tab or menu item"
+        (Preflight 'Send-E2E rowMenu "Nopeee"') -join "`n" | Should Match "no button, tab or menu item"
+        (Preflight 'Send-E2E dialogTab "Nopeee" -Extra @{ title = "Settings" }') -join "`n" | Should Match "no button, tab or menu item"
+        (Preflight 'Send-E2E dialogType "x" -Extra @{ name = "Nopeee" }') -join "`n" | Should Match "no box"
+        (Preflight 'Send-E2E dialogTab "Advanced" -Extra @{ title = "Nopeee" }') -join "`n" | Should Match "no dialog title"
+    }
+    It "passes names the plugin has, the select-only sentinel, and bad names meant to fail" {
+        (Preflight 'Send-E2E click "Change"').Count | Should Be 0
+        (Preflight 'Send-E2E rowMenu "(select only)"').Count | Should Be 0
+        (Preflight 'Fails { Send-E2E click "Chnage" }').Count | Should Be 0
+        (Preflight 'try { Send-E2E click "Chnage" } catch { $err = 1 }').Count | Should Be 0
+    }
+    It "exits non-zero on a problem" {
+        $f = Join-Path $env:TEMP ("preflight-" + [guid]::NewGuid().ToString("n") + ".ps1")
+        [IO.File]::WriteAllText($f, 'Send-E2E click "Chnage"')
+        try { & powershell.exe -NoProfile -File $check -Path $f | Out-Null; $LASTEXITCODE | Should Be 1 } finally { Remove-Item $f }
+    }
 }
 
 Describe "New-E2EResultRow" {
