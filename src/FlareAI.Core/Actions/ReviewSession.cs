@@ -204,6 +204,7 @@ namespace FlareAI.Core.Actions
             _rememberScope = RememberScope();
             RememberedRule = null;
             _findings.Clear();
+            _collapsed.Clear();
             DropIgnored(f => true);
             _skippedRules.Clear();
             _walkedRules.Clear();
@@ -436,6 +437,8 @@ namespace FlareAI.Core.Actions
         public void Select(StyleFinding f)
         {
             var shown = f != null && _findings.Contains(f) && Filter.Shows(f) ? f : null;
+            if (_project && shown != null && shown.DocumentPath != null && IsCollapsed(shown.DocumentPath))
+                SetCollapsed(shown.DocumentPath, false);
             Current = shown;
             if (Current != null && InWalk && _project) GoTo(Current, true);
             var h = SelectRequested;
@@ -478,12 +481,35 @@ namespace FlareAI.Core.Actions
             var open = Visible();
             if (open.Count == 0) return null;
             var start = cur == null ? -1 : _findings.IndexOf(cur);
+            StyleFinding inCollapsed = null;
             for (var i = 1; i <= _findings.Count; i++)
             {
                 var f = _findings[(start + i + _findings.Count) % _findings.Count];
-                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule)) return f;
+                if (f != cur && !f.IsFixed && !f.IsStale && Filter.Shows(f) && (FocusRule == null || RuleBacklog.KeyOf(f) == FocusRule))
+                {
+                    if (_project && f.DocumentPath != null && IsCollapsed(f.DocumentPath))
+                    {
+                        if (inCollapsed == null) inCollapsed = f;
+                        continue;
+                    }
+                    return f;
+                }
             }
-            return null;
+            return inCollapsed;
+        }
+
+        private readonly HashSet<string> _collapsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Whether the file's issues are collapsed in the By file view.</summary>
+        public bool IsCollapsed(string path) { return path != null && _collapsed.Contains(path); }
+
+        /// <summary>Collapses or expands a file's issues in the By file view. Only hides rows; no issue changes.</summary>
+        public void SetCollapsed(string path, bool on)
+        {
+            if (path == null || IsCollapsed(path) == on) return;
+            if (on) _collapsed.Add(path); else _collapsed.Remove(path);
+            var h = ListChanged;
+            if (h != null) h();
         }
 
         /// <summary>

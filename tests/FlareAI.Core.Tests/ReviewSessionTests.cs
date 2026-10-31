@@ -1227,6 +1227,96 @@ namespace FlareAI.Core.Tests
             Assert.Equal(2, s.FixAllCandidates().Count);
         }
 
+        private ReviewSession ThreeFiles(out StyleFinding a, out StyleFinding b, out StyleFinding c)
+        {
+            var s = Session(project: true);
+            a = Find(_other, "utilize", "use", documentPath: _otherPath);
+            b = Find(_snippet, "utilize", "use", documentPath: _snippetPath);
+            c = Find(_topic, "utilize", "use", documentPath: _topicPath);
+            s.Add(new[] { c, b, a });
+            Assert.Equal(new[] { a, b, c }, s.Findings);   // by file, in path order
+            return s;
+        }
+
+        [Fact]
+        public void Collapsed_NextAfterSkipsACollapsedFile()
+        {
+            StyleFinding a, b, c;
+            var s = ThreeFiles(out a, out b, out c);
+            s.SetCollapsed(_snippetPath, true);
+
+            Assert.Same(c, s.NextAfter(a));
+        }
+
+        [Fact]
+        public void Collapsed_NextAfterReturnsACollapsedIssueOnlyWhenNothingElseIsOpen()
+        {
+            StyleFinding a, b, c;
+            var s = ThreeFiles(out a, out b, out c);
+            s.SetCollapsed(_snippetPath, true);
+            s.SetCollapsed(_topicPath, true);
+
+            Assert.Same(a, s.NextAfter(b));   // an open issue in an expanded file wins, even by wrapping round
+            Assert.Same(b, s.NextAfter(a));   // nothing expanded is open: the first collapsed one after it
+            a.IsFixed = true;
+            s.SetCollapsed(_otherPath, true);
+            Assert.Same(b, s.NextAfter(c));
+        }
+
+        [Fact]
+        public void Collapsed_SelectOnAnIssueInACollapsedFileExpandsIt()
+        {
+            StyleFinding a, b, c;
+            var s = ThreeFiles(out a, out b, out c);
+            s.SetCollapsed(_snippetPath, true);
+            var raised = 0;
+            s.ListChanged += () => raised++;
+
+            s.Select(b);
+
+            Assert.False(s.IsCollapsed(_snippetPath));
+            Assert.Same(b, s.Current);
+            Assert.True(raised > 0);
+        }
+
+        [Fact]
+        public void Collapsed_ClearForgetsEveryCollapsedFile()
+        {
+            StyleFinding a, b, c;
+            var s = ThreeFiles(out a, out b, out c);
+            s.SetCollapsed(_snippetPath, true);
+            s.SetCollapsed(_topicPath, true);
+
+            s.Clear();
+
+            Assert.False(s.IsCollapsed(_snippetPath));
+            Assert.False(s.IsCollapsed(_topicPath));
+        }
+
+        [Fact]
+        public void Collapsed_IgnoresPathCase_AndRaisesListChangedOnlyOnAChange()
+        {
+            var s = Session(project: true);
+            var raised = 0;
+            s.ListChanged += () => raised++;
+
+            s.SetCollapsed(_otherPath.ToUpperInvariant(), true);
+            s.SetCollapsed(_otherPath, true);
+
+            Assert.True(s.IsCollapsed(_otherPath));
+            Assert.Equal(1, raised);
+            s.SetCollapsed(_otherPath, false);
+            Assert.False(s.IsCollapsed(_otherPath.ToUpperInvariant()));
+            Assert.Equal(2, raised);
+        }
+
+        [Fact]
+        public void FileHeadings_TextCarriesTheStateTheNameAndTheCount()
+        {
+            Assert.Equal("▾ billpay\\faq.htm · 3 issues", FlareAI.Core.Actions.FileHeadings.Text("billpay\\faq.htm", 3, false));
+            Assert.Equal("▸ a.htm · 1 issue", FlareAI.Core.Actions.FileHeadings.Text("a.htm", 1, true));
+        }
+
         /// <summary>Answers the session's questions and records what it asked.</summary>
         private sealed class FakeHost : IReviewHost
         {

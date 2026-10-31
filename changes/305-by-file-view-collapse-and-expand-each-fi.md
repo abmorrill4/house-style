@@ -1,0 +1,1 @@
+- Collapse and expand each file's issues in the By file view of Lint Project. Click a file heading, or press Left, Right or Enter on it, and the heading shows how many issues the file has.

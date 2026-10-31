@@ -82,6 +82,9 @@ once. The rest run on Flare's UI thread and answer when they return.
   none is. It returns `focused`, false while a modal dialog is open. Then send keys yourself with SendKeys, so they go
   through Flare's dock as a writer's do.
   `Assert-E2E ((Send-E2E paneFocus).value.focused) "list focused"; [System.Windows.Forms.SendKeys]::SendWait("^{ENTER}")`
+- **`paneRow`** (`index`) selects that row of the issues list and, if it is a file heading in the By file view,
+  collapses or expands that file, like a click. Fails "No pane row {index}" for a bad index.
+  `Send-E2E paneRow -Extra @{ index = 0 }`
 - **`paneType`** (`name`, `arg`) picks `arg` in a pane combo box or types it in a pane text box, by accessible name.
   Fails "No box named {name}" and lists the valid names. `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
 - **`paneMenu`** (`arg`) clicks the item that starts with `arg` in the pane's open menu (Ignore's reasons or the row
@@ -106,6 +109,8 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no
   topic is open. `pane.size` is `{ width, height }`. A dialog's or the pane's `buttons` give check boxes and option
   buttons a `checked` value. `(Get-E2EState).editor.selection`
+  Each pane row has `heading` (true for a file heading in the By file view) and `collapsed` (true for a collapsed
+  heading). A heading's `file` is the file's path. `(Get-E2EState).pane.panel.rows | Where-Object heading`
 - **`Invoke-RibbonMenu -Button <label> -Item <label>`** opens a ribbon split button's menu and clicks the item.
   `Invoke-Ribbon` clicks a split button's main part. `Invoke-RibbonMenu -Button "Help" -Item "What's New"`
 - **`Get-E2ESetting <Name>`** returns one field of the run's `settings.json`. It refuses `ProtectedApiKey`.

@@ -28,7 +28,7 @@ namespace FlareAI.Flare
         internal static readonly string[] Verbs =
         {
             "state", "command", "open", "click", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
-            "paneFocus", "paneType", "paneMenu", "paneSize", "paneFloat", "replace", "select", "save", "saveAs"
+            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "replace", "select", "save", "saveAs"
         };
 
         /// <summary>" (valid: a, b, c)" for an error message, cut after 30 names, or " (none)" when there are none.</summary>
@@ -145,6 +145,7 @@ namespace FlareAI.Flare
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
                 // The scenario sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
+                case "paneRow": Pane().E2EClickRow((int)c["index"]); return null;   // selects the row; a file heading also collapses or expands
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
                 case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);

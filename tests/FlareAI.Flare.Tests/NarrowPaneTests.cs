@@ -994,6 +994,207 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- By file: collapse and expand each file's issues (#305) -----------------------------------------------------
+
+        private sealed class PaneRow { public string Text; public bool Heading, Collapsed; public string File; }
+
+        private static List<PaneRow> ListRows(FindingsPanel p)
+        {
+            var rows = (System.Collections.IEnumerable)Prop(p.E2EState(), "rows");
+            var result = new List<PaneRow>();
+            foreach (var r in rows)
+                result.Add(new PaneRow { Text = (string)Prop(r, "text"), Heading = (bool)Prop(r, "heading"), Collapsed = (bool)Prop(r, "collapsed"), File = (string)Prop(r, "file") });
+            return result;
+        }
+
+        private static int SelectedRow(FindingsPanel p) { return (int)Prop(Prop(p.E2EState(), "card"), "row"); }
+
+        private static ReviewSession SessionOf(FindingsPanel p)
+        {
+            return (ReviewSession)typeof(FindingsPanel).GetField("_session", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(p);
+        }
+
+        private static void Key(FindingsPanel p, ListView list, Keys key)
+        {
+            typeof(FindingsPanel).GetMethod("OnListKey", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(p, new object[] { list, new KeyEventArgs(key) });
+            Pump(null, 100);
+        }
+
+        private static void SwitchToFile(FindingsPanel panel)
+        {
+            All(panel).OfType<RadioButton>().Single(r => r.Text.Contains("file")).Checked = true;
+            Pump(null, 200);
+        }
+
+        /// <summary>Three files with issues, in the By file view.</summary>
+        private void WithFileView(Action<FindingsPanel, ListView> body)
+        {
+            WithProject(new[] { Topic, Topic, Topic }, 400, 900, (panel, form) =>
+            {
+                SwitchToFile(panel);
+                body(panel, All(panel).OfType<ListView>().Single());
+            });
+        }
+
+        private static List<List<PaneRow>> ByFile(List<PaneRow> rows)
+        {
+            var groups = new List<List<PaneRow>>();
+            foreach (var r in rows)
+            {
+                if (r.Heading) groups.Add(new List<PaneRow>());
+                groups[groups.Count - 1].Add(r);
+            }
+            return groups;
+        }
+
+        private static string Marked(string headingText) { return headingText.Substring(1); }
+
+        [Fact]
+        public void ByFile_ShowsAHeadingBeforeEachFilesIssues_AndSelectsTheFirstIssue()
+        {
+            WithFileView((panel, list) =>
+            {
+                var rows = ListRows(panel);
+                var groups = ByFile(rows);
+                Assert.Equal(3, groups.Count);
+                Assert.True(rows[0].Heading);
+                foreach (var g in groups)
+                {
+                    Assert.True(g.Count > 1, "each heading is followed by its issues");
+                    Assert.All(g.Skip(1), r => { Assert.False(r.Heading); Assert.Equal(g[0].File, r.File, true); });
+                    Assert.StartsWith("▾ ", g[0].Text);
+                    Assert.EndsWith(" · " + (g.Count - 1 == 1 ? "1 issue" : (g.Count - 1) + " issues"), g[0].Text);
+                }
+                Assert.Equal(1, SelectedRow(panel));
+                Assert.False(rows[SelectedRow(panel)].Heading);
+            });
+        }
+
+        [Fact]
+        public void ByFile_CollapsingTheMiddleFile_LeavesItsHeading_AndChangesNothingElse()
+        {
+            WithFileView((panel, list) =>
+            {
+                var before = ByFile(ListRows(panel));
+                var middleHeading = ListRows(panel).FindIndex(r => r.Heading && r.File == before[1][0].File);
+                panel.E2EClickRow(middleHeading);
+                Pump(null, 100);
+
+                var after = ByFile(ListRows(panel));
+                Assert.Equal(3, after.Count);
+                Assert.Single(after[1]);
+                Assert.True(after[1][0].Collapsed);
+                Assert.StartsWith("▸ ", after[1][0].Text);
+                Assert.Equal(Marked(before[1][0].Text), Marked(after[1][0].Text));
+                Assert.Equal(before[0].Select(r => r.Text), after[0].Select(r => r.Text));
+                Assert.Equal(before[2].Select(r => r.Text), after[2].Select(r => r.Text));
+                Assert.Equal(middleHeading, SelectedRow(panel));
+                Assert.Equal(before.Sum(g => g.Count - 1), SessionOf(panel).Findings.Count);   // nothing was removed
+            });
+        }
+
+        [Fact]
+        public void ByFile_LeftOnAnIssue_CollapsesItsFile_AndSelectsTheHeading_WithAnEmptyCard()
+        {
+            WithFileView((panel, list) =>
+            {
+                var rows = ListRows(panel);
+                var issue = rows.FindIndex(r => !r.Heading && r.File == ByFile(rows)[1][0].File);
+                list.Items[issue].Selected = true;
+                Pump(null, 100);
+
+                Key(panel, list, Keys.Left);
+
+                var after = ListRows(panel);
+                var sel = SelectedRow(panel);
+                Assert.True(after[sel].Heading);
+                Assert.True(after[sel].Collapsed);
+                Assert.Equal(rows[issue].File, after[sel].File, true);
+                Assert.Equal("Select an issue to see what changes and why.", Head(panel));
+                Assert.False(ChangeButton(panel).Enabled);
+                var menu = list.ContextMenuStrip;
+                typeof(ToolStripDropDown).GetMethod("OnOpening", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(menu, new object[] { new System.ComponentModel.CancelEventArgs() });
+            });
+        }
+
+        [Fact]
+        public void ByFile_LeftRightAndEnterOnAHeading_CollapseAndExpand_WithoutChangingAnIssue()
+        {
+            WithFileView((panel, list) =>
+            {
+                var original = ListRows(panel);
+                var h = original.FindIndex(r => r.Heading);
+                list.Items[h].Selected = true;
+                Pump(null, 100);
+
+                Key(panel, list, Keys.Left);
+                Assert.True(ListRows(panel)[h].Collapsed);
+                Key(panel, list, Keys.Right);
+                Assert.False(ListRows(panel)[h].Collapsed);
+                Key(panel, list, Keys.Enter);
+                Assert.True(ListRows(panel)[h].Collapsed);
+                Key(panel, list, Keys.Enter);
+                Assert.False(ListRows(panel)[h].Collapsed);
+
+                Assert.Equal(original.Select(r => r.Text), ListRows(panel).Select(r => r.Text));
+                var session = SessionOf(panel);
+                Assert.All(session.Findings, f => Assert.False(f.IsFixed));
+                Assert.Empty(session.Ignored);
+            });
+        }
+
+        [Fact]
+        public void ByFile_ARefreshAfterIgnoringAnIssueInAnotherFile_KeepsTheFileCollapsed()
+        {
+            WithFileView((panel, list) =>
+            {
+                var groups = ByFile(ListRows(panel));
+                var middle = ListRows(panel).FindIndex(r => r.Heading && r.File == groups[1][0].File);
+                panel.E2EClickRow(middle);
+                Pump(null, 100);
+                var session = SessionOf(panel);
+                var firstIssue = ListRows(panel).FindIndex(r => !r.Heading);
+                list.Items[firstIssue].Selected = true;
+                Pump(null, 100);
+
+                session.Current = (StyleFinding)typeof(FindingsPanel).GetMethod("Current", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(panel, null);
+                session.Reject("test");
+                Pump(null, 100);
+
+                Assert.True(session.IsCollapsed(groups[1][0].File));
+                var after = ByFile(ListRows(panel));
+                Assert.Contains(after, g => g.Count == 1 && g[0].Collapsed && string.Equals(g[0].File, groups[1][0].File, StringComparison.OrdinalIgnoreCase));
+            });
+        }
+
+        [Fact]
+        public void ByRule_AndASingleTopicPane_HaveNoHeadingRows()
+        {
+            WithProject(new[] { Topic, Topic, Topic }, 400, 900, (panel, form) =>
+            {
+                All(panel).OfType<RadioButton>().Single(r => r.Text.Contains("rule")).Checked = true;
+                Pump(null, 200);
+                Assert.DoesNotContain(ListRows(panel), r => r.Heading);
+            });
+            WithPane((panel, form, list) =>
+            {
+                Assert.DoesNotContain(ListRows(panel), r => r.Heading);
+            });
+        }
+
+        [Fact]
+        public void ByFile_TheListDescriptionTellsHowHeadingsCollapse()
+        {
+            WithFileView((panel, list) =>
+            {
+                Assert.Contains("Left and Right", list.AccessibleDescription);
+                var h = ListRows(panel).FindIndex(r => r.Heading);
+                list.Items[h].Selected = true;
+                Pump(null, 100);
+                Assert.Contains("Left and Right", list.AccessibleDescription);
+            });
+        }
+
         private static IEnumerable<Control> All(Control c)
         {
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
