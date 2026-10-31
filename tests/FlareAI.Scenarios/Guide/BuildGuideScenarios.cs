@@ -236,7 +236,8 @@ namespace FlareAI.Scenarios.Guide
                 Assert.Equal(2, assigned);                                                          // the bullet and the copied row
                 var after = File.ReadAllText(topicPath);
                 var noIds = new Regex(@" id=""rule-[a-z0-9]+""");
-                Assert.Equal(noIds.Replace(edited, ""), noIds.Replace(after, ""));                  // only id attributes differ
+                Func<string, string> lf = t => Regex.Replace(noIds.Replace(t, ""), @"\r\n?", "\n");
+                Assert.Equal(lf(edited), lf(after));                                                // only id attributes differ (the writer may change the line endings of an LF file)
                 var newIds = ids();
                 foreach (var kv in oldIds) Assert.Equal(kv.Value, newIds[kv.Key]);                  // every old rule kept its id
                 var added = newIds.Where(kv => !oldIds.ContainsKey(kv.Key)).ToList();
