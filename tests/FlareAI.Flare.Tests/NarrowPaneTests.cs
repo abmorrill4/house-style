@@ -1108,6 +1108,30 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        [DesktopFact]
+        public void ArrowKeys_SwitchTabs()
+        {
+            WithPane((panel, form, list) =>
+            {
+                panel.SetTabs(1, 1);
+                PaneSlot? got = null;
+                panel.TabRequested += s => got = s;
+                Pump(null, 200);
+
+                var tabs = All(panel).OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Issues for");
+                var topicRadio = tabs.Controls.OfType<RadioButton>().First(b => b.Text.StartsWith("This &Topic"));
+
+                topicRadio.Focus();
+                Pump(null, 200);
+                Assert.Null(got);   // focus alone doesn't switch tabs
+
+                var method = typeof(Control).GetMethod("ProcessDialogKey", BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(Keys) }, null);
+                method.Invoke(topicRadio, new object[] { Keys.Right });
+                Pump(null, 200);
+                Assert.Equal(PaneSlot.Project, got);
+            });
+        }
+
         [Fact]
         public void E2EState_ReportsTabAndCaptions()
         {

@@ -1,0 +1,2 @@
+- Switch between the This Topic and Project tabs with the arrow keys again.
+- Closing the last topic with issues now closes the House Style Issues pane instead of leaving it empty.

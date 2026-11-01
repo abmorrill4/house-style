@@ -20,6 +20,8 @@ namespace FlareAI.Flare.UI
         private static PaneSlots<FindingsPanel> Slots = new PaneSlots<FindingsPanel>();
         private static Form _floating;
         private static bool _changedSubscribed = false;
+        private static Form _owner;
+        private static readonly ConditionalWeakTable<FindingsPanel, object> Wired = new ConditionalWeakTable<FindingsPanel, object>();
 
         // For tests only: forget every panel and window an earlier test left behind
         internal static void ResetForTests()
@@ -34,6 +36,10 @@ namespace FlareAI.Flare.UI
 
         /// <summary>The findings panel currently shown (docked or floating), or null once closed.</summary>
         public static FindingsPanel Current { get { return Slots.IsOpen && Slots.ShownPanel != null && !Slots.ShownPanel.IsDisposed && Slots.ShownPanel.Parent != null ? Slots.ShownPanel : null; } }
+
+        internal static bool IsOpen { get { return Slots.IsOpen; } }
+
+        internal static bool IsShown(FindingsPanel p) { return p != null && Slots.IsOpen && (ReferenceEquals(Slots.Topic, p) || ReferenceEquals(Slots.Project, p)); }
 
         /// <summary>The topic panel if one exists, regardless of whether it's shown or the pane is closed.</summary>
         public static FindingsPanel TopicPanel { get { return Slots.Topic != null && !Slots.Topic.IsDisposed ? Slots.Topic : null; } }
@@ -55,7 +61,22 @@ namespace FlareAI.Flare.UI
 
         public static void BeginClose()
         {
+            CloseAll();
+        }
+
+        private static void Unwatch()
+        {
+            foreach (var p in Slots.Both())
+            {
+                try { p.WatchWrites(false); } catch (Exception ex) { Diagnostics.Log("unwatch: " + ex.GetType().Name); }
+            }
+        }
+
+        private static void CloseAll()
+        {
             Slots.Close();
+            Unwatch();
+            DetachAll();
         }
 
         public static void Show(FindingsPanel panel, Form flareMainForm)
@@ -68,8 +89,14 @@ namespace FlareAI.Flare.UI
             var old = Slots.Put(panel.Slot, panel, front);
             if (old != null && old != panel) Discard(old);
 
-            panel.CloseRequested += (s, e) => { Slots.Close(); DetachAll(); };
-            panel.TabRequested += (slot) => ShowSlot(slot, flareMainForm);
+            _owner = flareMainForm;
+            object o;
+            if (!Wired.TryGetValue(panel, out o))
+            {
+                Wired.Add(panel, new object());
+                panel.CloseRequested += (s, e) => CloseAll();
+                panel.TabRequested += (slot) => ShowSlot(slot, _owner);
+            }
 
             if (!_changedSubscribed)
             {
@@ -86,6 +113,10 @@ namespace FlareAI.Flare.UI
         /// <summary>Puts the shown panel in the pane (or the floating window) and starts it.</summary>
         private static void Display(FindingsPanel panel, Form owner)
         {
+            foreach (var p in Slots.Both())
+            {
+                try { p.WatchWrites(true); } catch (Exception ex) { Diagnostics.Log("watch: " + ex.GetType().Name); }
+            }
             if (!_paneBroken && !ForceFloating)
             {
                 try
@@ -169,6 +200,15 @@ namespace FlareAI.Flare.UI
             if (old != null)
             {
                 Discard(old);
+                if (Slots.Both().Count == 0)
+                {
+                    Slots.Close();
+                    Unwatch();
+                    DetachAll();
+                    if (!_paneBroken && !ForceFloating) try { FlarePane.ClosePane(); } catch (Exception) { }
+                    PushCounts();
+                    return;
+                }
                 SyncHost();
                 PushCounts();
             }
@@ -205,6 +245,7 @@ namespace FlareAI.Flare.UI
                 form.FormClosing += (s, e) =>
                 {
                     Slots.Close();
+                    Unwatch();
                     // Keep the panels alive for Reopen.
                     foreach (var p in Slots.Both()) if (p.Parent == form) try { form.Controls.Remove(p); } catch (Exception) { }
                 };
@@ -221,6 +262,14 @@ namespace FlareAI.Flare.UI
     {
         private static B3.AppKit.Pane _pane;
         private static SidebarView _view;
+        private static readonly ConditionalWeakTable<FindingsPanel, object> Wired = new ConditionalWeakTable<FindingsPanel, object>();
+
+        /// <summary>Takes the pane off screen when the panels didn't ask for it.</summary>
+        public static void ClosePane()
+        {
+            if (_pane == null || _pane.IsDisposed) return;
+            Hide(_pane.PaneDock);
+        }
 
         /// <summary>Shows the panel in a pane docked right; false if Flare's main form has no pane dock.</summary>
         [MethodImpl(MethodImplOptions.NoInlining)] // B3.AppKit is resolved when this method is JIT-compiled, i.e. inside the caller's try
@@ -245,7 +294,12 @@ namespace FlareAI.Flare.UI
             }
             _view.SetContent(panel);
             _pane.Title = panel.Title;
-            panel.CloseRequested += (s, e) => Hide(dock);
+            object o;
+            if (!Wired.TryGetValue(panel, out o))
+            {
+                Wired.Add(panel, new object());
+                panel.CloseRequested += (s, e) => Hide(dock);
+            }
             _pane.BringPaneToFront(true);
             return true;
         }
@@ -294,7 +348,7 @@ namespace FlareAI.Flare.UI
             {
                 if (_view != null && !_view.IsDisposed) _view.RemoveAll();   // Flare disposes the view, not the panels
                 // As Flare's own ✕ does: UninstallPane alone leaves the pane showing when it is a tab in a pane group.
-                if (_pane != null && !_pane.IsDisposed && !_pane.PerformClose() && dock.Panes.Contains(_pane)) dock.UninstallPane(_pane);
+                if (_pane != null && !_pane.IsDisposed && !_pane.PerformClose() && dock != null && dock.Panes.Contains(_pane)) dock.UninstallPane(_pane);
             }
             catch (Exception ex) { Diagnostics.Log("Docked pane close", ex); }
             _pane = null;

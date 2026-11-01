@@ -136,22 +136,33 @@ namespace FlareAI.Flare
         private void ClearTopicWhenGone(string path)
         {
             var wait = new Timer { Interval = 1500 };
+            int checks = 0;
             wait.Tick += (s, e) =>
             {
-                wait.Stop(); wait.Dispose();
+                wait.Stop();
+                bool done = true;
                 try
                 {
-                    bool open = false;
-                    foreach (var o in _host.GetEditorContext().GetDocuments())
-                    {
-                        var d = o as IDocument;
-                        if (d != null && SamePath(SafePath(d), path)) { open = true; break; }
-                    }
-                    if (!open) PanelHost.ClearTopic(path);
+                    if (IsOpenNow(path)) return;
+                    if (++checks < 2) { done = false; wait.Start(); return; }
+                    wait.Dispose();
+                    done = true;
+                    PanelHost.ClearTopic(path);
                 }
                 catch (Exception ex) { Diagnostics.Log("clear topic", ex); }
+                finally { if (done) wait.Dispose(); }
             };
             wait.Start();
+        }
+
+        private bool IsOpenNow(string path)
+        {
+            foreach (var o in _host.GetEditorContext().GetDocuments())
+            {
+                var d = o as IDocument;
+                if (d != null && SamePath(SafePath(d), path)) return true;
+            }
+            return false;
         }
 
         private void Detach(string path)
