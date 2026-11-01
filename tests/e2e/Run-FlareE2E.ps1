@@ -6,7 +6,8 @@ Closes any running Flare: don't run it while you have unsaved work in Flare.
 A watchdog ends a scenario that runs past -ScenarioMinutes: it saves a screenshot and the open windows' titles, then
 kills Flare, which also frees a UI Automation call stuck on an unresponsive window.
 -QueueSeconds is how long the job waited before this run (-1 when unknown). Each results.json row also records
-installSeconds, flareStartSeconds, resolution and windowState (see README.md).
+installSeconds, flareStartSeconds, resolution, windowState, paneWidth and paneHeight (see README.md).
+Flare is maximized at the start of every run.
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario lint-menu
 #>
@@ -74,7 +75,7 @@ function Invoke-Once($f, $tag) {
     $hung = Join-Path $out "$tag-hung.txt"
     $cmd = "& {$watchdog} $PID $($ScenarioMinutes * 60) $(& $q (Join-Path $out "$tag-hung.png")) $(& $q $hung)"
     $dog = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList "-NoProfile", "-EncodedCommand", ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd)))
-    $r = [ordered]@{ passed = $false; kind = $null; seconds = 0; error = $null; version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null }
+    $r = [ordered]@{ passed = $false; kind = $null; seconds = 0; error = $null; version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null; paneWidth = $null; paneHeight = $null }
     (Get-Module FlareE2E).Invoke({ $script:Run = $null })   # no state from the scenario before
     try {
         & $f.FullName -Fixture $Fixture | Out-Host   # to the console, not into this function's result
@@ -97,7 +98,7 @@ function Invoke-Once($f, $tag) {
     } finally {
         Stop-Process -Id $dog.Id -Force -ErrorAction SilentlyContinue
         try { $r.version = (Get-Module FlareE2E).Invoke({ $script:Run.Version }) } catch { }
-        foreach ($p in "FlareStartSeconds", "WindowState") {   # StrictMode: only present once Flare was launched
+        foreach ($p in "FlareStartSeconds", "WindowState", "PaneWidth", "PaneHeight") {   # StrictMode: only present once Flare was launched
             try { $r[($p.Substring(0, 1).ToLower() + $p.Substring(1))] = (Get-Module FlareE2E).Invoke({ param($n) if ($script:Run -and $script:Run.PSObject.Properties[$n]) { $script:Run.$n } }, $p) } catch { }
         }
         Stop-FlareE2E
@@ -115,7 +116,7 @@ foreach ($f in $files) {
     # Mistakes a static check finds cost no Flare launch.
     $problems = try { @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo) } catch { @("the preflight check itself failed: $($_.Exception.Message)") }
     if ($problems.Count) {
-        $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null }
+        $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null; paneWidth = $null; paneHeight = $null }
     } else {
         $r = Invoke-Once $f $f.BaseName
     }
