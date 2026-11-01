@@ -44,6 +44,7 @@ namespace FlareAI.Core.Style
     {
         private static readonly Regex Meta = new Regex(@"^#\s*by\s+(.+?)\s+on\s+(\d{4}-\d{2}-\d{2})(?::\s*(.*))?$", RegexOptions.IgnoreCase);
         private const string AiPrefix = "# ai-ignore:";
+        private const string AiTextPrefix = "# ai-ignore-text:";
         private static readonly Regex Approved = new Regex(@"\s*\[approved request ([^\]\s]+)\]\s*$", RegexOptions.IgnoreCase);
 
         /// <summary>A note marked as an owner-approved request, so Turned-off rules can flag it.</summary>
@@ -162,6 +163,12 @@ namespace FlareAI.Core.Style
             foreach (var raw in lines)
             {
                 var l = raw.Trim().TrimStart('﻿');
+                if (aiName && l.StartsWith(AiTextPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var rest = l.Substring(AiTextPrefix.Length);
+                    var bar = rest.IndexOf(" | ", StringComparison.Ordinal);
+                    if (bar >= 0 && string.Equals(rest.Substring(0, bar).Trim(), ruleId, StringComparison.OrdinalIgnoreCase)) continue;
+                }
                 var match = aiName
                     ? l.StartsWith(AiPrefix, StringComparison.OrdinalIgnoreCase) && string.Equals(l.Substring(AiPrefix.Length).Trim(), ruleId, StringComparison.OrdinalIgnoreCase)
                     : !l.StartsWith("#") && l.IndexOf('=') > 0 && string.Equals(l.Substring(0, l.IndexOf('=')).Trim(), ruleId, StringComparison.OrdinalIgnoreCase);

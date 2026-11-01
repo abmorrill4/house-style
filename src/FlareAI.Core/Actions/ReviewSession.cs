@@ -60,6 +60,7 @@ namespace FlareAI.Core.Actions
         /// <summary>Other files this session wrote fixes in that stayed open in the editor (their undo history is there).</summary>
         private readonly Dictionary<string, IDocumentAdapter> _writtenIn = new Dictionary<string, IDocumentAdapter>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _ignoredAi;
+        private List<KeyValuePair<string, string>> _ignoredAiTexts;
         private ExemptionList _exemptions;
         private readonly HashSet<string> _exemptIdentities = new HashSet<string>(StringComparer.Ordinal);
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -97,6 +98,7 @@ namespace FlareAI.Core.Actions
         public Func<string, string> ProjectOverridesPath { get; set; } = ProjectRules.OverridesPath;
         /// <summary>The AI rule names a project ignores.</summary>
         public Func<string, HashSet<string>> IgnoredAiRules { get; set; } = ProjectRules.IgnoredAiRules;
+        public Func<string, List<KeyValuePair<string, string>>> IgnoredAiTexts { get; set; } = ProjectRules.IgnoredAiTexts;
         /// <summary>Why a file can't be written, or null.</summary>
         public Func<string, string> WhyNotWritable { get; set; } = BatchPlan.WhyNotWritable;
         /// <summary>How many topics use a snippet.</summary>
@@ -234,6 +236,7 @@ namespace FlareAI.Core.Actions
                     continue;
                 }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
+                if (ProjectRules.IsIgnoredAiTopic(IgnoredAiText(), f)) continue;
                 if (f.Layer != "ai" && f.RuleSection == null)
                 {
                     var rule = _runner.RuleFor(f.RuleId);   // company/project table rules: label by guide section
@@ -1630,7 +1633,11 @@ namespace FlareAI.Core.Actions
             RecordFeedback(f, _doc.SourcePath, choice.Setting == "off" ? "rule ignored" : "rule changed", choice.Reason);
             if (choice.Setting == "off")
             {
-                if (f.Layer == "ai" && f.RuleId == null) IgnoredAi().Add(f.Rule);
+                if (f.Layer == "ai" && f.RuleId == null)
+                {
+                    IgnoredAi().Add(f.Rule);
+                    if (!string.IsNullOrEmpty(f.Excerpt)) IgnoredAiText().Add(new KeyValuePair<string, string>(f.Rule ?? "", f.Excerpt));
+                }
                 // A checker has no id: its issues are found by its name, so a ticked checker clears every one of them.
                 var tickedCheckers = choice.AlsoCheckers;
                 _findings.RemoveAll(x => f.RuleId != null ? x.RuleId == f.RuleId || changed.Contains(x.RuleId) || (x.RuleId == null && x.Rule != null && tickedCheckers.Contains(x.Rule)) : x.Rule == f.Rule);
@@ -1756,6 +1763,12 @@ namespace FlareAI.Core.Actions
         {
             if (_ignoredAi == null) _ignoredAi = IgnoredAiRules(_doc.SourcePath);
             return _ignoredAi;
+        }
+
+        private List<KeyValuePair<string, string>> IgnoredAiText()
+        {
+            if (_ignoredAiTexts == null) _ignoredAiTexts = IgnoredAiTexts(_doc.SourcePath);
+            return _ignoredAiTexts;
         }
 
         /// <summary>The document a finding lives in: the topic, or its snippet (opened in the editor on demand).</summary>
