@@ -138,7 +138,11 @@ namespace FlareAI.Flare
                     var sel = _doc.Selection;
                     if (sel == null || sel.GetText() != target) return false;
                     var nodes = sel.GetXmlNodeList();
-                    if (nodes != null && nodes.Contains(run)) return true;
+                    if (nodes != null && nodes.Contains(run))
+                    {
+                        PluginSelection.Remember(SourcePath, target);
+                        return true;
+                    }
                 }
                 return false;
             }

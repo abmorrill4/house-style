@@ -241,7 +241,8 @@ namespace FlareAI.Flare.UI
             _session.IsShown = () => PanelHost.Current == this;
             Disposed += (s, e) => _session.WatchWrites(false);
             // Keep the first check's scope: Go to selects text in the editor, which must not shrink a Check again.
-            _wholeTopic = string.IsNullOrEmpty(doc.SelectionText);
+            // A selection House Style made itself (Go to, selecting an issue's row) does not shrink a new Lint Topic either.
+            _wholeTopic = string.IsNullOrEmpty(doc.SelectionText) || PluginSelection.Is(doc.SourcePath, doc.SelectionText);
             Title = PaneTitle + " · " + System.IO.Path.GetFileName(doc.SourcePath ?? "");
             Font = SystemFonts.MessageBoxFont;
             Padding = new Padding(6);   // no minimum width: Flare docks the pane narrow, and a minimum only cuts the right side off
