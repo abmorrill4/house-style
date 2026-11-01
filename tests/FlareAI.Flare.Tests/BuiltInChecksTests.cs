@@ -143,6 +143,15 @@ namespace FlareAI.Flare.Tests
             Assert.NotEmpty(lint);
         }
 
+        [Fact]
+        public void EditorIntegration_LintList_EmptyTopicHasNoIssuesAndNoError()
+        {
+            var engine = EngineWithOverrides(Path.Combine(_temp, "Empty"), "");
+            var result = LintTopic(engine, "");   // a thrown InvalidOperationException fails the test
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
         /// <summary>
         /// Runs EditorIntegration's live check (its private Lint(IDocument) call, which holds the StructureFindings call) on a
         /// topic. Lint is not public and the editor's IDocument is Flare's, so the test calls it by reflection.

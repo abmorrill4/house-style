@@ -172,6 +172,8 @@ namespace FlareAI.Flare
             if (!adapter.IsEditableTopic) return null;
             var runner = _lintRunner(adapter);
             if (runner == null) return null;
+            // An empty topic has nothing to lint, so the background checks report no issues and no error.
+            if (BlockSelector.SelectBlocks(adapter.Document, new List<XmlNode>()).Count == 0) return new List<StyleFinding>();
             var blocks = runner.PickAllBlocks(adapter);
             var lint = runner.Lint(blocks);
             lint.AddRange(runner.StructureFindings(blocks));
