@@ -181,6 +181,21 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Names_MatchesAnAiIssueByRuleIdOrByItsOwnWords()
+        {
+            var order = StructureCheck.Find("structure:heading-order");
+            var byName = new FlareAI.Core.Actions.StyleFinding { Source = "ai", Rule = "Heading order", Suggestion = "" };
+            var byWords = new FlareAI.Core.Actions.StyleFinding { Source = "ai", Rule = "Skipped level", Suggestion = "The heading skips a level." };
+            var byId = new FlareAI.Core.Actions.StyleFinding { Source = "ai", RuleId = "structure:heading-order", Rule = "Other", Suggestion = "" };
+            var other = new FlareAI.Core.Actions.StyleFinding { Source = "ai", Rule = "Passive voice", Suggestion = "Use active voice." };
+            Assert.True(StructureCheck.Names(order, byName));
+            Assert.True(StructureCheck.Names(order, byWords));
+            Assert.True(StructureCheck.Names(order, byId));
+            Assert.False(StructureCheck.Names(order, other));
+            Assert.False(StructureCheck.Names(StructureCheck.Find("structure:alt-text"), byName));
+        }
+
+        [Fact]
         public void Rules_ListsTheSixBuiltInChecks_InEveryComposition()
         {
             var mine = Path.Combine(_temp, @"AppData\FlareAI\StyleGuide");

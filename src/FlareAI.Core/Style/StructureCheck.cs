@@ -16,6 +16,8 @@ namespace FlareAI.Core.Style
         public string Name { get; set; }
         public string Statement { get; set; }
         public string Level { get; set; }
+        /// <summary>Plain lowercase phrases that name the check in ordinary words, matched against an AI issue's name and explanation.</summary>
+        public string[] Terms { get; set; }
     }
 
     /// <summary>
@@ -35,12 +37,12 @@ namespace FlareAI.Core.Style
         /// <summary>The built-in checks, in the order <see cref="Of"/> makes them. Their levels are the defaults Of sets.</summary>
         public static readonly ReadOnlyCollection<StructureRule> Rules = new ReadOnlyCollection<StructureRule>(new List<StructureRule>
         {
-            new StructureRule { Id = "structure:alt-text", Name = "Structure.AltText", Level = "error", Statement = "Images have alt text. Describe what each one shows, or mark it decorative." },
-            new StructureRule { Id = "structure:one-h1", Name = "Structure.OneH1", Level = "warning", Statement = "A topic has one h1, its title. Other headings are h2 or lower." },
-            new StructureRule { Id = "structure:heading-order", Name = "Structure.HeadingOrder", Level = "warning", Statement = "Headings go down one level at a time." },
-            new StructureRule { Id = "structure:table-header", Name = "Structure.TableHeader", Level = "warning", Statement = "Tables have a header row of th cells." },
-            new StructureRule { Id = "structure:link-text", Name = "Structure.LinkText", Level = "warning", Statement = "Link text says where the link goes." },
-            new StructureRule { Id = "structure:hard-coded", Name = "Structure.HardCoded", Level = "suggestion", Statement = "Phone numbers, email addresses and URLs are variables in white-label docs, not typed in." },
+            new StructureRule { Id = "structure:alt-text", Name = "Structure.AltText", Level = "error", Statement = "Images have alt text. Describe what each one shows, or mark it decorative.", Terms = new[] { "alt text", "alternative text", "alt attribute" } },
+            new StructureRule { Id = "structure:one-h1", Name = "Structure.OneH1", Level = "warning", Statement = "A topic has one h1, its title. Other headings are h2 or lower.", Terms = new[] { "one h1", "second h1", "more than one h1", "multiple h1", "single h1" } },
+            new StructureRule { Id = "structure:heading-order", Name = "Structure.HeadingOrder", Level = "warning", Statement = "Headings go down one level at a time.", Terms = new[] { "heading order", "heading level", "heading jump", "heading hierarchy", "skipped heading", "skips a level", "skipped a level", "skips from h" } },
+            new StructureRule { Id = "structure:table-header", Name = "Structure.TableHeader", Level = "warning", Statement = "Tables have a header row of th cells.", Terms = new[] { "table header", "header row", "header cell", "th cell" } },
+            new StructureRule { Id = "structure:link-text", Name = "Structure.LinkText", Level = "warning", Statement = "Link text says where the link goes.", Terms = new[] { "link text", "vague link", "descriptive link", "click here" } },
+            new StructureRule { Id = "structure:hard-coded", Name = "Structure.HardCoded", Level = "suggestion", Statement = "Phone numbers, email addresses and URLs are variables in white-label docs, not typed in.", Terms = new[] { "hard coded", "hardcoded" } },
         });
 
         /// <summary>The built-in rule with this id or name (matched exactly, ignoring case), or null.</summary>
@@ -55,6 +57,22 @@ namespace FlareAI.Core.Style
         {
             var rule = Find(idOrName);
             return rule == null ? idOrName : rule.Id;
+        }
+
+        /// <summary>True when an AI issue repeats this built-in check: it cites the rule by id or name, or its name and explanation use the check's own words.</summary>
+        public static bool Names(StructureRule rule, StyleFinding ai)
+        {
+            if (rule == null || ai == null) return false;
+            var cited = Find(ai.RuleId) ?? Find(ai.Rule);
+            if (cited != null && string.Equals(cited.Id, rule.Id, StringComparison.OrdinalIgnoreCase)) return true;
+            if (rule.Terms == null) return false;
+            var text = " " + Regex.Replace((ai.Rule + " " + ai.Suggestion).ToLowerInvariant(), "[^a-z0-9]+", " ") + " ";
+            foreach (var term in rule.Terms)
+            {
+                var t = Regex.Replace((term ?? "").ToLowerInvariant(), "[^a-z0-9]+", " ").Trim();
+                if (t.Length > 0 && text.Contains(" " + t + " ")) return true;
+            }
+            return false;
         }
 
         /// <summary>

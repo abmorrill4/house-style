@@ -1,0 +1,1 @@
+- Hides AI issues that repeat a built-in check you have disabled. The AI review no longer reports a heading order problem while Heading order is disabled.
