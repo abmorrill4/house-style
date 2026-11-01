@@ -90,10 +90,11 @@ namespace FlareAI.Flare.UI
         private readonly WalkStrip _walkStrip;   // the rule walked place by place, over the list (hidden otherwise)
         private readonly Panel _card;
         private readonly List<Button> _buttons = new List<Button>();
-        private Font _metaFont;
-        private int _rowLines = -1;            // lines of text per row now (1 = two one-line columns)
-        private readonly Dictionary<string, List<string>> _wrapped = new Dictionary<string, List<string>>();
-        private int _wrappedWidth;
+        private bool? _wide;                   // two one-line columns (true) or one compact column (false); null = not fitted yet
+        private readonly Panel _drawerBar;     // the details drawer's bar: the selected issue's title and the hide/show button
+        private readonly Label _drawerTitle;
+        private readonly Button _drawerToggle;
+        private readonly ToolTip _tips = new ToolTip();
 
         /// <summary>Opens House Style Settings (the AI-off note's link).</summary>
         public Action OpenSettings { get; set; }
@@ -306,7 +307,7 @@ namespace FlareAI.Flare.UI
             _backToRules.Visible = _showSkipped.Visible = _showAllRules.Visible = _excluded.Visible = false;
             _export.Visible = files != null;   // the bar is always shown now (the filter lives on it); the project report buttons only in Lint Project
 
-            // Owner-drawn so a row can wrap: the suggestion on up to 3 lines, then a smaller grey line (source or counts).
+            // Owner-drawn so a narrow list shows one line per row (a file heading keeps the end of its path).
             // Items, groups, selection, keys, menu and tooltips are the ListView's own; only the painting is ours.
             _list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, ShowItemToolTips = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, OwnerDraw = true };
             _list.Columns.Add("Issue");
@@ -315,8 +316,8 @@ namespace FlareAI.Flare.UI
             _list.DrawColumnHeader += (s, e) => e.DrawDefault = true;
             _list.DrawItem += (s, e) => Safe.Run("Draw row", () => DrawRow(e));
             _list.DrawSubItem += (s, e) => { };   // the whole row is painted in DrawItem (hover repaints raise only DrawItem)
-            _list.ColumnWidthChanging += (s, e) => { if (_rowLines > 1 && e.ColumnIndex == 1) { e.Cancel = true; e.NewWidth = 0; } };
-            _list.FontChanged += (s, e) => { _rowLines = -1; FitColumns(); };
+            _list.ColumnWidthChanging += (s, e) => { if (_wide == false && e.ColumnIndex == 1) { e.Cancel = true; e.NewWidth = 0; } };
+            _list.FontChanged += (s, e) => { _wide = null; FitColumns(); };
             _list.GotFocus += (s, e) => _list.Invalidate();   // the selected row: highlighted when the list has focus, grey when not
             _list.LostFocus += (s, e) => _list.Invalidate();
             _list.SelectedIndexChanged += (s, e) => QueueSelectionChanged();
@@ -404,11 +405,20 @@ namespace FlareAI.Flare.UI
             _walkStrip.NextRuleClicked += (s, e) => Safe.Run("Next Rule", NextRuleInWalk);
             split.Panel1.Controls.Add(_walkStrip);
             split.Panel2.Controls.Add(card);
-            // The pane is laid out small first and grows: the card gets the height it needs (or the writer's, once they drag
-            // the splitter) and the list what's left; the card is laid out again whenever its size or content changes.
+            // The drawer's bar: the selected issue's title and the button that hides or shows the details. Added after the
+            // card, so it docks above it.
+            _drawerBar = new Panel { Dock = DockStyle.Top, Height = Math.Max(S(26), Font.Height + S(8)) };
+            _drawerTitle = new Label { Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(S(4), 0, 0, 0), AccessibleName = "Selected issue" };
+            _drawerToggle = new Button { Dock = DockStyle.Right, Width = S(30), TabStop = true, UseVisualStyleBackColor = true };
+            _drawerToggle.Click += (s, e) => Safe.Run("Details", ToggleDrawer);
+            _drawerBar.Controls.Add(_drawerTitle);
+            _drawerBar.Controls.Add(_drawerToggle);
+            split.Panel2.Controls.Add(_drawerBar);
+            // The pane is laid out small first and grows: the drawer gets the writer's height (or its default share) and the
+            // list what's left; the card is laid out again whenever its size or content changes.
             split.SizeChanged += (s, e) => SizeCard();
             split.SplitterMoving += (s, e) => _draggingSplitter = true;
-            split.SplitterMoved += (s, e) => { if (_draggingSplitter && !_settingSplitter) _cardByWriter = split.Panel2.Height; _draggingSplitter = false; };
+            split.SplitterMoved += (s, e) => { if (_draggingSplitter && !_settingSplitter && _drawerOpen) _drawerWriterLogical = PaneRows.Logical(split.Panel2.Height, Dpi); _draggingSplitter = false; };
             card.ClientSizeChanged += (s, e) => LayoutCard();
             card.VisibleChanged += (s, e) => LayoutCard();
 
@@ -420,6 +430,7 @@ namespace FlareAI.Flare.UI
             Btn(bar, "Close", (s, e) => { var h = CloseRequested; if (h != null) h(this, EventArgs.Empty); });
 
             var tips = new ToolTip();
+            ApplyDrawer();
             tips.SetToolTip(_accept, "Replace the text with the suggestion.");
             tips.SetToolTip(_changeAll, "Replace every instance of this issue in the topic.");
             tips.SetToolTip(_reject, "Ignore this issue.");
@@ -817,8 +828,52 @@ namespace FlareAI.Flare.UI
         }
 
         private bool _layingOutCard, _settingSplitter, _draggingSplitter;
-        private int _cardWanted;      // the height the card needs to show everything without scrolling
-        private int _cardByWriter;    // the card height the writer chose by dragging the splitter (0 = not yet)
+        // The drawer's state lives for the Flare session: it survives closing and Reopen Issues (new lints make new panels).
+        private static bool _drawerOpen = true;
+        private static int _drawerWriterLogical;   // the drawer height the writer chose by dragging, in logical px (0 = default)
+
+        internal static void ResetDrawerForTests() { _drawerOpen = true; _drawerWriterLogical = 0; }
+
+        private void ApplyDrawer()
+        {
+            _card.Visible = _drawerOpen;
+            _split.IsSplitterFixed = !_drawerOpen;
+            var text = _drawerOpen ? "Hide details" : "Show details";
+            _drawerToggle.Text = _drawerOpen ? "▾" : "▴";
+            _drawerToggle.AccessibleName = text;
+            _tips.SetToolTip(_drawerToggle, text);
+            SizeCard();
+        }
+
+        private void ToggleDrawer()
+        {
+            _drawerOpen = !_drawerOpen;
+            ApplyDrawer();
+            SizeCard();
+        }
+
+        /// <summary>The bar's one plain line: the selected issue's title. Selecting never opens a hidden drawer.</summary>
+        private void UpdateDrawerBar()
+        {
+            if (_drawerTitle == null) return;
+            string text = null;
+            var f = Current();
+            var r = CurrentRule();
+            var h = CurrentHeading();
+            if (f != null) text = ProposalText(f);
+            else if (r != null) text = r.Title;
+            else if (h != null) text = _list.SelectedItems[0].Text;   // the heading's own text
+            else if (_cardHead != null && !string.IsNullOrEmpty(_cardHead.Text))
+            {
+                var t = _cardHead.Text;
+                var nl = t.IndexOfAny(new[] { '\r', '\n' });
+                text = nl >= 0 ? t.Substring(0, nl) : t;
+            }
+            if (string.IsNullOrWhiteSpace(text)) text = "No issue selected";
+            text = text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+            _drawerTitle.Text = text;
+            _tips.SetToolTip(_drawerTitle, text);
+        }
 
         private const int DiffHeight = 64;   // logical px: the "what changes" box at full size
 
@@ -855,11 +910,6 @@ namespace FlareAI.Flare.UI
                 int head, buttons;
                 MeasureCard(flow, full, out head, out buttons);
                 var whyText = MeasureWhy(full);
-                var whyWanted = Math.Min(ceiling, Math.Max(whyText, whyMin));
-                _cardWanted = top + head + diffFull + whyWanted + buttons + 3 * gap;
-                // What the card asked for before the why text was shown in full (at most 160 px): the 60% cap never makes an
-                // ordinary card smaller than that.
-                _cardWantedShort = top + head + diffFull + PaneRows.Clamp(whyText, whyMin, S(160)) + buttons + 3 * gap;
                 var w = full;
                 var parts = PaneRows.CardLayout(_card.Height, top, head, buttons, diffMin, diffFull, whyMin, whyText, ceiling, gap);
                 if (parts[2] > _card.Height)   // it will scroll: lay out beside the scroll bar, measuring the text again at that width
@@ -890,8 +940,6 @@ namespace FlareAI.Flare.UI
                 BeginInvoke((Action)(() => { _sizeCardPosted = false; if (!IsDisposed) SizeCard(); }));
             }
         }
-
-        private int _cardWantedShort;   // what the card would need with its why text held to the old 160 px box
 
         /// <summary>
         /// The why text's full height at width <paramref name="w"/>, read from the box itself (RichEdit's own line metrics, so
@@ -947,28 +995,60 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>
-        /// The card gets the height it needs, up to 60% of the pane for a long rule (or the writer's, once they dragged the
-        /// splitter); the list gets what's left, at least a row.
+        /// The drawer gets the writer's height, or 40% of the shared area; hidden, just its bar. The list gets what's left,
+        /// at least a row.
         /// </summary>
         private void SizeCard()
         {
-            if (_split == null || _split.Height <= 0 || _cardWanted <= 0 || _settingSplitter) return;
-            // Moving the splitter re-lays the card out, which can change what it needs (a new width wraps the buttons
-            // differently): go again until it settles.
-            for (var pass = 0; pass < 3; pass++)
+            if (_split == null || _drawerBar == null || _split.Height <= 0 || _settingSplitter) return;
+            var bar = _drawerBar.Height;
+            var listMin = ListMin();
+            if (_split.Height < listMin + bar + _split.SplitterWidth) return;
+            var target = PaneRows.DrawerHeight(_drawerOpen, S(_drawerWriterLogical), _split.Height, _split.SplitterWidth, bar, listMin,
+                                                 RowHeightPx() * 5 + HeaderPx() + ListChrome());
+            var distance = _split.Height - target - _split.SplitterWidth;
+            _settingSplitter = true;
+            try
             {
-                var wanted = _cardWanted;
-                var row = _list.SmallImageList != null ? _list.SmallImageList.ImageSize.Height : _list.Font.Height + S(6);
-                var listMin = _list.Font.Height + S(10) + row + S(4);   // the header and one row
-                var target = PaneRows.CardHeight(wanted, _cardWantedShort, _cardByWriter, _split.Height, _split.SplitterWidth, listMin);
-                var distance = _split.Height - target - _split.SplitterWidth;
-                if (distance < _split.Panel1MinSize || Math.Abs(_split.SplitterDistance - distance) <= 1) return;
-                _settingSplitter = true;
-                try { _split.SplitterDistance = distance; _split.Panel2.PerformLayout(); }
-                catch (Exception) { return; }
-                finally { _settingSplitter = false; }
-                if (_cardWanted == wanted) return;
+                _split.Panel2MinSize = bar;
+                _split.Panel1MinSize = listMin;
+                if (Math.Abs(_split.SplitterDistance - distance) > 1) _split.SplitterDistance = distance;
+                _split.Panel2.PerformLayout();
+                // A squeezed list still shows the selected row (or the first) whole.
+                if (_list.Items.Count > 0)
+                {
+                    var sel = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0] : _list.Items[0];
+                    sel.EnsureVisible();
+                }
             }
+            catch (Exception) { return; }
+            finally { _settingSplitter = false; }
+        }
+
+        /// <summary>The least the list gets: its header (wide only), one whole row and the list's own border.</summary>
+        private int ListMin()
+        {
+            return RowHeightPx() + HeaderPx() + ListChrome();
+        }
+
+        /// <summary>The list's border plus a little slack, so rows count as whole inside the client area.</summary>
+        private int ListChrome()
+        {
+            var border = Math.Max(0, _list.Height - _list.ClientSize.Height);
+            return Math.Max(border, S(4)) + S(4);
+        }
+
+        /// <summary>The row height the list really draws (the larger of the image list's and the first row's).</summary>
+        private int RowHeightPx()
+        {
+            var h = _list.SmallImageList != null ? _list.SmallImageList.ImageSize.Height : _list.Font.Height + S(6);
+            if (_list.Items.Count > 0) h = Math.Max(h, _list.Items[0].Bounds.Height);
+            return h;
+        }
+
+        private int HeaderPx()
+        {
+            return _wide == false ? S(0) : _list.Font.Height + S(10);
         }
 
         /// <summary>
@@ -981,24 +1061,25 @@ namespace FlareAI.Flare.UI
         {
             if (_fitting) return;
             _fitting = true;
+            var was = _wide;
             try { FitColumnsCore(); } finally { _fitting = false; }
+            if (was != _wide) SizeCard();   // the row height changed, so the list's minimum and its five rows did too
         }
 
         private void FitColumnsCore()
         {
-            var lines = PaneRows.TextLines(_list.Width, Dpi);
-            if (lines != _rowLines)
+            var wide = PaneRows.TwoColumns(_list.Width, Dpi);
+            if (wide != _wide)
             {
-                _rowLines = lines;
-                if (_metaFont != null) _metaFont.Dispose();
-                _metaFont = new Font(_list.Font.FontFamily, Math.Max(6f, _list.Font.SizeInPoints - 1f), FontStyle.Regular, GraphicsUnit.Point);
-                var h = PaneRows.RowHeight(lines, lines == 1, _list.Font.Height, _metaFont.Height, Dpi);
+                _wide = wide;
+                var h = PaneRows.RowHeight(wide, _list.Font.Height, Dpi);
                 var old = _list.SmallImageList;
                 _list.SmallImageList = new ImageList { ImageSize = new Size(1, Math.Min(256, h)) };
                 if (old != null) old.Dispose();
+                _list.HeaderStyle = wide ? ColumnHeaderStyle.Nonclickable : ColumnHeaderStyle.None;
             }
             var w = Math.Max(S(40), _list.ClientSize.Width - 4);
-            if (lines == 1)
+            if (wide)
             {
                 _list.Columns[0].Width = w * 62 / 100;
                 _list.Columns[1].Width = w - _list.Columns[0].Width;
@@ -1034,49 +1115,35 @@ namespace FlareAI.Flare.UI
                 using (var bold = new Font(_list.Font, FontStyle.Bold))
                 {
                     var whole = new Rectangle(b.X + S(4), b.Y, Math.Max(1, b.Width - 2 * S(4)), b.Height);
-                    TextRenderer.DrawText(g, item.Text, bold, whole, headFore, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                    if (_wide == false)
+                    {
+                        // Compact: cut the middle, so the end of the path (the file name) stays.
+                        var shown = PaneRows.EllipsizeMiddle(item.Text, s => TextRenderer.MeasureText(g, s, bold, Size.Empty, OneLine).Width, whole.Width, 2);
+                        TextRenderer.DrawText(g, shown, bold, whole, headFore, OneLine | TextFormatFlags.VerticalCenter);
+                    }
+                    else
+                        TextRenderer.DrawText(g, item.Text, bold, whole, headFore, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                 }
                 if ((e.State & ListViewItemStates.Focused) != 0 && focused) ControlPaint.DrawFocusRectangle(g, b, headFore, back);
                 return;
             }
-            var meta = item.SubItems.Count > 1 ? item.SubItems[1].Text : "";
             var font = item.Font ?? _list.Font;
             var pad = S(4);
-            if (_rowLines <= 1 || _metaFont == null)
+            if (_wide == false)
             {
+                var one = new Rectangle(b.X + pad, b.Y, Math.Max(1, b.Width - 2 * pad), b.Height);
+                TextRenderer.DrawText(g, item.Text, font, one, fore, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            else
+            {
+                var meta = item.SubItems.Count > 1 ? item.SubItems[1].Text : "";
                 var c0 = _list.Columns[0].Width;
                 var first = new Rectangle(b.X + pad, b.Y, Math.Max(1, c0 - 2 * pad), b.Height);
                 var second = new Rectangle(b.X + c0 + pad, b.Y, Math.Max(1, b.Width - c0 - 2 * pad), b.Height);
                 TextRenderer.DrawText(g, item.Text, font, first, fore, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, meta, _list.Font, second, grey, OneLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
-            else
-            {
-                var width = Math.Max(1, b.Width - 2 * pad);
-                var y = b.Y + S(3);
-                foreach (var line in Wrapped(item.Text, font, width, _rowLines))
-                {
-                    TextRenderer.DrawText(g, line, font, new Point(b.X + pad, y), fore, OneLine);
-                    y += font.Height;
-                }
-                y += S(1);   // the meta line follows the text, however many lines it used
-                var metaFont = _metaFont;
-                var metaText = PaneRows.Ellipsize(meta, s => TextRenderer.MeasureText(g, s, metaFont, Size.Empty, OneLine).Width, width);
-                TextRenderer.DrawText(g, metaText, metaFont, new Point(b.X + pad, y), grey, OneLine);
-            }
             if ((e.State & ListViewItemStates.Focused) != 0 && focused) ControlPaint.DrawFocusRectangle(g, b, fore, back);
-        }
-
-        /// <summary>A row's text wrapped at this width, remembered until the width changes (painting a row must stay cheap).</summary>
-        private List<string> Wrapped(string text, Font font, int width, int lines)
-        {
-            if (width != _wrappedWidth || _wrapped.Count > 4000) { _wrapped.Clear(); _wrappedWidth = width; }
-            var key = lines + "|" + (int)font.Style + "|" + text;
-            List<string> result;
-            if (_wrapped.TryGetValue(key, out result)) return result;
-            result = PaneRows.Wrap(text, s => TextRenderer.MeasureText(s, font, Size.Empty, OneLine).Width, width, lines);
-            _wrapped[key] = result;
-            return result;
         }
 
         /// <summary>Right-click on a row: Go to, Open file (the whole topic or snippet, nothing selected), Copy file path.</summary>
@@ -1270,8 +1337,27 @@ namespace FlareAI.Flare.UI
                 cardHeight = _card.ClientSize.Height,
                 paneWidth = Width,
                 paneHeight = Height,
+                drawerOpen = _drawerOpen,
+                drawerTitle = _drawerTitle.Text,
+                compact = _wide == false,
+                rowsVisible = VisibleRows(),
             };
         }
+
+        /// <summary>How many list rows lie inside the list's client area.</summary>
+        private int VisibleRows()
+        {
+            var n = 0;
+            var area = _list.ClientRectangle;
+            foreach (ListViewItem i in _list.Items) if (area.Contains(i.Bounds)) n++;
+            return n;
+        }
+
+        /// <summary>For tests and the real-Flare check: sets the drawer's height as if the writer dragged the divider.</summary>
+        internal void E2ESetDrawerHeight(int px) { _drawerWriterLogical = PaneRows.Logical(px, Dpi); SizeCard(); }
+
+        /// <summary>For tests and the real-Flare check: the drawer's toggle button.</summary>
+        internal void E2EToggleDrawer() { ToggleDrawer(); }
 
         /// <summary>
         /// Right-clicks row <paramref name="index"/> (the real menu, so its Opening handler runs) and clicks the first item
@@ -1720,7 +1806,8 @@ namespace FlareAI.Flare.UI
                 var rows = byKey[key];
                 var collapsed = _session.IsCollapsed(key);
                 var heading = new FileHeading { Key = key, Count = rows.Count, Collapsed = collapsed };
-                var head = new ListViewItem(new[] { HeadingText(key, rows.Count, collapsed), "" }) { Tag = heading };
+                var headText = HeadingText(key, rows.Count, collapsed);
+                var head = new ListViewItem(new[] { headText, "" }) { Tag = heading, ToolTipText = headText };
                 _list.Items.Add(head);
                 if (keepKey != null && string.Equals(key, keepKey, StringComparison.OrdinalIgnoreCase)) headingPick = head;
                 if (keepHeading != null && string.Equals(key, keepHeading.Key, StringComparison.OrdinalIgnoreCase)) keepHeadingRow = head;
@@ -2571,6 +2658,7 @@ namespace FlareAI.Flare.UI
             _ignoreTip.SetToolTip(_ignore, ruleTip);
             _ignoreTip.SetToolTip(_turnOffRule, ruleTip);
             LayoutCard();   // the selection, the card's text or a button's label changed
+            UpdateDrawerBar();
         }
 
         // ---- IReviewHost: dialogs and documents for the session ---------------------------------

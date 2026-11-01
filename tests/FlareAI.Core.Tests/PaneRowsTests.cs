@@ -30,8 +30,7 @@ namespace FlareAI.Core.Tests
             using (var font = FontAt(scale))
             {
                 var width = PaneRows.S(paneLogical - 2 * 6 - 2 * 4 - 4, scale);   // pane padding, row padding, list border
-                var lines = PaneRows.TextLines(PaneRows.S(paneLogical, scale), scale);
-                Assert.Equal(3, lines);
+                const int lines = 3;   // Wrap still wraps to a given number of lines; the pane no longer picks it
                 var wrapped = PaneRows.Wrap(RuleRow, Measure(font), width, lines);
 
                 Assert.Equal(3, wrapped.Count);
@@ -78,29 +77,25 @@ namespace FlareAI.Core.Tests
         [InlineData(1.25f)]
         public void TheRowLayout_FollowsTheLogicalWidth(float scale)
         {
-            Assert.Equal(3, PaneRows.TextLines(PaneRows.S(150, scale), scale));
-            Assert.Equal(3, PaneRows.TextLines(PaneRows.S(259, scale), scale));
-            Assert.Equal(2, PaneRows.TextLines(PaneRows.S(300, scale), scale));
+            Assert.False(PaneRows.TwoColumns(PaneRows.S(150, scale), scale));
             Assert.False(PaneRows.TwoColumns(PaneRows.S(300, scale), scale));
-            Assert.Equal(1, PaneRows.TextLines(PaneRows.S(500, scale), scale));
+            Assert.False(PaneRows.TwoColumns(PaneRows.S(479, scale), scale));
+            Assert.True(PaneRows.TwoColumns(PaneRows.S(480, scale), scale));
             Assert.True(PaneRows.TwoColumns(PaneRows.S(500, scale), scale));
         }
 
         [Theory]
         [InlineData(1f)]
         [InlineData(1.25f)]
-        public void ARow_HasRoomForItsLines_AndTheMetaLine(float scale)
+        public void ARow_IsOneLine_AndACompactRowIsAtLeastTwentyFourPixels(float scale)
         {
             using (var font = FontAt(scale))
-            using (var meta = new Font(font.FontFamily, font.SizeInPoints - 1f, FontStyle.Regular, GraphicsUnit.Point))
             {
-                var three = PaneRows.RowHeight(3, false, font.Height, meta.Height, scale);
-                var two = PaneRows.RowHeight(2, false, font.Height, meta.Height, scale);
-                var wide = PaneRows.RowHeight(1, true, font.Height, meta.Height, scale);
-                Assert.True(three >= 3 * font.Height + meta.Height + PaneRows.S(6, scale));
-                Assert.Equal(font.Height, three - two);
-                Assert.True(wide > font.Height && wide < two);
-                Assert.True(three <= 256);   // an image list's height limit
+                var compact = PaneRows.RowHeight(false, font.Height, scale);
+                var wide = PaneRows.RowHeight(true, font.Height, scale);
+                Assert.True(compact >= PaneRows.S(24, scale));
+                Assert.Equal(font.Height + PaneRows.S(6, scale), wide);
+                Assert.True(compact < 2 * font.Height);   // one line, not two
             }
         }
 
@@ -163,18 +158,6 @@ namespace FlareAI.Core.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(1.25f)]
-        public void TheCard_GetsWhatItNeeds_TheListWhatIsLeft_AtLeastARow(float scale)
-        {
-            var listMin = PaneRows.S(100, scale);
-            Assert.Equal(PaneRows.S(300, scale), PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), 0, PaneRows.S(800, scale), 6, listMin));
-            Assert.Equal(PaneRows.S(400, scale) - 6 - listMin, PaneRows.CardHeight(PaneRows.S(350, scale), PaneRows.S(350, scale), 0, PaneRows.S(400, scale), 6, listMin));
-            Assert.Equal(PaneRows.S(500, scale), PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), PaneRows.S(500, scale), PaneRows.S(800, scale), 6, listMin));   // the writer's drag wins
-            Assert.Equal(25, PaneRows.CardHeight(PaneRows.S(300, scale), PaneRows.S(300, scale), 0, PaneRows.S(100, scale), 6, listMin));
-        }
-
-        [Theory]
-        [InlineData(1f)]
-        [InlineData(1.25f)]
         public void CardLayout_GivesWhyItsWholeText_AndTheTotalExceedsTheCard_WhenItDoesNotFit(float scale)
         {
             int S(int px) { return PaneRows.S(px, scale); }
@@ -210,19 +193,62 @@ namespace FlareAI.Core.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(1.25f)]
-        public void CardHeight_CapsOnlyTheNewGrowthAtSixtyPercent_UnlessTheWriterDraggedTheSplitter(float scale)
+        public void DrawerHeight_IsTheBarWhenHidden_TheDefaultShareOrTheWritersHeightWhenOpen(float scale)
         {
             int S(int px) { return PaneRows.S(px, scale); }
+            var bar = S(26);
             var listMin = S(60);
-            // A short rule in a 500 px pane: today's card height (the old 160 px box) is kept even above 60%.
-            Assert.Equal(S(340), PaneRows.CardHeight(S(340), S(340), 0, S(500), 6, listMin));
-            // A long rule: the card grows up to 60% of the pane, then scrolls; the list keeps the rest.
-            Assert.Equal((int)(0.6 * S(1000)), PaneRows.CardHeight(S(1400), S(380), 0, S(1000), 6, listMin));
-            Assert.Equal(S(520), PaneRows.CardHeight(S(520), S(380), 0, S(1000), 6, listMin));   // under 60%: all of it
-            // Never smaller than the card with the old short box, even past 60%.
-            Assert.Equal(S(380), PaneRows.CardHeight(S(1400), S(380), 0, S(500), 6, listMin));
-            // The writer's drag wins over the 60% cap.
-            Assert.Equal(S(800), PaneRows.CardHeight(S(1400), S(380), S(800), S(1000), 6, listMin));
+            var split = S(400);
+            // Hidden: just the bar, whatever the writer chose.
+            Assert.Equal(bar, PaneRows.DrawerHeight(false, 0, split, 6, bar, listMin));
+            Assert.Equal(bar, PaneRows.DrawerHeight(false, S(200), split, 6, bar, listMin));
+            // Open, no writer height: the list gets 60%, the drawer the rest less the divider.
+            Assert.Equal(split - (int)Math.Round(0.6 * split) - 6, PaneRows.DrawerHeight(true, 0, split, 6, bar, listMin));
+            // A writer's height wins.
+            Assert.Equal(S(150), PaneRows.DrawerHeight(true, S(150), split, 6, bar, listMin));
+            // Never so tall that the list drops under one row.
+            Assert.Equal(split - 6 - listMin, PaneRows.DrawerHeight(true, S(900), split, 6, bar, listMin));
+            // Never under the bar.
+            Assert.Equal(bar, PaneRows.DrawerHeight(true, 1, split, 6, bar, listMin));
+            Assert.Equal(bar, PaneRows.DrawerHeight(true, 0, S(40), 6, bar, listMin));
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.25f)]
+        public void DrawerHeight_KeepsFiveListRows_AndAUsableCard_ByDefault(float scale)
+        {
+            int S(int px) { return PaneRows.S(px, scale); }
+            var bar = S(26);
+            var listMin = S(28);
+            var five = 5 * S(24) + S(4);
+            // A 60% list would show fewer than five rows: the drawer gives way, down to its card minimum.
+            var split = S(200);
+            var h = PaneRows.DrawerHeight(true, 0, split, 6, bar, listMin, five);
+            Assert.Equal(split - 6 - five, h);
+            // A tiny area: the list keeps its rows and the drawer shrinks to its bar, never under it.
+            var tiny = S(120);
+            Assert.Equal(bar, PaneRows.DrawerHeight(true, 0, tiny, 6, bar, listMin, five));
+            // The writer's height ignores the preferred rows.
+            Assert.Equal(S(150), PaneRows.DrawerHeight(true, S(150), S(400), 6, bar, listMin, five));
+        }
+
+        [Fact]
+        public void EllipsizeMiddle_KeepsTheStartAndTheEnd_SoTheFileNameSurvives()
+        {
+            Func<string, int> tenPx = s => s.Length * 10;
+            const string path = "▾ Content/Topics/Reference/Administration/Settings.htm · 4 issues";
+            Assert.Equal("short", PaneRows.EllipsizeMiddle("short", tenPx, 100, 2));   // fits: unchanged
+            var cut = PaneRows.EllipsizeMiddle(path, tenPx, 200, 2);
+            Assert.True(tenPx(cut) <= 200);
+            Assert.StartsWith("▾ ", cut);                                // the first keepStart characters
+            Assert.Contains(PaneRows.Ellipsis, cut);
+            Assert.EndsWith(path.Substring(path.Length - 10), cut);        // the end survives
+            Assert.Equal(20, cut.Length);                                  // as much of the end as fits
+            var fileName = PaneRows.EllipsizeMiddle("▾ Content/A/B/C/D/E/F/Settings.htm", tenPx, 200, 2);
+            Assert.EndsWith("Settings.htm", fileName);
+            // Even one character of the end is kept when that is all that fits.
+            Assert.Equal("ab…z", PaneRows.EllipsizeMiddle("abcdefghijklmnopqrstuvwxyz", tenPx, 40, 2));
         }
 
         [Theory]

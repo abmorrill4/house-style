@@ -15,8 +15,8 @@ namespace FlareAI.Flare.UI
         /// <summary>Below this width (logical px) rows get 3 lines of text and the "make it wider" tip shows.</summary>
         public const int NarrowWidth = 260;
 
-        /// <summary>From this width (logical px) the list has two one-line columns, as on a wide screen.</summary>
-        public const int WideWidth = 420;
+        /// <summary>From this width (logical px) the list has two one-line columns, as on a wide screen. Narrower lists have one-line rows with one column.</summary>
+        public const int WideWidth = 480;
 
         /// <summary>The ellipsis that ends a row's text when it doesn't fit.</summary>
         public const string Ellipsis = "…";
@@ -27,24 +27,17 @@ namespace FlareAI.Flare.UI
         /// <summary>A width in pixels as logical (96 DPI) pixels.</summary>
         public static int Logical(int px, float scale) { return (int)Math.Round(px / (scale <= 0 ? 1f : scale)); }
 
-        /// <summary>True when the list is wide enough for two one-line columns (suggestion | source).</summary>
+        /// <summary>True when the list is wide enough for two one-line columns (suggestion | source); false means compact.</summary>
         public static bool TwoColumns(int listWidth, float scale) { return Logical(listWidth, scale) >= WideWidth; }
 
-        /// <summary>Lines of suggestion text a row shows before the ellipsis: 3 when narrow, 2 in between, 1 when wide.</summary>
-        public static int TextLines(int listWidth, float scale)
-        {
-            var w = Logical(listWidth, scale);
-            return w >= WideWidth ? 1 : w < NarrowWidth ? 3 : 2;
-        }
-
         /// <summary>
-        /// The height of every row (a ListView's rows are all one height): one line plus padding when two columns,
-        /// else <paramref name="textLines"/> lines of text, the smaller meta line, and padding above, between and below.
+        /// The height of every row (a ListView's rows are all one height): one line plus padding when wide,
+        /// else at least 24 logical px so a compact row is easy to hit.
         /// </summary>
-        public static int RowHeight(int textLines, bool twoColumns, int fontHeight, int metaFontHeight, float scale)
+        public static int RowHeight(bool wide, int fontHeight, float scale)
         {
-            if (twoColumns) return fontHeight + S(6, scale);
-            return Math.Max(1, textLines) * fontHeight + metaFontHeight + S(9, scale);
+            if (wide) return fontHeight + S(6, scale);
+            return Math.Max(S(24, scale), fontHeight + S(2, scale));   // fixed at 24 for the normal font, so five rows fit with the border
         }
 
         /// <summary>True when the pane is narrow enough that the "drag this pane's edge" tip helps (and has been laid out).</summary>
@@ -102,20 +95,46 @@ namespace FlareAI.Flare.UI
             return new[] { diff, why, top + head + gap + diff + gap + why + gap + buttons };
         }
 
-        /// <summary>The share of the pane a card may grow to on its own before it scrolls, so the list keeps a few rows.</summary>
-        public const double CardShare = 0.6;
+        /// <summary>The list's share of the shared area (list, divider and drawer) by default.</summary>
+        public const double DrawerShare = 0.6;
 
         /// <summary>
-        /// The card's height under the list: what it needs (<paramref name="wanted"/>) or what the writer dragged it to
-        /// (<paramref name="byWriter"/>, 0 = never), leaving the list at least <paramref name="listMin"/>; never under 25 px.
-        /// A card that grows for a long rule stops at 60% of the pane and scrolls, but never gets smaller than it would be
-        /// with its why text held to the old short box (<paramref name="wantedShort"/>), so ordinary cards keep their height.
+        /// The drawer's height (bar included): just the bar when hidden, else what the writer dragged it to
+        /// (<paramref name="byWriter"/>, 0 = never) or the default 40% share. Never under the bar, and the list keeps
+        /// at least <paramref name="listMin"/>.
         /// </summary>
-        public static int CardHeight(int wanted, int wantedShort, int byWriter, int splitHeight, int splitterWidth, int listMin)
+        public static int DrawerHeight(bool open, int byWriter, int splitHeight, int splitterWidth, int barHeight, int listMin,
+                                       int listPreferred = 0)
         {
-            var room = splitHeight - splitterWidth - listMin;
-            var want = byWriter > 0 ? byWriter : Math.Min(wanted, Math.Max((int)(CardShare * splitHeight), wantedShort));
-            return Math.Max(25, Math.Min(want, room));
+            if (!open) return barHeight;
+            var want = byWriter;
+            if (want <= 0)
+            {
+                // By default the list keeps its preferred rows when the share would leave fewer; the list wins over the
+                // drawer's body, which scrolls.
+                want = splitHeight - (int)Math.Round(DrawerShare * splitHeight) - splitterWidth;
+                if (listPreferred > 0) want = Math.Min(want, splitHeight - splitterWidth - listPreferred);
+            }
+            return Math.Max(barHeight, Math.Min(want, splitHeight - splitterWidth - listMin));
+        }
+
+        /// <summary>
+        /// One line: the text when it fits, else its first <paramref name="keepStart"/> characters, an ellipsis, and the
+        /// longest end of the text that fits, so a path keeps its file name.
+        /// </summary>
+        public static string EllipsizeMiddle(string text, Func<string, int> measure, int maxWidth, int keepStart)
+        {
+            text = text ?? "";
+            if (measure(text) <= maxWidth) return text;
+            var head = text.Substring(0, Math.Max(0, Math.Min(keepStart, text.Length)));
+            var room = text.Length - head.Length;
+            int lo = 0, hi = room;   // the longest tail that fits
+            while (lo < hi)
+            {
+                var mid = (lo + hi + 1) / 2;
+                if (measure(head + Ellipsis + text.Substring(text.Length - mid)) <= maxWidth) lo = mid; else hi = mid - 1;
+            }
+            return head + Ellipsis + text.Substring(text.Length - lo);
         }
 
         /// <summary>
