@@ -517,6 +517,18 @@ namespace FlareAI.Core.Actions
                     // A replacement that changes a modal verb or drops a code term needs the author: keep the finding, not the fix.
                     var held = MeaningGuard.Check(f.Excerpt, f.Replacement, MeaningGuard.InCode(run));
                     if (held != null) { f.Replacement = null; f.Suggestion = ((f.Suggestion ?? "").Trim() + " " + held).Trim(); }
+                    // A replacement under a word rule uses the rule's words or the project's own; otherwise the writer chooses.
+                    GuideRule cited;
+                    if (f.Replacement != null && f.RuleId != null && rules.TryGetValue(f.RuleId.Trim(), out cited))
+                    {
+                        var outside = RuleWords.Outside(f.Excerpt, f.Replacement, cited, ProjectTerms(unit));
+                        if (outside.Count > 0)
+                        {
+                            f.Replacement = null;
+                            f.Suggestion = ((f.Suggestion ?? "").Trim() + " " + RuleWords.Choose(outside, cited)).Trim();
+                            Diagnostics.Log("AI replacement held: a word the rule and project don't contain");
+                        }
+                    }
                 }
                 var anchor = FindingLocator.ForSpan(run, at, f.Excerpt.Length, f.Replacement, TextRuns.BlockOf(run));
                 f.Before = anchor.Before;
@@ -577,6 +589,16 @@ namespace FlareAI.Core.Actions
                 if (n.NodeType == XmlNodeType.Element && ReviewOrder.IsHeading(n))
                     return System.Text.RegularExpressions.Regex.Replace(n.InnerText, @"\s+", " ").Trim();
             return "";
+        }
+
+        /// <summary>The words the project already uses: the unit's text and the glossary terms.</summary>
+        private List<string> ProjectTerms(ReviewUnit unit)
+        {
+            var terms = new List<string>(unit.Runs.Texts.Values);
+            var engine = _style as StyleEngine;
+            if (engine != null)
+                try { terms.AddRange(engine.GlossaryTerms(_project)); } catch (Exception ex) { Diagnostics.Log("rule words", ex); }
+            return terms;
         }
 
         private Dictionary<string, GuideRule> _rules;
@@ -664,6 +686,11 @@ namespace FlareAI.Core.Actions
             var replacement = r == null || r.Type == JTokenType.Null ? null : (string)r;
             if (replacement != null && replacement.IndexOf('<') >= 0) replacement = null;
             var why = (string)json["why"];
+            // A word the rule and the text don't contain is the writer's to choose, not the model's to invent.
+            var outside = known && replacement != null
+                ? RuleWords.Outside(f.Excerpt, replacement, rule, context == null ? new string[0] : new[] { context })
+                : new List<string>();
+            if (outside.Count > 0 && f.Replacement == null) { replacement = null; why = RuleWords.Choose(outside, rule); }
             // The earlier proposal stands when the instruction doesn't apply ("Use select instead of click" on text without
             // "click"), when the answer lost the fix, or when it changes a modal verb or a code term. Measured: 3 of 4
             // non-applying instructions returned the original text or nothing, discarding a better proposal.
@@ -672,7 +699,8 @@ namespace FlareAI.Core.Actions
                 var held = replacement == null ? null : MeaningGuard.Check(f.Excerpt, replacement, false, "The refined wording");
                 string because = (bool?)json["applies"] == false ? "The instruction doesn't apply to this text"
                                : replacement == null || replacement == f.Excerpt && (bool?)json["applies"] != true ? "The refined answer dropped the fix"
-                               : held != null ? held.Replace(" Edit it yourself if that is meant.", "") : null;
+                               : held != null ? held.Replace(" Edit it yourself if that is meant.", "")
+                               : outside.Count > 0 ? RuleWords.Choose(outside, rule) : null;
                 if (because != null)
                 {
                     replacement = f.Replacement;

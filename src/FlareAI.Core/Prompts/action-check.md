@@ -25,6 +25,8 @@ only the author can change. Never change or drop code, API and product terms (id
 names, part numbers): copy them exactly. A replacement that would do any of these, or that adds a fact the text doesn't
 state, is not a fix: set replacement to null and say what the author should check.
 
+When a replacement applies a rule that names what to use instead, use only words that rule names or that the text or glossary already uses. Never invent another term. When the right word depends on context, set replacement to null and say in why that the author should choose the role.
+
 Excerpt: the shortest span that is still unique in its run. Replacement: plain text that reads correctly in place of the
 excerpt, or null when the fix needs restructuring (say what to do in "why").
 

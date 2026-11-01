@@ -20,3 +20,5 @@ names, part numbers): copy them exactly. Never add a fact the text doesn't state
 If the instruction doesn't apply to this text (for example it names words the text doesn't contain), set applies to
 false and return the reviewer's proposal unchanged. If the instruction means
 the text should stay as it is, return the text to change unchanged.
+
+When a replacement applies a rule that names what to use instead, use only words that rule names or that the text or glossary already uses. Never invent another term. When the right word depends on context, set replacement to null and say in why that the author should choose the role.
