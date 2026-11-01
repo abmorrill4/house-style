@@ -147,7 +147,20 @@ function Start-FlareE2E {
     $script:Run | Add-Member Version ((Get-Content (Join-Path $hook "ready.json") | ConvertFrom-Json).version)
     Wait-Until { $w = Get-FlareWindow; $w -and $w.Name -like "$($flprj.Name)*" } 120 "the project to open" | Out-Null
     $script:Run | Add-Member FlareStartSeconds ([int]((Get-Date) - $launched).TotalSeconds)
+    # Writers work with Flare maximized: do the same, and wait until it reads Maximized.
+    try { (Get-FlareWindow).Patterns.Window.Pattern.SetWindowVisualState([FlaUI.Core.Definitions.WindowVisualState]::Maximized) }
+    catch { Write-Host "   (maximizing Flare: $($_.Exception.Message))" }   # the wait below reports a window that never maximizes
+    $state = $null
+    try {
+        Wait-Until { $s = "$((Get-FlareWindow).Patterns.Window.Pattern.WindowVisualState.Value)"; $state = $s; $s -eq "Maximized" } 15 "Flare to be maximized" | Out-Null
+    } catch { throw "Flare didn't maximize within 15 seconds (window state: $state)." }
     $script:Run | Add-Member WindowState $(try { "$((Get-FlareWindow).Patterns.Window.Pattern.WindowVisualState.Value)" } catch { $null })
+    # The size this 5.1 process sees: it is DPI-unaware, so a scaled desktop reports the scaled size.
+    $resolution = try { Add-Type -AssemblyName System.Windows.Forms; $b = [System.Windows.Forms.SystemInformation]::VirtualScreen; "$($b.Width)x$($b.Height)" } catch { $null }
+    $script:Run | Add-Member -MemberType NoteProperty -Name Resolution -Value $resolution -Force
+    # The House Style pane opens on the first lint: Wait-PaneDone fills in its size.
+    $script:Run | Add-Member -MemberType NoteProperty -Name PaneWidth -Value $null -Force
+    $script:Run | Add-Member -MemberType NoteProperty -Name PaneHeight -Value $null -Force
     $script:Run | Add-Member ProjectOpen (Get-Date)   # the heartbeat is checked from here: opening a project may block the UI thread
     return $script:Run
 }
@@ -193,6 +206,10 @@ function Wait-PaneDone([int]$Seconds = 180) {
         $s = Get-E2EState
         if ($s.pane -and -not $s.pane.panel.reviewing -and $s.pane.panel.status -and $s.pane.panel.status -notmatch '^(Linting|Reviewing)') { $s }
     } $Seconds "the issues pane to finish"
+    if ($null -eq $script:Run.PaneWidth -and $s.pane.PSObject.Properties["size"] -and $s.pane.size) {
+        $script:Run.PaneWidth = [int]$s.pane.size.width
+        $script:Run.PaneHeight = [int]$s.pane.size.height
+    }
     if ($script:Run.Ai -and $s.pane.panel.status -match 'AI review failed') { throw "The AI review failed (status: $($s.pane.panel.status))" }
     return $s
 }
