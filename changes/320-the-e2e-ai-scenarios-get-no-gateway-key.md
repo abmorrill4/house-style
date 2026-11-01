@@ -1,0 +1,1 @@
+- Use a gateway key from the environment when House Style is set to use the gateway.

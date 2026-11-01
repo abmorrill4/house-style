@@ -15,13 +15,15 @@ namespace FlareAI.Core.Settings
 
     /// <summary>
     /// Persisted at %APPDATA%\FlareAI\settings.json. The API key is DPAPI-protected (CurrentUser scope),
-    /// so the file is useless on another machine or account. Dev fallback: ANTHROPIC_API_KEY env var.
+    /// so the file is useless on another machine or account. Dev fallback: ANTHROPIC_API_KEY env var
+    /// for Anthropic direct, HOUSESTYLE_GATEWAY_KEY for Bifrost.
     /// </summary>
     public sealed class PluginSettings
     {
         public const string DefaultAnthropicBaseUrl = "https://api.anthropic.com";
         public const string DefaultModel = "claude-sonnet-5-5";
         public const string EnvKeyName = "ANTHROPIC_API_KEY";
+        public const string GatewayEnvKeyName = "HOUSESTYLE_GATEWAY_KEY";
 
         public LlmProvider Provider { get; set; }
         /// <summary>
@@ -245,7 +247,7 @@ namespace FlareAI.Core.Settings
             ProtectedApiKey = Convert.ToBase64String(enc);
         }
 
-        /// <summary>Stored key first, then the environment variable, which is used only for Anthropic direct. Null if neither.</summary>
+        /// <summary>Stored key first, then the environment variable for the provider: ANTHROPIC_API_KEY for Anthropic direct, HOUSESTYLE_GATEWAY_KEY for Bifrost. Null if neither.</summary>
         public string ResolveApiKey()
         {
             if (!string.IsNullOrEmpty(ProtectedApiKey))
@@ -257,8 +259,11 @@ namespace FlareAI.Core.Settings
                 }
                 catch (CryptographicException) { /* different user/machine — fall through */ }
             }
-            if (Provider != LlmProvider.AnthropicDirect) return null;
-            var env = Environment.GetEnvironmentVariable(EnvKeyName);
+            string name;
+            if (Provider == LlmProvider.AnthropicDirect) name = EnvKeyName;
+            else if (Provider == LlmProvider.Bifrost) name = GatewayEnvKeyName;
+            else return null;
+            var env = Environment.GetEnvironmentVariable(name);
             return string.IsNullOrEmpty(env) ? null : env;
         }
 

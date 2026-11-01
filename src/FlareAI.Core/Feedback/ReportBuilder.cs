@@ -183,6 +183,8 @@ namespace FlareAI.Core.Feedback
             catch (Exception) { }
             var env = Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
             if (!string.IsNullOrEmpty(env) && env.Length >= 8 && !list.Contains(env)) list.Add(env);
+            var gateway = Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
+            if (!string.IsNullOrEmpty(gateway) && gateway.Length >= 8 && !list.Contains(gateway)) list.Add(gateway);
             return list;
         }
 

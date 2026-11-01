@@ -71,7 +71,7 @@ function Get-FlareWindow([string]$Name) {
 <#
 .SYNOPSIS Starts Flare on a fresh copy of a fixture project, with the plugin isolated in its own settings folder.
 .PARAMETER Fixture  A Flare project folder (copied; the original is never touched).
-.PARAMETER Ai       Turn AI review on (needs ANTHROPIC_API_KEY, from the environment or the repo's .env).
+.PARAMETER Ai       Turn AI review on (needs ANTHROPIC_API_KEY, from the environment or the repo's .env, or HOUSESTYLE_TEST_BIFROST_KEY and HOUSESTYLE_TEST_BIFROST_URL for the gateway).
 .PARAMETER Force    Close a Flare that is already running (its unsaved work is lost).
 .PARAMETER Settings More plugin settings for this run (for example StyleLayers, to point at a team guide).
 #>
@@ -110,10 +110,10 @@ function Start-FlareE2E {
     # A fresh install asks for its UI language at start until this is set (its OK button can't be automated).
     New-ItemProperty "HKCU:\Software\MadCap Software\Flare" -Name RunSelectLanguageUIOnStartup -Value False -PropertyType String -Force | Out-Null
 
-    # The plugin reads its key from ANTHROPIC_API_KEY for either service, so a Bifrost run hands Flare the Bifrost key.
-    $savedKey = $env:ANTHROPIC_API_KEY
-    if ($Bifrost) { $env:ANTHROPIC_API_KEY = $env:HOUSESTYLE_TEST_BIFROST_KEY }
-    if ($Ai -and -not $env:ANTHROPIC_API_KEY) {
+    # A Bifrost run hands Flare the gateway key in HOUSESTYLE_GATEWAY_KEY and leaves ANTHROPIC_API_KEY alone.
+    $savedGateway = $env:HOUSESTYLE_GATEWAY_KEY
+    if ($Bifrost) { $env:HOUSESTYLE_GATEWAY_KEY = $env:HOUSESTYLE_TEST_BIFROST_KEY }
+    if ($Ai -and -not $Bifrost -and -not $env:ANTHROPIC_API_KEY) {
         # The repo's .env: this checkout's, else the main checkout's (worktrees don't have one).
         $repo = Split-Path (Split-Path $PSScriptRoot)
         $main = Split-Path (git -C $repo rev-parse --path-format=absolute --git-common-dir)
@@ -127,8 +127,11 @@ function Start-FlareE2E {
     $env:HOUSESTYLE_E2E_DIR = $hook
     $launched = Get-Date
     try { $proc = Start-Process $flare -ArgumentList "`"$($flprj.FullName)`"" -PassThru }
-    finally { Remove-Item Env:HOUSESTYLE_E2E_DIR; if ($Bifrost) { $env:ANTHROPIC_API_KEY = $savedKey } }
-    $script:Run = [pscustomobject]@{ Dir = $dir; Hook = $hook; AppData = $appdata; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
+    finally {
+        Remove-Item Env:HOUSESTYLE_E2E_DIR
+        if ($Bifrost) { if ($savedGateway) { $env:HOUSESTYLE_GATEWAY_KEY = $savedGateway } else { Remove-Item Env:HOUSESTYLE_GATEWAY_KEY -ErrorAction SilentlyContinue } }
+    }
+    $script:Run = [pscustomobject]@{ Ai = [bool]$Ai; Dir = $dir; Hook = $hook; AppData = $appdata; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
 
     # Trial copies show the licensing wizard at every start: continue in trial mode.
     $readyFile = Join-Path $hook "ready.json"
@@ -184,12 +187,14 @@ function Send-E2E {
 
 function Get-E2EState { (Send-E2E state).state }
 
-<# Waits until the pane is open and done linting (status no longer says Linting/Reviewing). #>
+<# Waits until the pane is open and done linting (status no longer says Linting/Reviewing). Fails when the run has AI on and the status says the AI review failed. #>
 function Wait-PaneDone([int]$Seconds = 180) {
-    Wait-Until {
+    $s = Wait-Until {
         $s = Get-E2EState
         if ($s.pane -and -not $s.pane.panel.reviewing -and $s.pane.panel.status -and $s.pane.panel.status -notmatch '^(Linting|Reviewing)') { $s }
     } $Seconds "the issues pane to finish"
+    if ($script:Run.Ai -and $s.pane.panel.status -match 'AI review failed') { throw "The AI review failed (status: $($s.pane.panel.status))" }
+    return $s
 }
 
 <# The House Style ribbon tab, selected, and its button (or split button) labeled $Label. #>
