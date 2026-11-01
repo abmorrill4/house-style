@@ -29,9 +29,15 @@ namespace FlareAI.Scenarios.Settings
         private static void WithoutEnvKey(Action body)
         {
             var saved = Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
+            var savedGateway = Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
             Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, null);
+            Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, null);
             try { body(); }
-            finally { Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, saved); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, saved);
+                Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, savedGateway);
+            }
         }
 
         // ---- 28 · TEST-PLAN A1 ------------------------------------------------------------------------------------

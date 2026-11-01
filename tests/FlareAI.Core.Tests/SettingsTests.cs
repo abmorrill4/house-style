@@ -19,18 +19,46 @@ namespace FlareAI.Core.Tests
         public void ResolveApiKey_UsesTheEnvironmentKeyForAnthropicDirectOnly()
         {
             var old = System.Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
+            var oldGateway = System.Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
             System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-env");
+            System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, "gw-env");
             try
             {
                 var s = new PluginSettings();
                 s.Provider = LlmProvider.AnthropicDirect;
                 Assert.Equal("sk-env", s.ResolveApiKey());
                 s.Provider = LlmProvider.Bifrost;
+                Assert.Equal("gw-env", s.ResolveApiKey());
+            }
+            finally
+            {
+                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, old);
+                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, oldGateway);
+            }
+        }
+
+        [Fact]
+        public void ResolveApiKey_IgnoresTheOtherProvidersVariable()
+        {
+            var old = System.Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
+            var oldGateway = System.Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
+            try
+            {
+                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-env");
+                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, null);
+                var s = new PluginSettings();
+                s.Provider = LlmProvider.Bifrost;
+                Assert.Null(s.ResolveApiKey());
+
+                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, null);
+                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, "gw-env");
+                s.Provider = LlmProvider.AnthropicDirect;
                 Assert.Null(s.ResolveApiKey());
             }
             finally
             {
                 System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, old);
+                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, oldGateway);
             }
         }
 
