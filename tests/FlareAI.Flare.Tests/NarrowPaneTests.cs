@@ -26,8 +26,8 @@ namespace FlareAI.Flare.Tests
         // The writer's data folder (onboarding notes, checklist) is a temp folder: a pane test never writes to %APPDATA%.
         private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hs-pane-" + Guid.NewGuid().ToString("N"));
         private readonly string _prevRoot = FlareAI.Core.Paths.Root;   // the test run's redirected folder, put back on Dispose
-        public NarrowPaneTests() { System.IO.Directory.CreateDirectory(_root); FlareAI.Core.Paths.Root = _root; FlareAI.Core.Settings.GuidedTour.Stop(); }
-        public void Dispose() { FlareAI.Core.Paths.Root = _prevRoot; try { System.IO.Directory.Delete(_root, true); } catch (Exception) { } }
+        public NarrowPaneTests() { System.IO.Directory.CreateDirectory(_root); FlareAI.Core.Paths.Root = _root; FlareAI.Core.Settings.GuidedTour.Stop(); FindingsPanel.ResetDrawerForTests(); }
+        public void Dispose() { FindingsPanel.ResetDrawerForTests(); FlareAI.Core.Paths.Root = _prevRoot; try { System.IO.Directory.Delete(_root, true); } catch (Exception) { } }
 
         private const string Topic = "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body><h1>Transfers</h1>" +
                                      "<p>Please note that the fee is waived for members who move money between their own accounts.</p></body></html>";
@@ -692,15 +692,14 @@ namespace FlareAI.Flare.Tests
             // scroll bar, and its text gets wider.
             WithLongRuleCard(150, 700, (form, panel, card, why, diff, decision) =>
             {
-                bool sawScroll = false, sawFit = false;
+                bool sawScroll = false;
                 for (var w = 150; w <= 700; w += 10)
                 {
                     form.ClientSize = new Size(w, 700); Pump(null, 120);
                     AssertWhole(w + "x700: ", card, why, diff, decision);
-                    if (card.VerticalScroll.Visible) sawScroll = true; else sawFit = true;
+                    if (card.VerticalScroll.Visible) sawScroll = true;
                 }
                 Assert.True(sawScroll, "the card never scrolled");
-                Assert.True(sawFit, "the card never fit");
             });
         }
 
@@ -725,12 +724,21 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        /// <summary>The drawer is small by default (the list keeps five rows); a test that reads a long card drags it taller first.</summary>
+        private static void OpenDrawerTall(FindingsPanel panel)
+        {
+            var split = All(panel).OfType<SplitContainer>().Single();
+            panel.E2ESetDrawerHeight(split.Height * 60 / 100);
+            Pump(null, 300);
+        }
+
         [DesktopFact]
         public void PageDownInWhyText_KeepsTheCaretInView()
         {
             WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
             {
                 form.Activate();
+                OpenDrawerTall(panel);
                 why.Focus();
                 Pump(null, 50);
                 Assert.True(why.Focused, "the why text didn't take focus");
@@ -750,6 +758,7 @@ namespace FlareAI.Flare.Tests
             WithLongRuleCard(150, 500, (form, panel, card, why, diff, decision) =>
             {
                 form.Activate();
+                OpenDrawerTall(panel);
                 Assert.True(card.VerticalScroll.Visible);
                 diff.Focus();
                 card.AutoScrollPosition = new Point(0, 0);
@@ -801,11 +810,170 @@ namespace FlareAI.Flare.Tests
             }
             var fits = why.Bottom <= card.ClientSize.Height;
             Assert.True(fits || card.VerticalScroll.Visible, where + "the card neither fits nor scrolls");
-            // From 640 px tall (180+ px wide) every button shows without scrolling; from 800 px, the whole card.
-            if (height >= 800 || height >= 640 && card.Width >= 160) Assert.True(decision.Bottom <= card.ClientSize.Height, where + "the buttons need scrolling to reach");
-            if (height >= 800) Assert.True(fits, where + "a pane this tall shows the whole card without scrolling");
             Assert.True(list.ClientSize.Height >= list.Items[0].Bounds.Height, where + "the list keeps at least one row");
             Assert.True(split.Panel2.Top >= list.Parent.Bottom, where + "the card starts above the list's bottom");
+        }
+
+        // ---- One-line rows and the details drawer (#324) -----------------------------------------------------------
+
+        /// <summary>A project report over six copies of Topic, in the By file view, at the given size; runs <paramref name="body"/>.</summary>
+        private void WithByFile(Action<FindingsPanel, Form, ListView> body, int width = 320, int height = 463)
+        {
+            WithProject(Enumerable.Repeat(Topic, 6).ToArray(), width, height, (panel, form) =>
+            {
+                var list = All(panel).OfType<ListView>().Single();
+                var byFile = All(panel).OfType<RadioButton>().First(r => r.Text.IndexOf("file", StringComparison.OrdinalIgnoreCase) >= 0);
+                byFile.PerformClick();
+                Pump(() => list.Items.Count > 0, 15000);
+                Pump(null, 300);
+                body(panel, form, list);
+            });
+        }
+
+        private static int RowsIn(ListView list)
+        {
+            return list.Items.Cast<ListViewItem>().Count(i => list.ClientRectangle.Contains(i.Bounds));
+        }
+
+        private static SplitContainer SplitOf(FindingsPanel panel) { return All(panel).OfType<SplitContainer>().Single(); }
+
+        private static Panel CardOf(FindingsPanel panel) { return SplitOf(panel).Panel2.Controls.OfType<Panel>().Single(p => p.AutoScroll); }
+
+        private static Label BarTitle(FindingsPanel panel) { return All(panel).OfType<Label>().Single(l => l.AccessibleName == "Selected issue"); }
+
+        private static Button DrawerToggle(FindingsPanel panel)
+        {
+            return All(panel).OfType<Button>().Single(b => b.AccessibleName == "Hide details" || b.AccessibleName == "Show details");
+        }
+
+        private static bool IsHeading(ListViewItem i) { return i.Text.StartsWith("▾") || i.Text.StartsWith("▸"); }
+
+        [Fact]
+        public void TheOpenDrawer_LeavesFiveOneLineRows_AndTheButtonsReachable_At320x463()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var scale = form.DeviceDpi / 96f;
+                var card = CardOf(panel);
+                var decision = card.Controls.OfType<FlowLayoutPanel>().First(f => f.Controls.OfType<Button>().Any(b => b.Text == "Go To"));
+                var split = SplitOf(panel);
+                Assert.True(RowsIn(list) >= 5, "only " + RowsIn(list) + " rows are visible; split " + split.Height + ", list client " + list.ClientSize.Height + ", row " + list.Items[0].Bounds.Height + ", drawer " + split.Panel2.Height);
+                Assert.All(list.Items.Cast<ListViewItem>(), i => Assert.True(i.Bounds.Height <= (int)Math.Round(26 * scale), "a row is " + i.Bounds.Height + " px tall"));
+                Assert.True(card.Visible);
+                Assert.True(card.VerticalScroll.Visible || decision.Bottom <= card.ClientSize.Height, "the buttons can't be reached");
+                Assert.Equal("Hide details", DrawerToggle(panel).AccessibleName);
+            });
+        }
+
+        [Fact]
+        public void HidingTheDrawer_ShowsEightRows_AndTheBarKeepsTheSelectedTitle_UntilItIsShownAgain()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var card = CardOf(panel);
+                var bar = BarTitle(panel);
+                var toggle = DrawerToggle(panel);
+                var before = RowsIn(list);
+                toggle.PerformClick();
+                Pump(null, 300);
+                Assert.False(card.Visible);
+                Assert.Equal("Show details", toggle.AccessibleName);
+                Assert.True(RowsIn(list) >= 8, "only " + RowsIn(list) + " rows are visible");
+                Assert.True(RowsIn(list) > before);
+                Assert.Equal(1, list.SelectedItems.Count);
+                Assert.EndsWith(bar.Text, list.SelectedItems[0].Text);
+                Assert.False(string.IsNullOrEmpty(bar.Text));
+
+                // Selecting another row changes the bar and doesn't open the drawer.
+                var other = list.Items.Cast<ListViewItem>().First(IsHeading);
+                var was = bar.Text;
+                other.Selected = true;
+                Pump(() => bar.Text != was, 3000);
+                Assert.Equal(other.Text, bar.Text);
+                Assert.False(card.Visible);
+
+                // Showing it again restores the card and its buttons.
+                toggle.PerformClick();
+                Pump(null, 300);
+                Assert.True(card.Visible);
+                Assert.Equal("Hide details", toggle.AccessibleName);
+                Assert.True(All(card).OfType<Button>().Any(b => b.Text == "Go To" && b.Visible));
+                Assert.True(RowsIn(list) < 8);
+            });
+        }
+
+        [Fact]
+        public void TheDrawersHeight_ChangesTheRows_AndNeitherPartGoesUnderItsMinimum()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var split = SplitOf(panel);
+                var bar = BarTitle(panel).Parent;
+                panel.E2ESetDrawerHeight(split.Height / 4); Pump(null, 200);
+                var small = split.Panel2.Height;
+                var many = RowsIn(list);
+                panel.E2ESetDrawerHeight(split.Height * 55 / 100); Pump(null, 200);
+                var big = split.Panel2.Height;
+                var few = RowsIn(list);
+                Assert.True(big > small, "the drawer didn't grow (" + small + " → " + big + ")");
+                Assert.True(few < many, "the list still shows " + few + " rows (was " + many + ")");
+
+                panel.E2ESetDrawerHeight(1); Pump(null, 200);
+                Assert.True(split.Panel2.Height >= bar.Height, "the drawer is under its bar");
+                panel.E2ESetDrawerHeight(5000); Pump(null, 200);
+                var where = "split " + split.Height + ", list client " + list.ClientSize.Height + ", row " + list.Items[0].Bounds.Height + ", drawer " + split.Panel2.Height;
+                Assert.True(split.Panel1.Height >= list.Items[0].Bounds.Height, "the list is under one row: " + where);
+                Assert.True(RowsIn(list) >= 1, "no whole row is visible: " + where);
+            });
+        }
+
+        [Fact]
+        public void AHiddenDrawer_StaysHidden_InTheNextPane()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                DrawerToggle(panel).PerformClick();
+                Pump(null, 200);
+                Assert.False(CardOf(panel).Visible);
+            });
+            WithByFile((panel, form, list) =>
+            {
+                Assert.False(CardOf(panel).Visible);
+                Assert.Equal("Show details", DrawerToggle(panel).AccessibleName);
+            });
+        }
+
+        [Fact]
+        public void ATooltip_CarriesTheFullText_OfAHeadingAndAnIssue()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var head = list.Items.Cast<ListViewItem>().First(IsHeading);
+                Assert.Contains(".htm", head.ToolTipText);
+                Assert.Equal(head.Text, head.ToolTipText);
+                var issue = list.Items.Cast<ListViewItem>().First(i => !IsHeading(i));
+                Assert.False(string.IsNullOrEmpty(issue.ToolTipText));
+                Assert.Contains(" · ", issue.ToolTipText);
+            });
+        }
+
+        [Fact]
+        public void AWidePane_KeepsTwoColumns()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                Assert.True(list.Columns[1].Width > 0, "the second column is gone at " + list.Width + " px");
+            }, 500, 463);
+        }
+
+        [Fact]
+        public void ACompactPane_HasOneColumn()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                Assert.Equal(0, list.Columns[1].Width);
+                Assert.True(list.Columns[0].Width > 0);
+            });
         }
 
         // ---- Choose checks (#253) ----------------------------------------------------------------------------------

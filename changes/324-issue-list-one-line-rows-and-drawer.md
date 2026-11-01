@@ -1,0 +1,1 @@
+- See more issues at once in a narrow House Style Issues pane. Each issue is one line, and the details are in a drawer under the list that you can resize, hide and show.
