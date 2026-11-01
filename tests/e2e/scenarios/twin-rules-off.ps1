@@ -37,12 +37,12 @@ Send-E2E dialogType "The Single Sign-On step is covered in the admin guide." -Ex
 Send-E2E dialogClick "OK" -Extra @{ title = "Disable Rule" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Disable Rule*" }) } 15 "Disable Rule to close" | Out-Null
 
-# Fresh lint: the glossary still flags Single Sign-On (its box stayed unticked), but rule 6 no longer does. (The other
-# paragraph's row is not checked here: the next lint after a project override drops it on main too, see #294.)
+# Fresh lint: the glossary still flags Single Sign-On (its box stayed unticked), but rule 6 no longer does, and the Identity Provider paragraph keeps its row.
 Invoke-Ribbon "Lint Topic"
 $rows = @((Wait-PaneDone 300).pane.panel.rows)
 $sso = @($rows | Where-Object { $_.excerpt -like "*Single Sign-On*" })
 Assert-E2E ($sso.Count -eq 1 -and $sso[0].rule -eq "Company.GlossaryTerms") "only the glossary still flags Single Sign-On after Disable Rule (rows: $(($rows | ForEach-Object { $_.rule + ': ' + $_.text }) -join ' | '))"
+Assert-E2E (@($rows | Where-Object { $_.excerpt -like "*Identity Provider*" }).Count -ge 1) "Lint Topic after Disable Rule still flags Identity Provider (rows: $(($rows | ForEach-Object { $_.rule + ': ' + $_.text }) -join ' | '))"
 
 # The project's override file: the rule is off, and the glossary checker isn't in it, because its box was unticked.
 Assert-E2E (Test-Path (Join-Path $run.Project "Content\Resources\StyleGuide\overrides.ini")) "the project's overrides.ini was written"
