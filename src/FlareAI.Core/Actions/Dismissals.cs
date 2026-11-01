@@ -82,6 +82,8 @@ namespace FlareAI.Core.Actions
     /// </summary>
     public static class ProjectRules
     {
+        private const string AiTextPrefix = "# ai-ignore-text:";
+
         public static string OverridesPath(string anyProjectPath)
         {
             var dir = string.IsNullOrEmpty(anyProjectPath) ? null : new DirectoryInfo(Path.GetDirectoryName(Path.GetFullPath(anyProjectPath)));
@@ -103,13 +105,19 @@ namespace FlareAI.Core.Actions
             var line = f.RuleId != null ? OneLine(f.RuleId) + " = " + OneLine(setting)
                      : IsLinterRule(f) ? OneLine(f.Rule) + " = " + (setting == "off" ? "NO" : OneLine(setting))
                      : "# ai-ignore: " + OneLine(f.Rule);
+            // An AI judgment with no rule also remembers what it flagged, so a reworded version stays off.
+            var textLine = f.RuleId == null && !IsLinterRule(f) && !string.IsNullOrEmpty(f.Excerpt)
+                ? AiTextPrefix + " " + OneLine(f.Rule) + " | " + OneLine(f.Excerpt) : null;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 var existing = File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8).TrimStart('﻿') : "# Rules disabled for this project (House Style, \"Disable Rule\"). Vale syntax: Style.Rule = NO\r\n";
-                if (existing.IndexOf(line, StringComparison.OrdinalIgnoreCase) >= 0) return;
+                var addLine = existing.IndexOf(line, StringComparison.OrdinalIgnoreCase) < 0;
+                var addText = textLine != null && existing.IndexOf(textLine, StringComparison.OrdinalIgnoreCase) < 0;
+                if (!addLine && !addText) return;
                 var meta = by == null && string.IsNullOrEmpty(reason) ? "" : FlareAI.Core.Style.RuleOverrides.MetaLine(by, DateTime.Now, reason) + "\r\n";
-                File.WriteAllText(path, existing.TrimEnd() + "\r\n" + meta + line + "\r\n", NoBom); // ini readers choke on a BOM
+                var add = (addLine ? meta + line + "\r\n" : "") + (addText ? textLine + "\r\n" : "");
+                File.WriteAllText(path, existing.TrimEnd() + "\r\n" + add, NoBom); // ini readers choke on a BOM
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException) { throw new FlareAI.Core.Style.GuideWriteException(path, ex); }
         }
@@ -125,6 +133,60 @@ namespace FlareAI.Core.Actions
             foreach (var l in File.ReadAllLines(path, Encoding.UTF8))
                 if (l.StartsWith("# ai-ignore:", StringComparison.OrdinalIgnoreCase)) set.Add(l.Substring("# ai-ignore:".Length).Trim());
             return set;
+        }
+
+        /// <summary>What disabled AI issues flagged: (rule name, excerpt) pairs.</summary>
+        public static List<KeyValuePair<string, string>> IgnoredAiTexts(string anyProjectPath)
+        {
+            var list = new List<KeyValuePair<string, string>>();
+            var path = OverridesPath(anyProjectPath);
+            if (path == null || !File.Exists(path)) return list;
+            foreach (var raw in File.ReadAllLines(path, Encoding.UTF8))
+            {
+                var l = raw.Trim().TrimStart('﻿');
+                if (!l.StartsWith(AiTextPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                var rest = l.Substring(AiTextPrefix.Length);
+                var bar = rest.IndexOf(" | ", StringComparison.Ordinal);
+                if (bar < 0) continue;
+                var name = rest.Substring(0, bar).Trim();
+                var excerpt = rest.Substring(bar + 3).Trim();
+                if (name.Length == 0 || excerpt.Length == 0) continue;
+                list.Add(new KeyValuePair<string, string>(name, excerpt));
+            }
+            return list;
+        }
+
+        /// <summary>True when an AI issue with no rule is about the same thing, in the same place, as one the project disabled.</summary>
+        public static bool IsIgnoredAiTopic(IEnumerable<KeyValuePair<string, string>> ignored, StyleFinding f)
+        {
+            if (ignored == null || f == null || f.Layer != "ai" || f.RuleId != null || string.IsNullOrEmpty(f.Excerpt)) return false;
+            foreach (var p in ignored)
+                if (SameCategory(p.Key, f.Rule) && SameText(p.Value, f.Excerpt)) return true;
+            return false;
+        }
+
+        internal static bool SameCategory(string a, string b)
+        {
+            var sa = Stems(a);
+            foreach (var s in Stems(b)) if (sa.Contains(s)) return true;
+            return false;
+        }
+
+        private static HashSet<string> Stems(string s)
+        {
+            var set = new HashSet<string>();
+            foreach (var w in System.Text.RegularExpressions.Regex.Split((s ?? "").ToLowerInvariant(), @"[^\p{L}]+"))
+                if (w.Length >= 3) set.Add(w.Length > 5 ? w.Substring(0, 5) : w);
+            return set;
+        }
+
+        internal static bool SameText(string a, string b)
+        {
+            a = (a ?? "").Trim(); b = (b ?? "").Trim();
+            if (a.Length == 0 || b.Length == 0) return false;
+            return a.Equals(b, StringComparison.OrdinalIgnoreCase)
+                || a.IndexOf(b, StringComparison.OrdinalIgnoreCase) >= 0
+                || b.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }

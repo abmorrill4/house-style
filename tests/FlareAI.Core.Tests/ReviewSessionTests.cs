@@ -1132,6 +1132,22 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Add_LeavesOutARewordedAiIssue_ThatIsAboutTheSameTextAndCategory()
+        {
+            var s = Session();
+            s.IgnoredAiRules = p => new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            s.IgnoredAiTexts = p => new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("Passive voice", "The user") };
+            var reworded = Find(_topic, "The user", "You", "Passive construction");
+            reworded.Layer = "ai";
+            var other = Find(_topic, "utilize", "use", "Wordy phrase");
+            other.Layer = "ai";
+
+            s.Add(new[] { reworded, other });
+
+            Assert.Equal(new[] { other }, s.Findings);
+        }
+
+        [Fact]
         public void RefreshLint_ReplacesStyleRuleFindings_KeepsAiAndApplied_AndIsOffInAProjectReport()
         {
             var s = Session();

@@ -200,6 +200,32 @@ namespace FlareAI.Scenarios.Review
             }
         }
 
+        [Fact]
+        public void DisabledAiIssue_StaysOff_WhenTheAiWordsItDifferently_ButADifferentProblemStillShows()
+        {
+            var timeless = new ScriptedReview.Flag { Excerpt = "can be out of date", Rule = "Timeless wording" };
+            var wordy = new ScriptedReview.Flag { Excerpt = "in order to save", Rule = "Wordy phrase" };
+            var answer = new[] { timeless, wordy };
+            var ai = new FlareAI.TestKit.Llm.ScriptedLlmClient().When(r => r.Task == "review",
+                r => new FlareAI.Core.Llm.LlmResponse { Text = ScriptedReview.ReviewJson(r, answer), StopReason = "end_turn", Model = r.Model ?? "scripted" });
+            using (var fx = ReviewFixture.Scratch("<h1>Tools</h1><p>This page can be out of date.</p><p>Click Save in order to save.</p>", ai))
+            {
+                fx.Check();
+                fx.Host.RuleChoice = new RuleSettingChoice { ForTeam = false, Setting = "off", Reason = "Fine here." };
+                fx.Session.Select(fx.Session.Findings.First(f => f.Source == "ai" && f.Excerpt == "can be out of date"));
+                fx.Session.TurnOffRule();
+                Assert.DoesNotContain(fx.Session.Findings, f => f.Source == "ai" && f.Excerpt == "can be out of date");
+
+                // The AI words the same problem differently on the next review.
+                answer = new[] { new ScriptedReview.Flag { Excerpt = "can be out of date", Rule = "Timeless phrasing" }, wordy };
+                var again = fx.NewSession();
+                fx.Check(again);
+
+                Assert.DoesNotContain(again.Findings, f => f.Excerpt == "can be out of date");
+                Assert.Contains(again.Findings, f => f.Source == "ai" && f.Excerpt == "in order to save");
+            }
+        }
+
         private static void ChangeUtilize(ReviewFixture fx)
         {
             var run = (XmlText)BlockSelector.FindBody(fx.Doc.Document).SelectSingleNode("//p/text()");

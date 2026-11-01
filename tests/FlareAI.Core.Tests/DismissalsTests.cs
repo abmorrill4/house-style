@@ -37,6 +37,39 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void IgnoreRule_ForAnAiIssue_AlsoRemembersWhatItFlagged()
+        {
+            Directory.CreateDirectory(Path.Combine(_root, "Content"));
+            File.WriteAllText(Path.Combine(_root, "Demo.flprj"), "<CatapultProject />");
+            var topic = Path.Combine(_root, @"Content\T.htm");
+            ProjectRules.Ignore(topic, new StyleFinding { Rule = "Passive voice", Excerpt = "is done by the user", Layer = "ai" });
+            ProjectRules.Ignore(topic, new StyleFinding { Rule = "Passive voice", Excerpt = "was sent by the server", Layer = "ai" });
+            ProjectRules.Ignore(topic, new StyleFinding { Rule = "Passive voice", Excerpt = "is done by the user", Layer = "ai" });
+
+            var texts = ProjectRules.IgnoredAiTexts(topic);
+            Assert.Equal(2, texts.Count);
+            Assert.Contains("passive voice", ProjectRules.IgnoredAiRules(topic));
+            Assert.True(ProjectRules.IsIgnoredAiTopic(texts, new StyleFinding { Layer = "ai", Rule = "Passive construction", Excerpt = "is done by the user" }));
+            Assert.False(ProjectRules.IsIgnoredAiTopic(texts, new StyleFinding { Layer = "ai", Rule = "Wordy phrase", Excerpt = "is done by the user" }));
+            Assert.False(ProjectRules.IsIgnoredAiTopic(texts, new StyleFinding { Layer = "ai", Rule = "Passive voice", Excerpt = "something else" }));
+        }
+
+        [Fact]
+        public void TurnBackOn_ForAnAiIssue_RemovesWhatItFlaggedToo()
+        {
+            Directory.CreateDirectory(Path.Combine(_root, "Content"));
+            File.WriteAllText(Path.Combine(_root, "Demo.flprj"), "<CatapultProject />");
+            var topic = Path.Combine(_root, @"Content\T.htm");
+            ProjectRules.Ignore(topic, new StyleFinding { Rule = "Passive voice", Excerpt = "is done by the user", Layer = "ai" }, "off", "Fine here.", "Sam");
+            var path = ProjectRules.OverridesPath(topic);
+
+            FlareAI.Core.Style.RuleOverrides.TurnBackOn(System.Linq.Enumerable.Single(FlareAI.Core.Style.RuleOverrides.ReadIni(path), o => o.IsAiName), null);
+
+            Assert.DoesNotContain("ai-ignore", File.ReadAllText(path));
+            Assert.Empty(ProjectRules.IgnoredAiTexts(topic));
+        }
+
+        [Fact]
         public void Restore_RemovesTheKey_AndSurvivesReload()
         {
             var store = Path.Combine(_root, "dismissed.json");
