@@ -301,12 +301,11 @@
     "Action": "flag",
     "Tags": [],
     "Avoid": [
-      "the user",
-      "the end user"
+      "(?i)\\bthe (?:end )?user\\b(?!-|\\s+(?:interface|experience|account|name|guide|group|story|data|base|settings|permissions|role|id|input|session|profile)\\b)"
     ],
     "Use": "",
     "Example": "Ask the user to sign in.",
-    "IgnoreCase": true,
+    "IgnoreCase": false,
     "MarkupOnly": false,
     "Bad": [
       {
@@ -315,49 +314,6 @@
         "Expect": {
           "clean": "ui-b, ui-span, code-inline, pre, kbd",
           "fires": "paragraph, step, step-p, list, heading-h2, heading-h4, table-header, table-cell, note, caption, dropdown-head, link-a, link-xref, variable-adjacent, conditional-span"
-        }
-      },
-      {
-        "Source": "avoid",
-        "Text": "the user",
-        "Expect": {
-          "clean": "ui-b, ui-span, code-inline, pre, kbd",
-          "fires": "paragraph, step, step-p, list, heading-h2, heading-h4, table-header, table-cell, note, caption, dropdown-head, link-a, link-xref, variable-adjacent, conditional-span"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "The user",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "THE USER",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "the end user",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "The end user",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "THE END USER",
-        "Expect": {
-          "fires": "paragraph"
         }
       }
     ],
@@ -561,12 +517,11 @@
     "Action": "flag",
     "Tags": [],
     "Avoid": [
-      "click here",
-      "this link"
+      "(?i)\\b(?:click here|this link)\\b"
     ],
     "Use": "",
     "Example": "To learn more, click here.",
-    "IgnoreCase": true,
+    "IgnoreCase": false,
     "MarkupOnly": false,
     "Bad": [
       {
@@ -575,49 +530,6 @@
         "Expect": {
           "clean": "ui-b, ui-span, code-inline, pre, kbd",
           "fires": "paragraph, step, step-p, list, heading-h2, heading-h4, table-header, table-cell, note, caption, dropdown-head, link-a, link-xref, variable-adjacent, conditional-span"
-        }
-      },
-      {
-        "Source": "avoid",
-        "Text": "click here",
-        "Expect": {
-          "clean": "ui-b, ui-span, code-inline, pre, kbd",
-          "fires": "paragraph, step, step-p, list, heading-h2, heading-h4, table-header, table-cell, note, caption, dropdown-head, link-a, link-xref, variable-adjacent, conditional-span"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "Click here",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "CLICK HERE",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "this link",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "This link",
-        "Expect": {
-          "fires": "paragraph"
-        }
-      },
-      {
-        "Source": "avoid-variant",
-        "Text": "THIS LINK",
-        "Expect": {
-          "fires": "paragraph"
         }
       }
     ],

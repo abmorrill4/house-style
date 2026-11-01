@@ -25,9 +25,9 @@
         </table>
         <h2>Reader and links</h2>
         <table>
-            <tr><th>Avoid</th><th>Use</th><th>Severity</th><th>Why</th><th>Example</th></tr>
-            <tr id="rule-9"><td>the user, the end user</td><td></td><td>warning</td><td>Address the reader as you.</td><td>Ask the user to sign in.</td></tr>
-            <tr id="rule-10"><td>click here, this link</td><td></td><td>error</td><td>Link text must say where it goes.</td><td>To learn more, click here.</td></tr>
+            <tr><th>Pattern</th><th>Use</th><th>Severity</th><th>Why</th><th>Example</th></tr>
+            <tr id="rule-9"><td>(?i)\bthe (?:end )?user\b(?!-|\s+(?:interface|experience|account|name|guide|group|story|data|base|settings|permissions|role|id|input|session|profile)\b)</td><td></td><td>warning</td><td>Address the reader as you.</td><td>Ask the user to sign in.</td></tr>
+            <tr id="rule-10"><td>(?i)\b(?:click here|this link)\b</td><td></td><td>error</td><td>Link text must say where it goes.</td><td>To learn more, click here.</td></tr>
         </table>
     </body>
 </html>
