@@ -1,0 +1,2 @@
+- Stops the AI review from suggesting a replacement word that the rule and your project don't use.
+- Asks you to choose the right role when the best word depends on context.

@@ -349,6 +349,44 @@ namespace FlareAI.Core.Tests
             Assert.Equal("use", found.Single(f => f.Rule == "plain words").Replacement);
         }
 
+        [Theory]
+        [InlineData("end users", "administrators", false, null)]
+        [InlineData("end users", "administrator", false, null)]
+        [InlineData("end users", "managers", true, null)]
+        [InlineData("end users", "sysadmins", true, null)]
+        [InlineData("end users", "operators", false, "operators")]
+        public void RuleWords_FlagsOnlyWordsOutsideTheRuleAndProject(string excerpt, string replacement, bool outside, string project)
+        {
+            var rule = new GuideRule { Text = "Use the role, such as administrators, not end users", Good = "Administrators must approve the request." };
+            var projectText = project == null ? new string[0] : new[] { project };
+            Assert.Equal(outside, RuleWords.Outside(excerpt, replacement, rule, projectText).Count > 0);
+        }
+
+        [Theory]
+        [InlineData("managers", "Choose")]
+        [InlineData("administrators", null)]
+        [InlineData("operators", null)]
+        public void Review_AReplacementUnderAWordRuleOutsideTheRule_KeepsTheFindingAskingTheWriterToChoose(string replacement, string choose)
+        {
+            var engine = Bundled();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var text = replacement == "operators"
+                ? "<p>The end users must approve the request before the billing cycle closes, and operators watch the queue.</p>"
+                : "<p>The end users must approve the request before the billing cycle closes.</p>";
+            var p = Paragraph(doc, text);
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""company:terminology/1"",""rule"":""audience"",""severity"":""warning"",""excerpt"":""end users"",""replacement"":""" + replacement + @""",""why"":""Name the role.""}]");
+            var runner = new ActionRunner(llm, PromptBuilder.For(engine, null), 1024, engine);
+            var found = runner.Review(new List<System.Xml.XmlNode> { p }, new List<StyleFinding>());
+            var f = found.Single(x => x.RuleId == "company:terminology/1");
+            if (choose != null)
+            {
+                Assert.Null(f.Replacement);
+                Assert.Contains(choose, f.Suggestion);
+                Assert.False(f.CanFix);
+            }
+            else Assert.Equal(replacement, f.Replacement);
+        }
+
         [Fact]
         public void Rewrite_AChangeThatDropsACodeTerm_IsHeldBack_WithTheReason()
         {
