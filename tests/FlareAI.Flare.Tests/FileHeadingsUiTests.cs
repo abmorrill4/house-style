@@ -167,6 +167,43 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void ClickRow_WithAnIssuesText_SelectsThatIssue_AndDoesNotCollapse()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var issues = Items(list).Where(IsIssue).ToList();
+                var unique = issues.FirstOrDefault(r => Items(list).Count(i => i.Text.IndexOf(r.Text, StringComparison.Ordinal) >= 0) == 1);
+                var row = unique ?? issues[1];
+                var needle = row.Text;
+                var headings = Headings(list).Count;
+                var count = list.Items.Count;
+
+                var shown = panel.E2EClickHeading(needle);
+                Pump(null, 150);
+
+                Assert.Equal(row.Text, shown);
+                Assert.Single(list.SelectedItems.Cast<ListViewItem>());
+                Assert.True(IsIssue(list.SelectedItems[0]));
+                Assert.Equal(shown, list.SelectedItems[0].Text);
+                if (unique != null) Assert.Same(row.Tag, list.SelectedItems[0].Tag);
+                Assert.Equal(headings, Headings(list).Count);
+                Assert.Equal(count, list.Items.Count);
+                foreach (var path in FilePaths(panel)) Assert.False(SessionOf(panel).IsCollapsed(path));
+            });
+        }
+
+        [Fact]
+        public void ClickRow_WithNoMatch_ThrowsNoRow_AndListsRows()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var ex = Assert.Throws<InvalidOperationException>(() => panel.E2EClickHeading("zz-no-such-row"));
+                Assert.StartsWith("No row ", ex.Message);
+                Assert.Contains(Headings(list)[0].Text, ex.Message);
+            });
+        }
+
+        [Fact]
         public void Collapsing_TheSelectedIssuesFile_SelectsTheHeading()
         {
             WithProject(true, (panel, list) =>

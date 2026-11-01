@@ -75,9 +75,9 @@ once. The rest run on Flare's UI thread and answer when they return.
   through Flare's dock as a writer's do.
   `Assert-E2E ((Send-E2E paneFocus).value.focused) "list focused"; [System.Windows.Forms.SendKeys]::SendWait("^{ENTER}")`
   In the By file view the row it selects is the first issue row, not a file heading.
-- **`paneRow`** (`arg`) is part of a file heading's text in the By file view. It selects that heading and clicks it,
-  which collapses the file or expands it again. It returns the heading's `text` from before the click. Fails
-  "No file heading {arg}" and lists the headings. `Send-E2E paneRow "billpay\faq.htm"`
+- **`paneRow`** (`arg`) is part of a row's text. A file heading is selected and clicked, which collapses the file or
+  expands it again. Any other row is selected, and it works in every view. It returns the row's `text` from before the
+  click. Fails "No row {arg}" and lists the rows. `Send-E2E paneRow "billpay\faq.htm"`
   Each row in `pane.panel.rows` also has `heading` (true for a file heading) and `collapsed` (true for a collapsed
   file's heading).
 - **`paneType`** (`name`, `arg`) picks `arg` in a pane combo box or types it in a pane text box, by accessible name.

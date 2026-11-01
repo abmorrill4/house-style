@@ -1385,7 +1385,10 @@ namespace FlareAI.Flare.UI
             return shown;
         }
 
-        /// <summary>Selects the first file heading whose text contains <paramref name="text"/> and clicks it (collapses or expands the file); returns the heading's text.</summary>
+        /// <summary>
+        /// Selects the first file heading, or else the first issue row, whose text contains <paramref name="text"/>; returns the
+        /// row's text. A heading is also clicked (collapses or expands the file). An issue row is only selected.
+        /// </summary>
         internal string E2EClickHeading(string text)
         {
             ListViewItem hit = null;
@@ -1396,7 +1399,24 @@ namespace FlareAI.Flare.UI
                 texts.Add(i.Text);
                 if (hit == null && i.Text.IndexOf(text ?? "", StringComparison.Ordinal) >= 0) hit = i;
             }
-            if (hit == null) throw new InvalidOperationException("No file heading " + text + E2EHook.Valid(texts));
+            if (hit == null)
+            {
+                foreach (ListViewItem i in _list.Items)
+                {
+                    if (i.Tag is FileHeading) continue;
+                    texts.Add(i.Text);
+                    if (hit == null && i.Text.IndexOf(text ?? "", StringComparison.Ordinal) >= 0) hit = i;
+                }
+            }
+            if (hit == null) throw new InvalidOperationException("No row " + text + E2EHook.Valid(texts));
+            if (!(hit.Tag is FileHeading))
+            {
+                var rowText = hit.Text;
+                _list.SelectedItems.Clear();
+                hit.Selected = true; hit.Focused = true;
+                _list.Focus();
+                return rowText;
+            }
             var key = ((FileHeading)hit.Tag).Key;
             var shownText = hit.Text;
             _list.SelectedItems.Clear();
