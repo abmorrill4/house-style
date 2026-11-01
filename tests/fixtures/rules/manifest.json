@@ -1,8 +1,8 @@
 {
-  "GuideStamp": "59eac92b10ab091ff3f4c427b44f8ff547d0267c",
+  "GuideStamp": "c5fc9c8118184aef5445916378bd0f0b3a5ebc20",
   "Rules": 453,
   "MarkupOnlyRules": 0,
-  "BadCases": 1774,
+  "BadCases": 1762,
   "GoodCases": 223,
   "Contexts": [
     "paragraph",

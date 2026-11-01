@@ -1,0 +1,1 @@
+- Stops flagging "the user interface" and similar phrases when you lint for "the user". The rule still flags "the user" and "the end user" when they mean your reader.

@@ -61,6 +61,16 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void PlainLanguage_TheUser_IgnoresCompoundsLikeUserInterface()
+        {
+            var hits = Engine().Lint(new[] { "Open the user interface.", "The user experience improves.", "Open the user-defined list.",
+                                             "Ask the user to sign in.", "Ask the end user to sign in." }, null, null);
+            Assert.DoesNotContain(hits, h => h.Index <= 2 && h.RuleId == "company:plain-language/9");
+            Assert.Contains(hits, h => h.Index == 3 && h.Match == "the user" && h.RuleId == "company:plain-language/9");
+            Assert.Contains(hits, h => h.Index == 4 && h.Match == "the end user" && h.RuleId == "company:plain-language/9");
+        }
+
+        [Fact]
         public void BundledGuide_PassesItsOwnValidation_AndServesTheLayeredGuide()
         {
             var e = Engine();
