@@ -19,6 +19,55 @@ namespace FlareAI.Flare.Tests
             Assert.DoesNotContain("n31", many);
         }
 
+        private sealed class LockedPanel : Panel
+        {
+            public bool Locked;
+            protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+            {
+                if (Locked) { width = Width; height = Height; }
+                base.SetBoundsCore(x, y, width, height, specified);
+            }
+        }
+
+        private static int Read(object size, string name)
+        {
+            return (int)size.GetType().GetProperty(name).GetValue(size, null);
+        }
+
+        [Fact]
+        public void SizePane_Docked_AcceptsItsCurrentSize_ResizesOtherwise_AndFailsWhenKept()
+        {
+            using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false })
+            {
+                var panel = new LockedPanel { Size = new Size(400, 600) };
+                var pane = new UserControl { Dock = DockStyle.Fill };
+                panel.Controls.Add(pane);
+                form.Controls.Add(panel);
+                form.Show();
+
+                // (a) already the requested size: returns it without failing
+                var same = pane.ClientSize;
+                var result = E2EHook.SizePane(pane, same.Width, same.Height);
+                Assert.Equal(same.Width, Read(result, "width"));
+                Assert.Equal(same.Height, Read(result, "height"));
+                Assert.Equal(same, pane.ClientSize);
+
+                // (b) a different size resizes the holder
+                pane.Dock = DockStyle.None;
+                pane.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+                var other = new Size(same.Width - 50, same.Height - 40);
+                var resized = E2EHook.SizePane(pane, other.Width, other.Height);
+                Assert.Equal(other, pane.ClientSize);
+                Assert.Equal(other.Width, Read(resized, "width"));
+
+                // (c) the holder keeps its size: still fails
+                pane.Dock = DockStyle.Fill;
+                panel.Locked = true;
+                var ex = Assert.Throws<InvalidOperationException>(() => E2EHook.SizePane(pane, pane.ClientSize.Width + 30, pane.ClientSize.Height + 30));
+                Assert.Equal("Flare didn't resize the docked pane.", ex.Message);
+            }
+        }
+
         [Fact]
         public void Helpers_NameTheValidChoices_WhenNothingMatches()
         {

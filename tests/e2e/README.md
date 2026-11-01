@@ -84,8 +84,9 @@ once. The rest run on Flare's UI thread and answer when they return.
   Fails "No box named {name}" and lists the valid names. `Send-E2E paneType "Errors" -Extra @{ name = "Level" }`
 - **`paneMenu`** (`arg`) clicks the item that starts with `arg` in the pane's open menu (Ignore's reasons or the row
   menu). Fails "No open menu" or "No menu item {arg}" (which lists the valid items). `SendWait("{DELETE}"); Send-E2E paneMenu "It's correct"`
-- **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one and fails "Flare didn't resize
-  the docked pane." `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
+- **`paneSize`** (`width`, `height`) sizes the floating pane, or tries the docked one. A docked pane that is already that
+  size returns its size without failing. It fails "Flare didn't resize the docked pane." when Flare keeps a different
+  size. `Send-E2E paneSize -Extra @{ width = 260; height = 600 }`
 - **`paneFloat`** (`width`, `height`, both optional) floats the docked pane as Flare's Float command does and sizes the
   window. Returns `floating`, `width`, `height` (the pane's size afterwards) and `hosts` (the controls that hold it).
   In Flare 22 the pane sits in Flare's WPF dock (`SidebarView < WinFormsAdapter`), where the B3.AppKit float calls do
