@@ -1,8 +1,11 @@
 # Lint Topic and Lint Project keep their issues side by side: the This Topic and Project tabs switch between them, neither
 # lint wipes the other, and the live paths (topic switch, Go To, typing a fix and undoing it) reach both (#248).
 # Flare can't resize the docked pane, so the narrow wrap is proven in NarrowPaneTests, not here.
+# The arrow keys switch between the tabs (#273).
 param($Fixture)
+Add-Type -AssemblyName System.Windows.Forms
 $run = Start-FlareE2E -Fixture $Fixture -Force
+function Keys([string]$k) { [System.Windows.Forms.SendKeys]::SendWait($k); Start-Sleep -Milliseconds 500 }
 $check = [string][char]0x2713
 function Panel { (Get-E2EState).pane.panel }
 function Rows { @((Panel).rows) }
@@ -108,4 +111,14 @@ Wait-Until { $r = @(Rows | Where-Object { $_.file -eq $goFile -and $_.excerpt -e
 Assert-E2E ((Panel).tab -eq "project") "the Project tab stayed shown while the fix was typed"
 Send-E2E replace "zz" -Extra @{ text = $target } | Out-Null   # a tracked edit standing in for Ctrl+Z
 Wait-Until { $r = @(Rows | Where-Object { $_.file -eq $goFile -and $_.excerpt -eq $target }); if ($r.Count -ge 1 -and $r[0].text -notlike "*$check*") { $r } } 15 "the project row to be open again after the fix was reverted" | Out-Null
+
+# Arrow keys switch tabs.
+Send-E2E click "This Topic" | Out-Null
+Wait-Tab "topic" "the This Topic tab before the arrow keys" | Out-Null
+Keys "%t"   # Alt+T puts the focus on the This Topic tab, which is already shown
+Keys "{RIGHT}"
+Wait-Tab "project" "the Project tab after the Right arrow key" | Out-Null
+Keys "%p"   # Alt+P puts the focus on the Project tab, which is already shown
+Keys "{LEFT}"
+Wait-Tab "topic" "the This Topic tab after the Left arrow key" | Out-Null
 

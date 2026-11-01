@@ -938,7 +938,7 @@ namespace FlareAI.Flare
             try
             {
                 var current = PanelHost.TopicPanel;
-                if (current == null) return;
+                if (current == null || !PanelHost.IsOpen) return;
                 var adapter = ActiveAdapter();
                 if (adapter == null || !adapter.IsEditableTopic) return;
                 var path = adapter.SourcePath ?? "";

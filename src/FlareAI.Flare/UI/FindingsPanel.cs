@@ -238,7 +238,7 @@ namespace FlareAI.Flare.UI
             _session.IgnoredChanged += OnIgnoredChanged;
             _session.BatchReported += ShowResult;
             _session.Happened += OnHappened;
-            _session.IsShown = () => PanelHost.Current == this;
+            _session.IsShown = () => PanelHost.IsShown(this);
             Disposed += (s, e) => _session.WatchWrites(false);
             // Keep the first check's scope: Go to selects text in the editor, which must not shrink a Check again.
             // A selection House Style made itself (Go to, selecting an issue's row) does not shrink a new Lint Topic either.
@@ -2611,9 +2611,40 @@ namespace FlareAI.Flare.UI
         void IReviewHost.ShowError(string whatHappened, string whatToDo, Exception details, string action) { Notify.Error(this, whatHappened, whatToDo, details, action); }
     }
 
-    /// <summary>A tab button. A plain radio button clicks itself when it gets the focus, which switched tabs whenever a panel was shown.</summary>
+    /// <summary>A tab button. A plain radio button clicks itself when it gets the focus, which switched tabs whenever a panel was shown. Here only the arrow keys do that, so they still switch tabs.</summary>
     internal sealed class TabRadio : RadioButton
     {
+        private static bool IsArrow(Keys k) { return k == Keys.Left || k == Keys.Right || k == Keys.Up || k == Keys.Down; }
+
+        /// <summary>Moves to the other tab and clicks it. False when there is no other tab to move to.</summary>
+        private bool SwitchToOther()
+        {
+            if (Parent == null) return false;
+            foreach (Control c in Parent.Controls)
+            {
+                var other = c as TabRadio;
+                if (other != null && other != this && other.Enabled && other.Visible)
+                {
+                    other.Focus();
+                    other.PerformClick();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (IsArrow(keyData) && SwitchToOther()) return true;
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            if (IsArrow(keyData) && SwitchToOther()) return true;
+            return base.ProcessDialogKey(keyData);
+        }
+
         protected override void OnEnter(EventArgs e) { }
     }
 
