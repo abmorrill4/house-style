@@ -234,20 +234,25 @@ namespace FlareAI.Flare
 
         /// <summary>
         /// Floating: sizes the pane's window. Docked: sizes the topmost control below Flare's main form that holds the pane,
-        /// and fails when Flare's dock keeps its own size. Returns the panel's size afterwards.
+        /// and fails when Flare's dock keeps its own size. A docked pane already at the requested size returns its size
+        /// without failing. Returns the panel's size afterwards.
         /// </summary>
-        private static object SizePane(FindingsPanel pane, int width, int height)
+        internal static object SizePane(Control pane, int width, int height)
         {
             var form = pane.FindForm();
             if (form != null && form.Controls.Contains(pane)) form.ClientSize = new System.Drawing.Size(width, height);   // the floating window
             else
             {
-                Control top = pane;
-                while (top.Parent != null && !(top.Parent is Form)) top = top.Parent;
-                var before = pane.ClientSize;
-                top.Size = new System.Drawing.Size(width + top.Width - pane.Width, height + top.Height - pane.Height);
-                top.PerformLayout();
-                if (pane.ClientSize == before) throw new InvalidOperationException("Flare didn't resize the docked pane.");
+                var want = new System.Drawing.Size(width, height);
+                if (pane.ClientSize != want)
+                {
+                    Control top = pane;
+                    while (top.Parent != null && !(top.Parent is Form)) top = top.Parent;
+                    var before = pane.ClientSize;
+                    top.Size = new System.Drawing.Size(width + top.Width - pane.Width, height + top.Height - pane.Height);
+                    top.PerformLayout();
+                    if (pane.ClientSize == before) throw new InvalidOperationException("Flare didn't resize the docked pane.");
+                }
             }
             return new { width = pane.ClientSize.Width, height = pane.ClientSize.Height };
         }
