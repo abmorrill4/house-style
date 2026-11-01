@@ -497,15 +497,17 @@ namespace FlareAI.Core.Actions
 
         /// <summary>
         /// Step 3 (reads the DOM, on the thread that edits): anchor each finding in its live run; drop text edited since
-        /// the review and repeats of lint findings.
+        /// the review and repeats of lint findings. Also drop issues that repeat a built-in check that is turned off.
         /// </summary>
         public List<StyleFinding> AnchorReview(List<StyleFinding> raw, ReviewUnit unit, IList<StyleFinding> lint)
         {
             var kept = new List<StyleFinding>();
             var rules = GuideRules();
+            var off = StructureCheck.Rules.Where(r => IsTurnedOff(r.Id)).ToList();
             foreach (var f in raw)
             {
                 if (IsTurnedOff(f.RuleId)) continue;   // turned off since the review was cached
+                if (off.Any(r => StructureCheck.Names(r, f))) { Diagnostics.Log("AI finding dropped: a built-in check it repeats is turned off"); continue; }
                 XmlText run;
                 if (f.RunId == null || !unit.Runs.Runs.TryGetValue(f.RunId, out run) || run.ParentNode == null) continue;
                 var at = run.Value.IndexOf(f.Excerpt, StringComparison.Ordinal);

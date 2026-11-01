@@ -58,13 +58,13 @@ namespace FlareAI.Scenarios.Rules
                 return Create(ws, topicPath, who, null, false);
             }
 
-            public static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder)
+            public static Team_ Create(FakeWorkspace ws, string topic, string who, string[] owners, bool feedbackFolder, FlareAI.Core.Llm.ILlmClient llm = null)
             {
                 var t = new Team_ { Who = who };
                 t.Guide = Files.TeamGuide(ws.Root, null, owners ?? new string[0]);
                 if (feedbackFolder) { t.Feedback = Path.Combine(ws.Root, "Feedback"); Directory.CreateDirectory(t.Feedback); }
                 var guide = t.Guide;
-                t.Fx = new ReviewFixture(null, topic, null, false, ws, () => new StyleEngine(new[] { guide }, Repo.StyleGuide));
+                t.Fx = new ReviewFixture(null, topic, llm, false, ws, () => new StyleEngine(new[] { guide }, Repo.StyleGuide));
                 t.Fx.Team = Team.Load(t.Guide, t.Feedback, who);
                 return t;
             }
@@ -611,11 +611,11 @@ namespace FlareAI.Scenarios.Rules
         private const string SkipBody = "<h1>Tips</h1><h3>Skipped a level</h3><p>Open the page.</p>";
 
         /// <summary>A copy of the legacy project with one topic whose heading skips a level.</summary>
-        private static Team_ Skipping(string who = Pat, string[] owners = null, bool feedbackFolder = false)
+        private static Team_ Skipping(string who = Pat, string[] owners = null, bool feedbackFolder = false, FlareAI.Core.Llm.ILlmClient llm = null)
         {
             var ws = ReviewFixture.Corpus("v2/legacy");
             ws.WriteFile(SkipTopic, string.Format(ReviewFixture.Wrapper, SkipBody));
-            return Team_.Create(ws, SkipTopic, who, owners, feedbackFolder);
+            return Team_.Create(ws, SkipTopic, who, owners, feedbackFolder, llm);
         }
 
         private static List<StyleFinding> Heading(IEnumerable<StyleFinding> found) { return found.Where(f => f.RuleId == HeadingOrder).ToList(); }
@@ -721,6 +721,29 @@ namespace FlareAI.Scenarios.Rules
                 t.Fx.Session.CheckRequests();
                 Assert.True(InTopic(t).Single().RequestSent);                                    // still shown, marked as asked about
                 AssertOnEveryPath(t, true, "warning");
+            }
+        }
+
+        [Fact]
+        public void Story23e_AiReviewReportsHeadingOrderInItsOwnWords_ShownWhileTheCheckIsOn_GoneWhenItIsTurnedOff()
+        {
+            var ai = ScriptedReview.Review(new ScriptedReview.Flag { Excerpt = "Skipped a level", Rule = "Heading order", Why = "The heading skips from h1 to h3." });
+            using (var t = Skipping(llm: ai))
+            {
+                Func<List<StyleFinding>> aiIssues = () =>
+                {
+                    var found = new List<StyleFinding>();
+                    var blocks = t.Fx.Runner.PickCheckBlocks(t.Fx.Doc);
+                    var lint = t.Fx.Runner.Lint(blocks);
+                    foreach (var unit in t.Fx.Runner.PrepareReview(blocks, lint))
+                        found.AddRange(t.Fx.Runner.AnchorReview(t.Fx.Runner.CallReview(unit), unit, lint));
+                    return found.Where(f => f.Source == "ai" && f.Excerpt == "Skipped a level").ToList();
+                };
+
+                Assert.NotEmpty(aiIssues());                                                     // the control: the check is on
+                GuideOverrides.Set(t.Guide, HeadingOrder, "off", Reason, Pat, DateTime.Now);
+                t.Restart();
+                Assert.Empty(aiIssues());
             }
         }
 
