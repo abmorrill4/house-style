@@ -145,7 +145,7 @@ namespace FlareAI.Flare
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
                 // The scenario sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
-                case "paneRow": return new { text = Pane().E2EClickHeading(arg) };   // a file heading by part of its text: collapses or expands the file
+                case "paneRow": return new { text = Pane().E2EClickHeading(arg) };   // a file heading (collapses or expands the file) or an issue row (selects it) by part of its text
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
                 case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
