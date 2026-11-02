@@ -27,6 +27,26 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void NormalizesTheTypedAddress()
+        {
+            var urls = new List<string>();
+            AnthropicModels.Fetcher fetch = (url, key, t) => { urls.Add(url); return "{\"data\":[],\"has_more\":false}"; };
+            AnthropicModels.List("http://gw.example.com:8080/v1/", "k", 30, fetch);
+            Assert.Equal("https://gw.example.com:8080/v1/models?limit=1000", urls[0]);
+            AnthropicModels.List("http://127.0.0.1:8080", "k", 30, fetch);
+            Assert.Equal("http://127.0.0.1:8080/v1/models?limit=1000", urls[1]);
+        }
+
+        [Fact]
+        public void RejectsAnAddressThatIsNotWeb_WithoutFetching()
+        {
+            var called = false;
+            AnthropicModels.Fetcher fetch = (url, key, t) => { called = true; return "{}"; };
+            Assert.Throws<LlmException>(() => AnthropicModels.List("ftp://x.test", "k", 30, fetch));
+            Assert.False(called);
+        }
+
+        [Fact]
         public void BadJsonAndTransportErrorsAreReadableAndKeyFree()
         {
             Assert.Throws<LlmException>(() => AnthropicModels.List(null, "k", 30, (u, k, t) => "<html>"));

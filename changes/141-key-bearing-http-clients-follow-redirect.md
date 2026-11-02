@@ -1,1 +1,2 @@
-- Stops following redirects when House Style talks to your AI address. You see a message to change the address in Settings to the final one.
+- Stops following redirects when the plugin contacts your AI address. You see a message to change the Base URL to the final address, and your key is not sent again.
+- Treats a remote http address in the model list the same as everywhere else, so it uses https.

@@ -30,7 +30,8 @@ namespace FlareAI.Core.Llm
         public static IList<ModelInfo> List(string baseUrl, string apiKey, int timeoutSeconds, Fetcher fetch)
         {
             if (string.IsNullOrEmpty(apiKey)) throw new LlmException("No API key yet.");
-            var root = (string.IsNullOrEmpty(baseUrl) ? "https://api.anthropic.com" : baseUrl).TrimEnd('/');
+            string root, err;
+            if (!LlmErrors.TryNormalizeBaseUrl(string.IsNullOrEmpty((baseUrl ?? "").Trim()) ? "https://api.anthropic.com" : baseUrl, out root, out err)) throw new LlmException(err);
             var all = new List<ModelInfo>();
             string after = null;
             for (var page = 0; page < 20; page++)   // a hard stop against a server that never ends
@@ -68,6 +69,7 @@ namespace FlareAI.Core.Llm
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch (Exception) { }
             var http = (HttpWebRequest)WebRequest.Create(url);
             http.Method = "GET";
+            http.AllowAutoRedirect = false;
             http.Accept = "application/json";
             http.Timeout = http.ReadWriteTimeout = Math.Max(10, timeoutSeconds) * 1000;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
@@ -76,8 +78,11 @@ namespace FlareAI.Core.Llm
             try
             {
                 using (var r = (HttpWebResponse)http.GetResponse())
-                using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
-                    return s.ReadToEnd();
+                {
+                    if (LlmErrors.IsRedirect((int)r.StatusCode)) throw LlmErrors.FromRedirect((int)r.StatusCode, false);
+                    using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
+                        return s.ReadToEnd();
+                }
             }
             catch (WebException wex)
             {

@@ -76,6 +76,7 @@ namespace FlareAI.Core.Llm
             var payload = Encoding.UTF8.GetBytes(BuildBody(_model, request));
             var http = (HttpWebRequest)WebRequest.Create(_baseUrl + "/v1/chat/completions");
             http.Method = "POST";
+            http.AllowAutoRedirect = false;
             http.ContentType = "application/json";
             http.Timeout = _timeoutMs;
             http.ReadWriteTimeout = _timeoutMs;
@@ -88,7 +89,10 @@ namespace FlareAI.Core.Llm
             {
                 using (var s = http.GetRequestStream()) s.Write(payload, 0, payload.Length);
                 using (var resp = (HttpWebResponse)http.GetResponse())
+                {
+                    if (LlmErrors.IsRedirect((int)resp.StatusCode)) throw LlmErrors.FromRedirect((int)resp.StatusCode, true);
                     result = Parse(ReadAll(resp));
+                }
             }
             catch (JsonException jex) { throw LlmErrors.FromMalformed(jex, true); }
             catch (IOException ioex) { throw LlmErrors.FromDropped(ioex, true, _baseUrl); }

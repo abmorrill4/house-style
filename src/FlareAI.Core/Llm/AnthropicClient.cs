@@ -101,6 +101,7 @@ namespace FlareAI.Core.Llm
 
             var http = (HttpWebRequest)WebRequest.Create(_baseUrl + "/v1/messages");
             http.Method = "POST";
+            http.AllowAutoRedirect = false;
             http.ContentType = "application/json";
             http.Accept = "application/json";
             http.Timeout = _timeoutMs;
@@ -116,7 +117,10 @@ namespace FlareAI.Core.Llm
             {
                 using (var s = http.GetRequestStream()) s.Write(payload, 0, payload.Length);
                 using (var r = (HttpWebResponse)http.GetResponse())
+                {
+                    if (LlmErrors.IsRedirect((int)r.StatusCode)) throw LlmErrors.FromRedirect((int)r.StatusCode, false);
                     resp = Parse(ReadAll(r));
+                }
             }
             catch (JsonException jex) { throw LlmErrors.FromMalformed(jex, false); }
             catch (IOException ioex) { throw LlmErrors.FromDropped(ioex, false, _baseUrl); }
