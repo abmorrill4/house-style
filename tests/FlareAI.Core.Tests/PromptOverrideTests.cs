@@ -26,6 +26,25 @@ namespace FlareAI.Core.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public void QuestionTemplateIsBuiltInAndCanBeOverridden()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "prompts-" + Guid.NewGuid());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var builder = new PromptBuilder(null) { OverrideFolder = dir };
+                Assert.Contains("action-question.md", PromptBuilder.Templates);
+                var built = builder.BuildQuestion("<p>x</p>", "Is it clear?");
+                Assert.Contains("Is it clear?", built);
+                Assert.Contains("<p>x</p>", built);
+                Assert.DoesNotContain("{{", built);
+                File.WriteAllText(Path.Combine(dir, "action-question.md"), "Team wording.\n{{QUESTION}}\n{{FRAGMENT}}");
+                Assert.StartsWith("Team wording.", builder.BuildQuestion("<p>x</p>", "Is it clear?"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string TempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), "prompts-" + Guid.NewGuid());

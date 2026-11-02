@@ -6,7 +6,7 @@ using System.Text;
 
 namespace FlareAI.Core.Actions
 {
-    public enum ActionKind { CheckStyle, Rewrite, Ask }
+    public enum ActionKind { CheckStyle, Rewrite, Ask, Question }
 
     /// <summary>
     /// Assembles system + user prompts from embedded templates plus optional rule files shipped next to the
@@ -117,6 +117,12 @@ namespace FlareAI.Core.Actions
         /// <summary>The instruction of a one-click rewrite: the team's file when there is one, else the built-in wording. No rules, no guide.</summary>
         public string BuildPreset(RewritePreset p) { return Embedded(p.Template).Trim(); }
 
+        /// <summary>A question about the text: answered in words, nothing rewritten.</summary>
+        public string BuildQuestion(string fragment, string question)
+        {
+            return Embedded("action-question.md").Replace("{{QUESTION}}", (question ?? "").Trim()).Replace("{{FRAGMENT}}", fragment);
+        }
+
         public string BuildAlt(string context) { return Embedded("action-alt.md").Replace("{{CONTEXT}}", context ?? ""); }
 
         /// <summary>One part of Topic assists (description + keywords, synonyms, or micro content + glossary).</summary>
@@ -165,7 +171,7 @@ namespace FlareAI.Core.Actions
         public string OverrideFolder { get; set; }
 
         /// <summary>Names of the templates a team can override.</summary>
-        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
+        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-question.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
 
         private string Embedded(string name)
         {

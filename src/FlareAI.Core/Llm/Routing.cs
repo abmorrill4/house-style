@@ -36,6 +36,7 @@ namespace FlareAI.Core.Llm
             { "alt", Standard },           // vision: UI labels must be exact
             { "assist", Fast },            // description, keywords, synonyms, micro content, glossary
             { "extract", Standard },       // rules from notes
+            { "answer", Standard },        // a question about the text, answered in words
             { "draft", Deep },             // owner-only edits to the shared style guide
         };
 
@@ -50,7 +51,7 @@ namespace FlareAI.Core.Llm
         {
             { "review", "1h" }, { "rewrite", "1h" }, { "restructure", "1h" },
             { "draft", "5m" }, { "extract", "5m" }, { "refine", "5m" },
-            { "alt", "none" }, { "assist", "none" },
+            { "alt", "none" }, { "assist", "none" }, { "answer", "5m" },
         };
 
         private readonly Dictionary<string, string> _cache = new Dictionary<string, string>(DefaultCache, StringComparer.OrdinalIgnoreCase);

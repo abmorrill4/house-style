@@ -578,7 +578,7 @@ namespace FlareAI.Flare
             using (var f = new AskForm())
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
-                RunAction(Commands.Ask.Label, ActionKind.Ask, f.Instruction);   // title of the result window
+                RunAction(Commands.Ask.Label, f.IsQuestion ? ActionKind.Question : ActionKind.Ask, f.Instruction);   // title of the result window
             }
         }
 
@@ -1022,7 +1022,9 @@ namespace FlareAI.Flare
                 }
                 using (var f = new ResultForm(title, runner, adapter, kind, instruction))
                 {
-                    if (f.ShowDialog() != DialogResult.OK) return;
+                    var result = f.ShowDialog();
+                    if (kind == ActionKind.Question) return;   // an answer changes nothing, so there is nothing to mark or note
+                    if (result != DialogResult.OK) return;
                 }
                 GettingStarted.Mark(ChecklistItem.AiRewrite);
                 GettingStarted.Note(_nav.GetParentForm(), FirstTimeNote.FirstAiRewrite);
