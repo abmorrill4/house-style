@@ -866,6 +866,22 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void TheDrawerToggleGlyph_IsLargerThanTheBodyText()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var toggle = DrawerToggle(panel);
+                Assert.True(toggle.Font.SizeInPoints > panel.Font.SizeInPoints, "the glyph is " + toggle.Font.SizeInPoints + " pt, the body " + panel.Font.SizeInPoints + " pt");
+                Assert.True(toggle.Height >= toggle.Font.Height, "the glyph is clipped: button " + toggle.Height + " px, font " + toggle.Font.Height + " px");
+                var size = toggle.Font.SizeInPoints;
+                toggle.PerformClick();
+                Pump(null, 300);
+                Assert.Equal(size, toggle.Font.SizeInPoints);
+                Assert.Equal("Show details", toggle.AccessibleName);
+            });
+        }
+
+        [Fact]
         public void HidingTheDrawer_ShowsEightRows_AndTheBarKeepsTheSelectedTitle_UntilItIsShownAgain()
         {
             WithByFile((panel, form, list) =>

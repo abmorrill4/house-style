@@ -1,0 +1,1 @@
+- Makes the arrow on the button that hides and shows the issue details larger, so it is easier to see.

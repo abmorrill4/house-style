@@ -409,7 +409,11 @@ namespace FlareAI.Flare.UI
             // card, so it docks above it.
             _drawerBar = new Panel { Dock = DockStyle.Top, Height = Math.Max(S(26), Font.Height + S(8)) };
             _drawerTitle = new Label { Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(S(4), 0, 0, 0), AccessibleName = "Selected issue" };
-            _drawerToggle = new Button { Dock = DockStyle.Right, Width = S(30), TabStop = true, UseVisualStyleBackColor = true };
+            _drawerToggle = new Button { Dock = DockStyle.Right, Width = S(32), TabStop = true, UseVisualStyleBackColor = true };
+            _drawerToggle.Padding = Padding.Empty;
+            var glyphFont = new Font(Font.FontFamily, Font.SizeInPoints * 1.4f, FontStyle.Bold, GraphicsUnit.Point);
+            _drawerToggle.Font = glyphFont;
+            _drawerToggle.Disposed += (s, e) => glyphFont.Dispose();
             _drawerToggle.Click += (s, e) => Safe.Run("Details", ToggleDrawer);
             _drawerBar.Controls.Add(_drawerTitle);
             _drawerBar.Controls.Add(_drawerToggle);
