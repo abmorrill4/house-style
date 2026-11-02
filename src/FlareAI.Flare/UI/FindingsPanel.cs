@@ -78,7 +78,8 @@ namespace FlareAI.Flare.UI
         private BackgroundWorker _worker;
         private bool _reviewing, _started;
         private string _lintNote;
-        private bool _aiOff;              // the writer chose no AI: no AI review, and cached AI suggestions stay hidden
+        private volatile bool _aiOff;     // the writer chose no AI: no AI review, and cached AI suggestions stay hidden
+        private volatile bool _aiSwitchedOff;   // the writer turned AI off while this review ran
         private volatile bool _aiHidden;  // a cached AI review was hidden this check
         private readonly LinkLabel _aiOffNote;
         private readonly Label _guideLine;    // which team style guide is in use, and its rule count
@@ -1557,7 +1558,7 @@ namespace FlareAI.Flare.UI
                 _session.Filter = ReviewFilter.All;   // in memory only: ReviewViewPrefs is not saved
             }
             _session.Clear(); UpdateIgnored(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
-            _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiHidden = false; _aiOffNote.Visible = false;
+            _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiSwitchedOff = false; _aiHidden = false; _aiOffNote.Visible = false;
             _reviewing = true; _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee; _status.Text = "Linting…";
             _result.Visible = false; _stop.Visible = false; _stop.Enabled = true; _stopped = false; _unitCount = 0; _doneUnits = 0;
             ShowCard();
@@ -1639,9 +1640,11 @@ namespace FlareAI.Flare.UI
                 {
                     Diagnostics.Log("Lint topic", e.Error); ErrorReporter.Background(this, "House Style couldn't lint the topic.", e.Error);
                     _status.Text = Summary() + "  " + (e.Error.Message == FlareAI.Core.Llm.LlmClientFactory.AiOffMessage
-                        ? "AI review is off. Turn it on in Settings."   // the writer chose No AI: not a failure
+                        ? "AI review is off. To turn it on, select " + FlareAI.Core.Settings.AiSwitch.OffLabel + " on the House Style tab."   // the writer chose No AI: not a failure
                         : "AI review failed. " + e.Error.Message);
                 }
+                else if (_aiSwitchedOff)
+                    _status.Text = Summary() + "  You switched AI off after " + _doneUnits + " of " + _unitCount + " paragraphs. The issues so far are kept.";
                 else if (_rulesOnly)
                     _status.Text = Open().Count == 0 ? Summary() : Summary() + "  " + LintChecksChoice.StatusEnding;
                 else if (_aiOff)
@@ -2172,6 +2175,17 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>A moment after typing stops: undone changes come back, issues the writer fixed by hand show as fixed, then Live check's lint (or null).</summary>
+        /// <summary>
+        /// The writer turned AI off. A review that is running makes no more AI calls from the next paragraph on and keeps the
+        /// issues it already has. Does nothing when no review is running, or the review doesn't use AI.
+        /// </summary>
+        internal void AiSwitched(bool off)
+        {
+            if (!off || !_reviewing || !_aiOnStart || _rulesOnly || _aiOff) return;
+            _aiOff = true;
+            _aiSwitchedOff = true;
+        }
+
         public void AfterEdit(List<StyleFinding> lint) { if (_reviewing) return; _session.AfterEdit(lint); }
         /// <summary>A file in this report was saved: issues the writer fixed in it show as fixed.</summary>
         public void RecheckSaved(string path, System.Xml.XmlDocument dom) { if (_reviewing) return; _session.RecheckSaved(path, dom); }
