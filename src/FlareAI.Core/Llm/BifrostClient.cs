@@ -75,6 +75,7 @@ namespace FlareAI.Core.Llm
         {
             var payload = Encoding.UTF8.GetBytes(BuildBody(_model, request));
             var http = (HttpWebRequest)WebRequest.Create(_baseUrl + "/v1/chat/completions");
+            http.AllowAutoRedirect = false;
             http.Method = "POST";
             http.ContentType = "application/json";
             http.Timeout = _timeoutMs;
@@ -88,7 +89,10 @@ namespace FlareAI.Core.Llm
             {
                 using (var s = http.GetRequestStream()) s.Write(payload, 0, payload.Length);
                 using (var resp = (HttpWebResponse)http.GetResponse())
+                {
+                    if (LlmErrors.IsRedirect((int)resp.StatusCode)) throw LlmErrors.FromRedirect((int)resp.StatusCode, true);
                     result = Parse(ReadAll(resp));
+                }
             }
             catch (JsonException jex) { throw LlmErrors.FromMalformed(jex, true); }
             catch (IOException ioex) { throw LlmErrors.FromDropped(ioex, true, _baseUrl); }
@@ -96,6 +100,7 @@ namespace FlareAI.Core.Llm
             {
                 var resp = wex.Response as HttpWebResponse;
                 if (resp == null) throw LlmErrors.FromNetwork(wex, true, _baseUrl);
+                if (LlmErrors.IsRedirect((int)resp.StatusCode)) throw LlmErrors.FromRedirect((int)resp.StatusCode, true);
                 var text = ReadAll(resp);
                 var detail = text;
                 try { detail = JObject.Parse(text)["error"]["message"].ToString(); } catch (Exception) { }

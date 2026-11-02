@@ -100,6 +100,7 @@ namespace FlareAI.Core.Llm
             var payload = Encoding.UTF8.GetBytes(BuildBody(_model, request));
 
             var http = (HttpWebRequest)WebRequest.Create(_baseUrl + "/v1/messages");
+            http.AllowAutoRedirect = false;
             http.Method = "POST";
             http.ContentType = "application/json";
             http.Accept = "application/json";
@@ -116,7 +117,10 @@ namespace FlareAI.Core.Llm
             {
                 using (var s = http.GetRequestStream()) s.Write(payload, 0, payload.Length);
                 using (var r = (HttpWebResponse)http.GetResponse())
+                {
+                    if (LlmErrors.IsRedirect((int)r.StatusCode)) throw LlmErrors.FromRedirect((int)r.StatusCode, false);
                     resp = Parse(ReadAll(r));
+                }
             }
             catch (JsonException jex) { throw LlmErrors.FromMalformed(jex, false); }
             catch (IOException ioex) { throw LlmErrors.FromDropped(ioex, false, _baseUrl); }
@@ -124,6 +128,7 @@ namespace FlareAI.Core.Llm
             {
                 var r = wex.Response as HttpWebResponse;
                 if (r == null) throw LlmErrors.FromNetwork(wex, false, _baseUrl);
+                if (LlmErrors.IsRedirect((int)r.StatusCode)) throw LlmErrors.FromRedirect((int)r.StatusCode, false);
                 var text = ReadAll(r);
                 var detail = text;
                 try { detail = JObject.Parse(text)["error"]["message"].ToString(); } catch (Exception) { }

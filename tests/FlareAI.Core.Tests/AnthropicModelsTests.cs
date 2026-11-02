@@ -26,6 +26,32 @@ namespace FlareAI.Core.Tests
             Assert.Equal("m2", list[1].ToString());
         }
 
+        [Theory]
+        [InlineData("http://gw.example.com", "https://gw.example.com/v1/models?limit=1000")]
+        [InlineData("http://127.0.0.1:8080/", "http://127.0.0.1:8080/v1/models?limit=1000")]
+        [InlineData("HTTPS://GW.EXAMPLE.COM:8443/v1", "https://gw.example.com:8443/v1/models?limit=1000")]
+        [InlineData("HTTP://localhost:9000", "http://localhost:9000/v1/models?limit=1000")]
+        public void NormalizesTheAddressBeforeFetching(string typed, string expectedFirstUrl)
+        {
+            string first = null;
+            AnthropicModels.Fetcher fetch = (url, key, t) =>
+            {
+                if (first == null) first = url;
+                return "{\"data\":[],\"has_more\":false}";
+            };
+            AnthropicModels.List(typed, "k", 30, fetch);
+            Assert.Equal(expectedFirstUrl, first);
+        }
+
+        [Fact]
+        public void AnUnusableAddressThrowsBeforeAnyFetch()
+        {
+            var called = false;
+            AnthropicModels.Fetcher fetch = (url, key, t) => { called = true; return "{}"; };
+            Assert.Throws<LlmException>(() => AnthropicModels.List("ftp://x", "k", 30, fetch));
+            Assert.False(called);
+        }
+
         [Fact]
         public void BadJsonAndTransportErrorsAreReadableAndKeyFree()
         {

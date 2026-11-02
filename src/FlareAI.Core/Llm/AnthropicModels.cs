@@ -30,7 +30,8 @@ namespace FlareAI.Core.Llm
         public static IList<ModelInfo> List(string baseUrl, string apiKey, int timeoutSeconds, Fetcher fetch)
         {
             if (string.IsNullOrEmpty(apiKey)) throw new LlmException("No API key yet.");
-            var root = (string.IsNullOrEmpty(baseUrl) ? "https://api.anthropic.com" : baseUrl).TrimEnd('/');
+            string root, err;
+            if (!LlmErrors.TryNormalizeBaseUrl(string.IsNullOrEmpty((baseUrl ?? "").Trim()) ? "https://api.anthropic.com" : baseUrl, out root, out err)) throw new LlmException(err);
             var all = new List<ModelInfo>();
             string after = null;
             for (var page = 0; page < 20; page++)   // a hard stop against a server that never ends
@@ -67,6 +68,7 @@ namespace FlareAI.Core.Llm
         {
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch (Exception) { }
             var http = (HttpWebRequest)WebRequest.Create(url);
+            http.AllowAutoRedirect = false;
             http.Method = "GET";
             http.Accept = "application/json";
             http.Timeout = http.ReadWriteTimeout = Math.Max(10, timeoutSeconds) * 1000;
@@ -76,14 +78,18 @@ namespace FlareAI.Core.Llm
             try
             {
                 using (var r = (HttpWebResponse)http.GetResponse())
-                using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
-                    return s.ReadToEnd();
+                {
+                    if (LlmErrors.IsRedirect((int)r.StatusCode)) throw LlmErrors.FromRedirect((int)r.StatusCode, false);
+                    using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
+                        return s.ReadToEnd();
+                }
             }
             catch (WebException wex)
             {
                 var r = wex.Response as HttpWebResponse;
                 if (r == null) throw new LlmException("Couldn't reach Anthropic. Check your connection.", 0, null, LlmFailure.Network);
                 var code = (int)r.StatusCode;
+                if (LlmErrors.IsRedirect(code)) throw LlmErrors.FromRedirect(code, false);
                 if (code == 401 || code == 403) throw new LlmException("The key was rejected.", code);
                 if (code == 404) throw new LlmException("This address doesn't offer a model list.", code);
                 if (code == 429) throw new LlmException("Anthropic is busy. Try again in a moment.", code);
