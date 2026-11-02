@@ -81,6 +81,7 @@ namespace FlareAI.Flare.UI
         private bool _aiOff;              // the writer chose no AI: no AI review, and cached AI suggestions stay hidden
         private volatile bool _aiHidden;  // a cached AI review was hidden this check
         private readonly LinkLabel _aiOffNote;
+        private readonly Label _guideLine;    // which team style guide is in use, and its rule count
         // Narrow pane (Flare docks it at ~150 logical px and ignores the width we ask for): rows wrap, buttons wrap,
         // labels grow to their text; sizing rules in PaneRows.
         private readonly LinkLabel _widthTip;
@@ -482,6 +483,9 @@ namespace FlareAI.Flare.UI
             _aiOffNote.LinkClicked += (s, e) => Safe.Run("Settings", () => { var settings = OpenSettings; if (settings != null) settings(); });
             Controls.Add(_aiOffNote);
             Controls.Add(_status);
+            _guideLine = new Label { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, ForeColor = SystemColors.GrayText, UseMnemonic = false };
+            A11y.Name(_guideLine, "Team style guide");
+            Controls.Add(_guideLine);
             _widthTip = new LinkLabel { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, Text = WidthTipText + "  Got it", AccessibleRole = AccessibleRole.Link,
                                         AccessibleName = WidthTipText, AccessibleDescription = "Got it hides this tip for good.", Padding = new Padding(0, 0, 0, 4) };
             _widthTip.LinkArea = new LinkArea(WidthTipText.Length + 2, "Got it".Length);
@@ -520,6 +524,8 @@ namespace FlareAI.Flare.UI
             HandleDestroyed += (s, e) => { GuidedTour.Changed -= OnGettingStartedChanged; GettingStarted.Changed -= OnGettingStartedChanged; };
             _status.TextChanged += (s, e) => { FitLabel(_status, 2); _ignoreTip.SetToolTip(_status, _status.Text); };
             _aiOffNote.VisibleChanged += (s, e) => FitLabel(_aiOffNote, 0);
+            _guideLine.TextChanged += (s, e) => FitLabel(_guideLine, 0);
+            _guideLine.VisibleChanged += (s, e) => FitLabel(_guideLine, 0);
             _tourStrip.VisibleChanged += (s, e) => LayoutTourStrip();
             _checklist.VisibleChanged += (s, e) => FitLabel(_checklist, 0);
             _cost.TextChanged += (s, e) => FitLabel(_cost, 0);
@@ -682,6 +688,14 @@ namespace FlareAI.Flare.UI
         private const string IssuesHelp = "Issues in reading order. Each row starts with its severity. A filled circle is an error, a triangle is a warning and an open circle is a suggestion. Enter changes the issue. Delete ignores it.";
         private const string HeadingHelp = "File headings collapse with Left and Right.";
 
+        /// <summary>Shows which team style guide is in use and its rule count, from the guides the lint loaded. Never checks the folder.</summary>
+        private void ShowGuideLine()
+        {
+            var text = _runner.GuideStatus;
+            _guideLine.Text = text ?? "";
+            _guideLine.Visible = text != null;
+        }
+
         private void NameControls()
         {
             A11y.Name(this, PaneTitle, "Issues in the open topic, with a card for the selected one.");
@@ -762,7 +776,7 @@ namespace FlareAI.Flare.UI
         {
             if (Width <= 0) return;
             foreach (var b in _buttons) FitButton(b);
-            FitLabel(_status, 2); FitLabel(_notice, 0); FitLabel(_aiOffNote, 0); FitLabel(_cost, 0); LayoutTourStrip(); FitLabel(_checklist, 0);
+            FitLabel(_status, 2); FitLabel(_notice, 0); FitLabel(_aiOffNote, 0); FitLabel(_guideLine, 0); FitLabel(_cost, 0); LayoutTourStrip(); FitLabel(_checklist, 0);
             UpdateWidthTip();
             LayoutCard();
         }
@@ -1299,7 +1313,7 @@ namespace FlareAI.Flare.UI
             }
             var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk(), filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, guideLine = _guideLine.Visible ? _guideLine.Text : null, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk(), filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
         }
 
         /// <summary>
@@ -1640,6 +1654,7 @@ namespace FlareAI.Flare.UI
                 _aiOffNote.Visible = _aiOff && _aiHidden && !_rulesOnly;
                 var guide = _runner.GuideNotice;
                 if (guide != null) _status.Text += "  " + guide;
+                ShowGuideLine();
                 ShowRequestNote();
                 var team = Team.Current;
                 if (team != null && team.Status != null && team.Status.Behind > 0) _status.Text += "  " + team.Status;
@@ -1691,6 +1706,7 @@ namespace FlareAI.Flare.UI
                     _status.Text = _session.RememberedRule != null ? _session.Status + "  " + lint : lint;   // the rule walked last is named, not started
                     var guide = _runner.GuideNotice;
                     if (guide != null) _status.Text += "  " + guide;
+                    ShowGuideLine();
                     ShowRequestNote();
                     if (RuleRows && _list.Items.Count > 0)
                     {

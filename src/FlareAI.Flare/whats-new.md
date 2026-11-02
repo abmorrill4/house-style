@@ -10,6 +10,7 @@ New entries go in changes/<name>.md, not here: the nightly release adds them to 
 
 ## 0.3.4
 
+- The Issues pane and Settings now say which team style guide House Style is using and how many rules it has. If the guide has no rules, or its folder can't be reached or read, they say why.
 - Closed the issues pane by mistake? Select Reopen Issues to bring back your last results without linting again.
 - Close in the issues pane now closes it, also when the pane sits next to Content Explorer.
 - Lint Project can leave files out. Right-click an issue and select Exclude File from Lint Project or Exclude Folder
