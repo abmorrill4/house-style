@@ -1,1 +1,2 @@
+Kind: Fixed
 - Keeps an AI issue you disable off when the AI words it differently the next time you lint.

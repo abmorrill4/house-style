@@ -1,1 +1,2 @@
+Kind: New
 - Export Issues in a Lint Project report saves every issue to a file you can open in Excel, with a link to each topic.

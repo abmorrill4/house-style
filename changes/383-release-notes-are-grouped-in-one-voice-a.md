@@ -1,0 +1,1 @@
+- Release notes and What's new now group changes under New, Improved and Fixed, with Install or update always last.
