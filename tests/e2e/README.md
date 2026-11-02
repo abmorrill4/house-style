@@ -92,6 +92,8 @@ once. The rest run on Flare's UI thread and answer when they return.
   In Flare 22 the pane sits in Flare's WPF dock (`SidebarView < WinFormsAdapter`), where the B3.AppKit float calls do
   nothing, so it returns `floating = false` there. Check `height` and skip a tall-pane check when it didn't grow.
   `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
+- **paneDrawer** (height, px) sets the height of the details drawer under the list, as if the writer dragged the divider.
+  The drawer opens small so the list keeps its rows, so pull it up before reading a long card. Send-E2E paneDrawer -Extra @{ height = 480 }`r
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
   as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
   it). Both fail "No text {arg} in one text run" or "No topic is open."

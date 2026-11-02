@@ -28,7 +28,7 @@ namespace FlareAI.Flare
         internal static readonly string[] Verbs =
         {
             "state", "command", "open", "click", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
-            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "replace", "select", "save", "saveAs"
+            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
         };
 
         /// <summary>" (valid: a, b, c)" for an error message, cut after 30 names, or " (none)" when there are none.</summary>
@@ -149,6 +149,7 @@ namespace FlareAI.Flare
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
                 case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
+                case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
                 case "replace": Replace(Active(), arg, (string)c["text"]); return null;
                 case "select": Select(Active(), arg); return null;

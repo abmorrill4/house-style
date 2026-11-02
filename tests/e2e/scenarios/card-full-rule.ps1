@@ -49,7 +49,7 @@ if ($card.ruleLine) { Assert-E2E ($card.why.Contains($card.ruleLine)) "the card 
 Write-Host "   longest why (row $at): $($card.whyContentHeight) px, box $($card.whyHeight) px, card $($card.cardHeight) px, pane $($card.paneWidth)x$($card.paneHeight), card scrolls: $($card.cardScrolls)"
 Save-E2EScreenshot "card-full-rule"
 
-# In a tall pane the card grows to show the long rule: it fits, or it stops at about 60% of the pane and scrolls. Flare
+# In a tall pane with the drawer pulled up, the card grows to show the long rule: it fits, or it stops at about 60% of the pane and scrolls. Flare
 # won't resize its docked pane, so float it first, as Flare's Float command does.
 $f = (Send-E2E paneFloat -Extra @{ width = 300; height = 800 }).value
 Write-Host "   floated: $($f.floating), pane $($f.width)x$($f.height), in $($f.hosts -join ' < ')"
@@ -61,6 +61,9 @@ if ($f.height -lt 600) {
     return
 }
 $card = Wait-Until { $c = (Get-E2EState).pane.panel.card; if ($c -and $c.paneHeight -ge 600 -and $c.cardHeight -gt 0) { $c } } 15 "the card in the tall pane"
+# The details drawer opens at a modest share of the pane so the list keeps its rows (#324). A writer who wants to read a long rule in
+# full drags the divider up, so do the same: the drawer takes 60% of the pane.
+Send-E2E paneDrawer -Extra @{ height = [int](0.6 * $card.paneHeight) } | Out-Null
 Start-Sleep -Milliseconds 800
 $card = (Get-E2EState).pane.panel.card
 Write-Host "   tall pane $($card.paneWidth)x$($card.paneHeight): card $($card.cardHeight) px, why $($card.whyContentHeight) px in $($card.whyHeight) px, why scroll bar: $($card.whyScrollBar), card scrolls: $($card.cardScrolls)"
