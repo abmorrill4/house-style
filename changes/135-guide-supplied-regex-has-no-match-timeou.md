@@ -1,0 +1,1 @@
+- Skip a style rule whose pattern takes too long to match. Guide validation now shows a warning naming the row, and the rest of the check continues.

@@ -27,6 +27,7 @@ namespace FlareAI.Mcp
 
         private static int Main(string[] args)
         {
+            RegexLimit.Apply();
             Diagnostics.Sink = m => Console.Error.WriteLine(m);   // stdout is the protocol channel
             var guides = Enumerable.Range(0, args.Length).Where(i => args[i] == "--guide" && i + 1 < args.Length).Select(i => args[i + 1]).ToList();
             if (guides.Count == 0) guides.Add(DefaultGuide());
