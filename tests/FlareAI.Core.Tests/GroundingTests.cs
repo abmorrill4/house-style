@@ -84,6 +84,48 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Review_AReasonThatOnlyMentionsTheRulesWordsInPassing_ShowsNoRule()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<GuideRule>
+            {
+                new GuideRule { Id = "company:terminology/3", Layer = "company", Page = "Terminology", Section = "Audience", Text = "Call the bank the financial institution.", Bad = "the bank", Good = "the financial institution" }
+            };
+            const string why = "Say who can't restore it, for example administrators or the financial institution; author must confirm.";
+            var f = ReviewOne(style, "company:terminology/3", why);
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal(why, f.Suggestion);
+        }
+
+        private static FakeStyleService ClaimsStyle()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<GuideRule>
+            {
+                new GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Don't make claims you can't back up." },
+                new GuideRule { Id = "company:claims/1", Layer = "company", Page = "Claims", Section = "Claims", Text = "Back every claim with a source." }
+            };
+            return style;
+        }
+
+        [Fact]
+        public void Review_ATeamRuleOnTheSamePointAsAGoogleRule_IsShownWhenTheReasonIsAboutIt()
+        {
+            var f = ReviewOne(ClaimsStyle(), "google:excessive-claims/5", "Unverifiable claim.");
+            Assert.Equal("company:claims/1", f.RuleId);
+            Assert.Equal("company", f.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_ATeamRuleOnTheSamePointAsAGoogleRule_IsNotShownWhenTheReasonIsAboutSomethingElse()
+        {
+            var f = ReviewOne(ClaimsStyle(), "google:excessive-claims/5", "Rewrite for a calmer tone.");
+            Assert.Null(f.RuleId);
+            Assert.Equal("Rewrite for a calmer tone.", f.Suggestion);
+        }
+
+        [Fact]
         public void VerifyExamples_PassesWhenBadIsCitedAndGoodIsClean()
         {
             var style = new FakeStyleService();

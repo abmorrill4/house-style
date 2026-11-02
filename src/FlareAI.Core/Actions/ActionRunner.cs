@@ -871,8 +871,27 @@ namespace FlareAI.Core.Actions
         }
 
         /// <summary>
-        /// When the reason shares no content word with the rule the model cited, the card shows the one other rule the
-        /// reason is about (not turned off, sent with the unit, no tie), or no rule at all.
+        /// True when the reason was written for this rule: at least half of the rule's title words appear in the reason, or
+        /// at least half of the reason's words belong to the rule. One or two shared everyday words do not count: a reason
+        /// that mentions "financial institution" in passing must not agree with the Audience rule about that phrase.
+        /// </summary>
+        private static bool Agrees(StyleFinding f, GuideRule r)
+        {
+            var reason = ReasonStems(f);
+            if (reason.Count == 0) return true;
+            var title = Stems(r.Page + " " + r.Section);
+            int t = 0;
+            foreach (var s in title) if (reason.Contains(s)) t++;
+            if (t > 0 && t * 2 >= title.Count) return true;
+            var body = RuleStems(r);
+            int shared = 0;
+            foreach (var s in reason) if (body.Contains(s)) shared++;
+            return shared > 0 && shared * 2 >= reason.Count;
+        }
+
+        /// <summary>
+        /// When the reason does not agree with the rule the model cited, the card shows the one other rule the reason
+        /// agrees with (not turned off, sent with the unit, no tie), or no rule at all.
         /// </summary>
         private void Reconcile(StyleFinding f, Dictionary<string, GuideRule> rules, ICollection<string> allowed)
         {
@@ -880,7 +899,7 @@ namespace FlareAI.Core.Actions
             if (f.RuleId == null || !rules.TryGetValue(f.RuleId.Trim(), out cited)) return;
             var reason = ReasonStems(f);
             if (reason.Count == 0) return;
-            if (RuleStems(cited).Overlaps(reason)) return;
+            if (Agrees(f, cited)) return;
             GuideRule best = null;
             int bestScore = 0;
             bool tied = false;
@@ -889,6 +908,7 @@ namespace FlareAI.Core.Actions
                 if (r.IsLint) continue;
                 if (allowed != null && !allowed.Contains(r.Id)) continue;
                 if (IsTurnedOff(r.Id)) continue;
+                if (!Agrees(f, r)) continue;
                 var stems = RuleStems(r);
                 int score = 0;
                 foreach (var s in reason) if (stems.Contains(s)) score++;
@@ -929,7 +949,7 @@ namespace FlareAI.Core.Actions
                 if (r.IsLint || string.Equals(r.Layer, GoogleLayer, StringComparison.OrdinalIgnoreCase)) continue;
                 if (allowed != null && !allowed.Contains(r.Id)) continue;
                 if (!Stems(r.Page + " " + r.Section).Overlaps(subject)) continue;
-                if (!ReasonStems(f).Overlaps(RuleStems(r))) continue;
+                if (!Agrees(f, r)) continue;
                 if (IsTurnedOff(r.Id)) continue;
                 if (best == null || rank[r.Layer] > rank[best.Layer]) best = r;
             }

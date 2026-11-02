@@ -1,1 +1,1 @@
-- Fixes AI suggestion cards so the reason, the rule name and the example always describe the same rule. When your team's rule covers the same point as a Google rule, the card names your team's rule.
+- Show the reason, the rule and the example on an AI suggestion only when they describe the same rule. When the reason is about a different rule, the suggestion shows no rule.
