@@ -53,6 +53,17 @@ namespace FlareAI.Flare
             Id = "rewrite", Label = "Rewrite", KeyTip = "R", Icon = "rewrite", Group = GroupAi,
             Tooltip = "Rewrite the selected text with AI."
         };
+        // Not in All, the ribbon or the Tool Strip menu: they are items of Rewrite's menu (<see cref="RewriteMenu"/>).
+        public static readonly CommandInfo Simplify = new CommandInfo
+        {
+            Id = "simplify", Label = "Simplify", Icon = "rewrite", Group = GroupAi,
+            Tooltip = "Rewrite the selected text in plainer words."
+        };
+        public static readonly CommandInfo Shorten = new CommandInfo
+        {
+            Id = "shorten", Label = "Shorten", Icon = "rewrite", Group = GroupAi,
+            Tooltip = "Rewrite the selected text with fewer words."
+        };
         public static readonly CommandInfo Ask = new CommandInfo
         {
             Id = "ask", Label = "Ask AI", KeyTip = "A", Icon = "ask", Group = GroupAi,
@@ -147,10 +158,13 @@ namespace FlareAI.Flare
         /// <summary>The items of Lint Topic's menu: the checks Lint Topic runs.</summary>
         public static readonly IList<CommandInfo> LintMenu = new List<CommandInfo> { LintRulesOnly, LintRulesAndAi };
 
+        /// <summary>The items of Rewrite's menu and of the right-click Rewrite item: the one-click rewrites.</summary>
+        public static readonly IList<CommandInfo> RewriteMenu = new List<CommandInfo> { Simplify, Shorten };
+
         /// <summary>The ribbon's split buttons and their menu items. The button runs its own command.</summary>
         public static readonly IDictionary<CommandInfo, IList<CommandInfo>> SplitMenus = new Dictionary<CommandInfo, IList<CommandInfo>>
         {
-            { LintTopic, LintMenu }, { Help, HelpMenu }
+            { LintTopic, LintMenu }, { Rewrite, RewriteMenu }, { Help, HelpMenu }
         };
 
         /// <summary>
