@@ -92,6 +92,17 @@ namespace FlareAI.Flare.UI
             A11y.Name(_progress, "Progress");
             A11y.Apply(this);
 
+            if (kind == ActionKind.Question)
+            {
+                // An answer is text to read. Nothing here can change the topic: no Change button, no markup view.
+                Text = "House Style — Answer";
+                _apply.Visible = false; _apply.Enabled = false;
+                _restructure.Visible = false;
+                _showXml.Visible = false;
+                _output.Font = SystemFonts.MessageBoxFont;
+                _close.Text = "Close";
+            }
+
             _worker = new BackgroundWorker { WorkerSupportsCancellation = true };
             _worker.DoWork += Work;
             _worker.RunWorkerCompleted += Done;
@@ -102,6 +113,7 @@ namespace FlareAI.Flare.UI
         private void Work(object sender, DoWorkEventArgs e)
         {
             var blocks = _blocks ?? _runner.PickBlocks(_doc);
+            if (_kind == ActionKind.Question) { e.Result = _runner.Answer(_doc, blocks, _instruction); return; }
             e.Result = _restructuring ? _runner.Restructure(_doc, blocks, _instruction) : _runner.Rewrite(_doc, blocks, _instruction, Lint, Task);
         }
 
@@ -115,6 +127,15 @@ namespace FlareAI.Flare.UI
                 Diagnostics.Log(_title, e.Error); ErrorReporter.Background(this, "House Style couldn't finish \"" + _title + "\".", e.Error);
                 _status.Text = "Failed.";
                 _output.Text = e.Error is LlmException || e.Error is InvalidOperationException ? e.Error.Message : e.Error.ToString();
+                _close.Text = "Close";
+                return;
+            }
+
+            if (_kind == ActionKind.Question)
+            {
+                _status.Text = "Answer";
+                _output.Text = (string)e.Result;
+                _output.Visible = true; _diff.Visible = false;
                 _close.Text = "Close";
                 return;
             }

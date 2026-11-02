@@ -1098,6 +1098,18 @@ namespace FlareAI.Core.Actions
             return WithHeld(proposal);
         }
 
+        /// <summary>
+        /// Answers a question about the blocks in words. One call; nothing is written to the document and nothing is
+        /// proposed, so an answer can never reach <see cref="Apply"/>.
+        /// </summary>
+        public string Answer(IDocumentAdapter doc, IList<XmlNode> blocks, string question)
+        {
+            var fragment = XhtmlFragment.Serialize(TrackedChanges.WithoutDeletions(blocks));
+            var scope = WordingScope(blocks);
+            var json = Ask("answer", _prompts.BuildQuestion(fragment, question), Contracts.Answer(), null, scope).Json;
+            return Contracts.ReadAnswer(json, _style == null ? null : _style.RuleIdsFor(_project, scope));
+        }
+
         /// <summary>The proposal's notes plus why any change was held back for the author.</summary>
         private static RewriteProposal WithHeld(RewriteProposal p)
         {

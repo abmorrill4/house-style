@@ -68,7 +68,7 @@ namespace FlareAI.Flare
         public static readonly CommandInfo Ask = new CommandInfo
         {
             Id = "ask", Label = "Ask AI", KeyTip = "A", Icon = "ask", Group = GroupAi,
-            Tooltip = "Tell the AI what to change in the selected text."
+            Tooltip = "Ask the AI a question about the selected text, or tell it what to change."
         };
         /// <summary>The AI on/off toggle. Its label reads the saved state (AI On or AI Off). Ribbon only.</summary>
         public static readonly CommandInfo AiToggle = new CommandInfo
