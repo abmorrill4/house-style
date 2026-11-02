@@ -110,23 +110,23 @@ if ($Check) {
 if ($NotesOnly) {
     $handFile = Join-Path $Repo "docs/release-notes/$Version.md"
     $new = if ($generated.Contains($Version)) { @($generated[$Version]) } else { @() }
-    $head = @(); $tail = @()
+    [string[]]$headLines = @(); [string[]]$tailLines = @()
     if (Test-Path $handFile) {
         # The hand-written file gives the summary and any sections; its closing "## Install or update" section stays last.
         $text = @(Get-Content $handFile)
         $at = [array]::FindLastIndex([string[]]$text, [Predicate[string]]{ param($l) $l -match '^##\s+(Install|Update)' })
-        if ($at -lt 0) { $head = $text }
+        if ($at -lt 0) { $headLines = $text }
         else {
-            if ($at -gt 0) { $head = $text[0..($at - 1)] }
-            $tail = $text[$at..($text.Count - 1)]
+            if ($at -gt 0) { $headLines = $text[0..($at - 1)] }
+            $tailLines = $text[$at..($text.Count - 1)]
         }
-        while ($head.Count -and -not "$($head[$head.Count - 1])".Trim()) { $head = if ($head.Count -gt 1) { $head[0..($head.Count - 2)] } else { @() } }
+        while ($headLines.Count -and -not "$($headLines[$headLines.Count - 1])".Trim()) { $headLines = if ($headLines.Count -gt 1) { $headLines[0..($headLines.Count - 2)] } else { @() } }
     }
-    $lines = @($head)
+    $lines = @($headLines | ForEach-Object { $_ })
     if ($new.Count) { if ($lines.Count) { $lines += "" }; $lines += $new }
     elseif (-not $lines.Count) { $lines = @("Small fixes to make House Style more reliable.") }
     if ($lines.Count) { $lines += "" }
-    if ($tail.Count) { $lines += $tail }
+    if ($tailLines.Count) { $lines += $tailLines }
     else {
         $lines += "## Install or update"
         $lines += ""
