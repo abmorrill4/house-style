@@ -1,0 +1,1 @@
+- Load Word files in Build guide with a 20 MB limit on the document text. A larger or damaged .docx now gives a clear message instead of an error.

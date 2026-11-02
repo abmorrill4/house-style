@@ -16,7 +16,9 @@ namespace FlareAI.Core.Style
     /// </summary>
     public static class NoteText
     {
-        private const string W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        internal const int MaxDocxPartBytes = 20 * 1024 * 1024;
+
+        private const string W ="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
         /// <summary>Reads a notes file (shared read, so a copy open in Word still loads).</summary>
         public static string ReadFile(string path)
@@ -65,7 +67,8 @@ namespace FlareAI.Core.Style
         /// <summary>Text of word/document.xml in a .docx: one line per paragraph (table cells included).</summary>
         public static string FromDocx(byte[] docx)
         {
-            var xml = ZipEntryBytes(docx, "word/document.xml");
+            if (docx == null) throw BadDocx();
+            var xml = ZipEntryBytes(docx,"word/document.xml");
             if (xml == null) throw new InvalidDataException("This file isn't a Word .docx document (no word/document.xml). It may be password protected.");
             var sb = new StringBuilder();
             try
@@ -104,34 +107,76 @@ namespace FlareAI.Core.Style
         // Minimal zip reader (central directory + deflate): ZipArchive is .NET 4.5+, and Core stays net40 with no WindowsBase.
         private static byte[] ZipEntryBytes(byte[] z, string name)
         {
-            var eocd = -1;
-            for (var i = z.Length - 22; i >= Math.Max(0, z.Length - 22 - 65535); i--)
-                if (z[i] == 0x50 && z[i + 1] == 0x4B && z[i + 2] == 5 && z[i + 3] == 6) { eocd = i; break; }
-            if (eocd < 0) throw new InvalidDataException("This file isn't a valid .docx (not a zip package).");
-            int count = U16(z, eocd + 10), p = (int)U32(z, eocd + 16);
-            for (var n = 0; n < count && p + 46 <= z.Length && U32(z, p) == 0x02014B50; n++)
+            try
             {
-                int method = U16(z, p + 10), csize = (int)U32(z, p + 20), usize = (int)U32(z, p + 24), nl = U16(z, p + 28), el = U16(z, p + 30), cl = U16(z, p + 32), lh = (int)U32(z, p + 42);
-                var entry = Encoding.UTF8.GetString(z, p + 46, nl);
-                if (string.Equals(entry, name, StringComparison.OrdinalIgnoreCase))
+                if (z.Length < 22) throw new InvalidDataException("This file isn't a valid .docx (not a zip package).");
+                var eocd = -1;
+                for (var i = z.Length - 22; i >= Math.Max(0, z.Length - 22 - 65535); i--)
+                    if (z[i] == 0x50 && z[i + 1] == 0x4B && z[i + 2] == 5 && z[i + 3] == 6) { eocd = i; break; }
+                if (eocd < 0) throw new InvalidDataException("This file isn't a valid .docx (not a zip package).");
+                long count = U16(z, eocd + 10), p = U32(z, eocd + 16);
+                if (p >= z.Length) throw BadDocx();
+                for (var n = 0; n < count && p + 46 <= z.Length && U32(z, p) == 0x02014B50; n++)
                 {
-                    var data = lh + 30 + U16(z, lh + 26) + U16(z, lh + 28);
-                    if (method == 0) { var o = new byte[csize]; Buffer.BlockCopy(z, data, o, 0, csize); return o; }
-                    if (method != 8) throw new InvalidDataException("Unsupported compression in the .docx.");
-                    using (var ds = new DeflateStream(new MemoryStream(z, data, csize), CompressionMode.Decompress))
-                    using (var ms = new MemoryStream(usize > 0 ? usize : 4096))
+                    long method = U16(z, p + 10), csize = U32(z, p + 20), usize = U32(z, p + 24), nl = U16(z, p + 28), el = U16(z, p + 30), cl = U16(z, p + 32), lh = U32(z, p + 42);
+                    if (p + 46 + nl > z.Length) throw BadDocx();
+                    var entry = Encoding.UTF8.GetString(z, (int)(p + 46), (int)nl);
+                    if (string.Equals(entry, name, StringComparison.OrdinalIgnoreCase))
                     {
-                        var buf = new byte[81920]; int r;
-                        while ((r = ds.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, r);
-                        return ms.ToArray();
+                        if (lh + 30 > z.Length || U32(z, lh) != 0x04034B50) throw BadDocx();
+                        var data = lh + 30 + U16(z, lh + 26) + U16(z, lh + 28);
+                        if (data > z.Length || csize > z.Length - data) throw BadDocx();
+                        if (usize > MaxDocxPartBytes || (method == 0 && csize > MaxDocxPartBytes)) throw TooLarge();
+                        if (method == 0) { var o = new byte[(int)csize]; Buffer.BlockCopy(z, (int)data, o, 0, (int)csize); return o; }
+                        if (method != 8) throw new InvalidDataException("Unsupported compression in the .docx.");
+                        var tooBig = false;
+                        using (var ds = new DeflateStream(new MemoryStream(z, (int)data, (int)csize), CompressionMode.Decompress))
+                        using (var ms = new MemoryStream((int)Math.Min(usize, 1 << 20)))
+                        {
+                            var buf = new byte[81920]; int r; long total = 0;
+                            try
+                            {
+                                while ((r = ds.Read(buf, 0, buf.Length)) > 0)
+                                {
+                                    if (total + r > MaxDocxPartBytes) { tooBig = true; break; }
+                                    total += r;
+                                    ms.Write(buf, 0, r);
+                                }
+                            }
+                            catch (InvalidDataException) { throw BadDocx(); } // the cap is raised below, outside this try
+                            if (tooBig) throw TooLarge();
+                            return ms.ToArray();
+                        }
                     }
+                    p += 46 + nl + el + cl;
                 }
-                p += 46 + nl + el + cl;
+                return null;
             }
-            return null;
+            catch (IndexOutOfRangeException) { throw BadDocx(); }
+            catch (ArgumentException) { throw BadDocx(); }
+            catch (OverflowException) { throw BadDocx(); }
         }
 
-        private static int U16(byte[] b, int i) { return b[i] | (b[i + 1] << 8); }
-        private static uint U32(byte[] b, int i) { return (uint)(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)); }
+        private static InvalidDataException BadDocx()
+        {
+            return new InvalidDataException("This file isn't a valid .docx, or it is damaged. Pick another file.");
+        }
+
+        private static InvalidDataException TooLarge()
+        {
+            return new InvalidDataException("This Word document is too large to read. The text of the document can be at most " + (MaxDocxPartBytes / (1024 * 1024)) + " MB. Save a smaller copy, or paste the notes instead.");
+        }
+
+        private static int U16(byte[] b, long i)
+        {
+            if (i < 0 || i + 2 > b.Length) throw new IndexOutOfRangeException();
+            return b[i] | (b[i + 1] << 8);
+        }
+
+        private static uint U32(byte[] b, long i)
+        {
+            if (i < 0 || i + 4 > b.Length) throw new IndexOutOfRangeException();
+            return (uint)(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
+        }
     }
 }
