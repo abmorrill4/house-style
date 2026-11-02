@@ -26,6 +26,39 @@ namespace FlareAI.Core.Tests
             Assert.Equal("m2", list[1].ToString());
         }
 
+        private static string FirstUrl(string baseUrl)
+        {
+            var urls = new List<string>();
+            AnthropicModels.List(baseUrl, "k", 30, (url, key, t) => { urls.Add(url); return "{\"data\":[],\"has_more\":false}"; });
+            return urls[0];
+        }
+
+        [Fact]
+        public void NormalizesTheAddress_AndKeepsPortAndUppercaseScheme()
+        {
+            Assert.Equal("https://x.test:8443/v1/models?limit=1000", FirstUrl("HTTPS://x.test:8443/v1/"));
+        }
+
+        [Fact]
+        public void RejectsAnUnusableAddress_BeforeAnyRequest()
+        {
+            var called = false;
+            Assert.Throws<LlmException>(() => AnthropicModels.List("ftp://x", "k", 30, (u, k, t) => { called = true; return "{}"; }));
+            Assert.False(called);
+        }
+
+        [Fact]
+        public void RemoteHttpIsUpgradedToHttps()
+        {
+            Assert.Equal("https://remote.example.com/v1/models?limit=1000", FirstUrl("http://remote.example.com"));
+        }
+
+        [Fact]
+        public void LoopbackHttpStaysHttp()
+        {
+            Assert.Equal("http://localhost:8080/v1/models?limit=1000", FirstUrl("http://localhost:8080"));
+        }
+
         [Fact]
         public void BadJsonAndTransportErrorsAreReadableAndKeyFree()
         {

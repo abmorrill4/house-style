@@ -13,7 +13,7 @@ namespace FlareAI.TestKit.Llm
     /// <summary>What the mock server does with one request.</summary>
     public sealed class MockReply
     {
-        public enum Kinds { Ok, Error, Malformed, TruncatedBody, Hang }
+        public enum Kinds { Ok, Error, Malformed, TruncatedBody, Hang, Redirect }
 
         public Kinds Kind { get; private set; }
         public int Status { get; private set; }
@@ -23,6 +23,11 @@ namespace FlareAI.TestKit.Llm
         public string Message { get; private set; }
         /// <summary>Delay before answering (a slow model or gateway).</summary>
         public int DelayMs { get; private set; }
+        /// <summary>Where a redirect points.</summary>
+        public string Location { get; private set; }
+
+        /// <summary>A 3xx answer that points at <paramref name="location"/>.</summary>
+        public static MockReply Redirect(string location, int status = 302) { return new MockReply { Kind = Kinds.Redirect, Status = status, Location = location }; }
 
         /// <summary>A completion with this text, shaped for the endpoint called (Anthropic messages or gateway chat completions).</summary>
         public static MockReply Ok(string text, string stopReason = "end_turn") { return new MockReply { Kind = Kinds.Ok, Status = 200, Text = text, StopReason = stopReason }; }
@@ -47,7 +52,7 @@ namespace FlareAI.TestKit.Llm
         /// <summary>The same reply after <paramref name="ms"/> milliseconds.</summary>
         public MockReply After(int ms)
         {
-            return new MockReply { Kind = Kind, Status = Status, Text = Text, StopReason = StopReason, ErrorType = ErrorType, Message = Message, DelayMs = ms };
+            return new MockReply { Kind = Kind, Status = Status, Text = Text, StopReason = StopReason, ErrorType = ErrorType, Message = Message, Location = Location, DelayMs = ms };
         }
     }
 
@@ -139,6 +144,14 @@ namespace FlareAI.TestKit.Llm
                 }
                 if (reply.Kind == MockReply.Kinds.Hang) { _stopping.WaitOne(); ctx.Response.Abort(); return; }
                 if (reply.DelayMs > 0 && _stopping.WaitOne(reply.DelayMs)) { ctx.Response.Abort(); return; }
+
+                if (reply.Kind == MockReply.Kinds.Redirect)
+                {
+                    ctx.Response.StatusCode = reply.Status;
+                    ctx.Response.RedirectLocation = reply.Location;
+                    ctx.Response.Close();
+                    return;
+                }
 
                 var model = ModelOf(req.Body);
                 string body;

@@ -66,6 +66,12 @@ namespace FlareAI.Core.Llm
             return new LlmException("HTTP " + status + ": " + Shorten(detail), status);
         }
 
+        /// <summary>A redirect answer. It is never followed, so the key goes only to the address the owner typed.</summary>
+        public static LlmException FromRedirect(int status)
+        {
+            return new LlmException("The address redirects. Change the Base URL in Settings to the final address.", status);
+        }
+
         /// <summary>A failure with no HTTP response: DNS, connection, TLS, timeout.</summary>
         public static LlmException FromNetwork(WebException ex, bool gateway, string baseUrl)
         {
