@@ -93,7 +93,7 @@ namespace FlareAI.Flare.UI
         private bool? _wide;                   // two one-line columns (true) or one compact column (false); null = not fitted yet
         private readonly Panel _drawerBar;     // the details drawer's bar: the selected issue's title and the hide/show button
         private readonly Label _drawerTitle;
-        private readonly Button _drawerToggle;
+        private readonly DrawerToggleButton _drawerToggle;
         private readonly ToolTip _tips = new ToolTip();
 
         /// <summary>Opens House Style Settings (the AI-off note's link).</summary>
@@ -409,7 +409,7 @@ namespace FlareAI.Flare.UI
             // card, so it docks above it.
             _drawerBar = new Panel { Dock = DockStyle.Top, Height = Math.Max(S(26), Font.Height + S(8)) };
             _drawerTitle = new Label { Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(S(4), 0, 0, 0), AccessibleName = "Selected issue" };
-            _drawerToggle = new Button { Dock = DockStyle.Right, Width = S(30), TabStop = true, UseVisualStyleBackColor = true };
+            _drawerToggle = new DrawerToggleButton { Dock = DockStyle.Right, Width = S(36), TabStop = true, UseVisualStyleBackColor = true, Padding = Padding.Empty, TriangleWidth = S(13) };
             _drawerToggle.Click += (s, e) => Safe.Run("Details", ToggleDrawer);
             _drawerBar.Controls.Add(_drawerTitle);
             _drawerBar.Controls.Add(_drawerToggle);
@@ -840,6 +840,8 @@ namespace FlareAI.Flare.UI
             _split.IsSplitterFixed = !_drawerOpen;
             var text = _drawerOpen ? "Hide details" : "Show details";
             _drawerToggle.Text = _drawerOpen ? "▾" : "▴";
+            _drawerToggle.PointsUp = !_drawerOpen;
+            _drawerToggle.Invalidate();
             _drawerToggle.AccessibleName = text;
             _tips.SetToolTip(_drawerToggle, text);
             SizeCard();
@@ -2717,6 +2719,47 @@ namespace FlareAI.Flare.UI
         }
 
         void IReviewHost.ShowError(string whatHappened, string whatToDo, Exception details, string action) { Notify.Error(this, whatHappened, whatToDo, details, action); }
+
+        // The text glyph is too small to see at any size that fits the bar, so the triangle is drawn here.
+        internal sealed class DrawerToggleButton : Button
+        {
+            internal bool PointsUp;
+            internal int TriangleWidth = 13;
+
+            public DrawerToggleButton()
+            {
+                SetStyle(ControlStyles.Selectable, true);
+            }
+
+            internal Rectangle TriangleBounds()
+            {
+                var w = TriangleWidth;
+                var h = w / 2 + 1;
+                return new Rectangle((ClientSize.Width - w) / 2, (ClientSize.Height - h) / 2, w, h);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var state = !Enabled
+                    ? System.Windows.Forms.VisualStyles.PushButtonState.Disabled
+                    : (ClientRectangle.Contains(PointToClient(Cursor.Position)) && (MouseButtons & MouseButtons.Left) != 0)
+                        ? System.Windows.Forms.VisualStyles.PushButtonState.Pressed
+                        : System.Windows.Forms.VisualStyles.PushButtonState.Normal;
+                ButtonRenderer.DrawButton(e.Graphics, ClientRectangle, Focused && ShowFocusCues, state);
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var r = TriangleBounds();
+                var pts = PointsUp
+                    ? new[] { new Point(r.Left, r.Bottom), new Point(r.Right, r.Bottom), new Point(r.Left + r.Width / 2, r.Top) }
+                    : new[] { new Point(r.Left, r.Top), new Point(r.Right, r.Top), new Point(r.Left + r.Width / 2, r.Bottom) };
+                using (var brush = new SolidBrush(Enabled ? ForeColor : SystemColors.GrayText))
+                    e.Graphics.FillPolygon(brush, pts);
+            }
+
+            protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+            protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+            protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); Invalidate(); }
+            protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); Invalidate(); }
+        }
     }
 
     /// <summary>A tab button. A plain radio button clicks itself when it gets the focus, which switched tabs whenever a panel was shown. Here only the arrow keys do that, so they still switch tabs.</summary>

@@ -1,0 +1,1 @@
+- Makes the arrow on the Hide details and Show details button larger so it is easier to see.
