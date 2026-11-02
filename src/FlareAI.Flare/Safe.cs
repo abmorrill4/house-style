@@ -17,6 +17,7 @@ namespace FlareAI.Flare
             try { action(); }
             catch (Exception ex)
             {
+                try { FlareAI.Core.Logging.Log.Caught(what, ex); } catch (Exception) { }
                 try { Diagnostics.Log(what, ex); } catch (Exception) { }
                 try { UI.Notify.Error(null, "House Style couldn't finish \"" + what + "\".", ex.Message, ex); }
                 catch (Exception) { }

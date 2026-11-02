@@ -132,14 +132,34 @@ namespace FlareAI.Core.Actions
             };
             var sw = Stopwatch.StartNew();
             LlmResponse resp;
-            try { resp = _llm.Complete(req); }
-            catch (LlmException ex) when (ex.Failure == LlmFailure.Truncated)
+            try
             {
-                Diagnostics.Log(task + ": cut off at " + req.MaxTokens + " tokens; retrying with more room");
-                req.MaxTokens *= 2;
-                resp = _llm.Complete(req);
+                try { resp = _llm.Complete(req); }
+                catch (LlmException ex) when (ex.Failure == LlmFailure.Truncated)
+                {
+                    Diagnostics.Log(task + ": cut off at " + req.MaxTokens + " tokens; retrying with more room");
+                    req.MaxTokens *= 2;
+                    resp = _llm.Complete(req);
+                }
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var le = ex as LlmException;
+                    Logging.Log.Current.Warn("ai_call", "task", task, "model", route.Model, "ms", sw.ElapsedMilliseconds,
+                        "result", le != null ? le.Failure.ToString() : "error", "error_type", ex.GetType().Name);
+                }
+                catch (Exception) { }
+                throw;
             }
             Usage.Record(task, route.Model, resp, sw.Elapsed.TotalSeconds);
+            try
+            {
+                Logging.Log.Current.Info("ai_call", "task", task, "model", route.Model, "effort", route.Effort, "input_tokens", resp.InputTokens,
+                    "output_tokens", resp.OutputTokens, "cached_tokens", resp.CacheReadTokens, "ms", sw.ElapsedMilliseconds, "result", "ok");
+            }
+            catch (Exception) { }
             Diagnostics.Log(task + ": " + route.Model + "/" + route.Effort + " in=" + resp.InputTokens + " cached=" + resp.CacheReadTokens +
                             " out=" + resp.OutputTokens + " stop=" + resp.StopReason + " " + sw.ElapsedMilliseconds + "ms");
             if (schema != null && resp.Json == null)
@@ -201,6 +221,7 @@ namespace FlareAI.Core.Actions
         {
             var findings = new List<StyleFinding>();
             if (_style == null) return findings;
+            var lintWatch = Stopwatch.StartNew();
             _comp = null;   // the labels follow the guide this lint uses
             // Lint whole lines (inline markup flattened, variables resolved), then map each hit back to the run it
             // falls in. Hits inside a variable's value belong to the variable set, not this topic: dropped here.
@@ -215,8 +236,23 @@ namespace FlareAI.Core.Actions
                 if (f != null) findings.Add(f); else inVariables++;
             }
             if (inVariables > 0) Diagnostics.Log("Lint: " + Plural.Of(inVariables, "finding") + " inside variable values skipped");
+            try
+            {
+                int errs = 0, warns = 0, sugs = 0;
+                foreach (var f in findings)
+                {
+                    var sev = (f.Severity ?? "").ToLowerInvariant();
+                    if (sev == "error") errs++; else if (sev == "warning") warns++; else if (sev == "suggestion") sugs++;
+                }
+                Logging.Log.Current.Info("lint", "blocks", blocks.Count, "lines", lines.Count, "findings", findings.Count,
+                    "errors", errs, "warnings", warns, "suggestions", sugs, "ms", lintWatch.ElapsedMilliseconds, "checks", LogChecks ?? "rules");
+            }
+            catch (Exception) { }
             return findings;
         }
+
+        /// <summary>Which checks ran, for the log: "rules" or "rules+ai".</summary>
+        public string LogChecks { get; set; } = "rules";
 
         /// <summary>
         /// Lint findings inside the snippets these blocks include (and snippets those include), read from disk.

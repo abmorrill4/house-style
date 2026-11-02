@@ -180,6 +180,23 @@ namespace FlareAI.Core.Style
 
         // ---- composition ---------------------------------------------------------------------------------------
 
+        /// <summary>A short fingerprint of the rules in force (names and levels only), for the log.</summary>
+        public string RuleSetVersion(string project)
+        {
+            try
+            {
+                var c = Compose(project);
+                var lines = c.Rules.Select(r => r.Name + "|" + (c.LevelOf(r) ?? "off")).ToList();
+                lines.Sort(StringComparer.Ordinal);
+                using (var sha = System.Security.Cryptography.SHA1.Create())
+                {
+                    var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", lines.ToArray())));
+                    return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant().Substring(0, 8);
+                }
+            }
+            catch (Exception) { return "unknown"; }
+        }
+
         public Composition Compose(string project)
         {
             var unreadable = new List<string>();
@@ -566,7 +583,13 @@ namespace FlareAI.Core.Style
                 var more = 0;
                 foreach (var o in l.Overrides)
                 {
-                    if (OverrideIds.IsKnown(this, o.Key)) { _overrides[StructureCheck.IdOf(OverrideIds.Canonical(o.Key))] = o.Value; continue; }
+                    if (OverrideIds.IsKnown(this, o.Key))
+                    {
+                        _overrides[StructureCheck.IdOf(OverrideIds.Canonical(o.Key))] = o.Value;
+                        try { FlareAI.Core.Logging.Log.Current.Debug("rule_override", "rule_id", StructureCheck.IdOf(OverrideIds.Canonical(o.Key)), "level", o.Value, "layer", guide); }
+                        catch (Exception) { }
+                        continue;
+                    }
                     if (firstTime == null) continue;
                     if (written >= MaxIgnoredLines) { more++; continue; }
                     if (!firstTime(guide + "|" + o.Key)) continue;

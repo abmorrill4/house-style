@@ -8,8 +8,10 @@ using FlareAI.Core;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Actions;
 using FlareAI.Core.Llm;
+using FlareAI.Core.Logging;
 using FlareAI.Core.Settings;
 using FlareAI.Core.Style;
+using FlareAI.Flare.Logging;
 using FlareAI.Flare.UI;
 
 namespace FlareAI.Flare
@@ -54,7 +56,16 @@ namespace FlareAI.Flare
             try
             {
                 E2EHook.IsolateIfRequested();
-                Diagnostics.Enabled = PluginSettings.Load().WriteDiagnostics;
+                var startSettings = PluginSettings.Load();
+                Diagnostics.Enabled = startSettings.WriteDiagnostics;
+                OpenLog(startSettings.DebugLogging);
+                try
+                {
+                    CrashTrail.Start(FileLog.DefaultFolder);
+                    CrashTrail.Hook();
+                    Log.Current.Info("plugin_start", "ok", true);
+                }
+                catch (Exception) { }
                 Diagnostics.Log("House Style starting in " + _host.GetName() + " (" + _host.GetCompany() + "), plugin dir " + PluginDirectory);
                 _nav = _host.GetNavContext();
                 RefreshTeam();
@@ -92,6 +103,62 @@ namespace FlareAI.Flare
             _style = null;
             try { _host.Dispose(); } catch (Exception ex) { Diagnostics.Log("Stop", ex); }
             _activated = false;
+            try { CrashTrail.Unhook(); } catch (Exception) { }
+            try { CrashTrail.CleanExit(); } catch (Exception) { }
+            try { CloseLog(); } catch (Exception) { }
+        }
+
+        // ---- the debug log ---------------------------------------------------------------------------------------
+
+        private FileLog _fileLog;
+        private bool _logDebug;
+
+        /// <summary>Flare's version number alone (the log holds no product name).</summary>
+        private static string FlareVersionNumber()
+        {
+            try
+            {
+                var v = FeedbackService.FlareVersion ?? "";
+                var space = v.LastIndexOf(' ');
+                return space >= 0 ? v.Substring(space + 1) : v;
+            }
+            catch (Exception) { return "unknown"; }
+        }
+
+        /// <summary>Opens the log file at the level the build and the setting call for. Never throws.</summary>
+        private void OpenLog(bool debugSetting)
+        {
+            try
+            {
+                CloseLog();
+                _logDebug = debugSetting;
+                _fileLog = FileLog.Create(FileLog.DefaultFolder, FileLog.DefaultLevel(debugSetting), Version, FlareVersionNumber());
+                Log.Current = _fileLog;
+            }
+            catch (Exception ex)
+            {
+                Log.Current = NullLog.Instance;
+                try { Diagnostics.Log("debug log unavailable", ex); } catch (Exception) { }
+            }
+        }
+
+        private void CloseLog()
+        {
+            var old = _fileLog;
+            _fileLog = null;
+            Log.Current = NullLog.Instance;
+            if (old != null) old.Dispose();
+        }
+
+        /// <summary>After Settings or setup saved: opens the log again when the detail setting changed.</summary>
+        private void ReapplyLogLevel()
+        {
+            try
+            {
+                var wanted = PluginSettings.Load().DebugLogging;
+                if (wanted != _logDebug) OpenLog(wanted);
+            }
+            catch (Exception) { }
         }
 
         // ---- unhandled errors on the UI thread (issue #124) -------------------------------------------------------
@@ -121,6 +188,7 @@ namespace FlareAI.Flare
             {
                 if (e.Handled || !FlareAI.Core.Feedback.ErrorKinds.ThrownByUs(e.Exception)) return;   // Flare's own: not ours to handle
                 e.Handled = true;
+                Log.Caught("dispatcher", e.Exception);
                 Diagnostics.Log("Unhandled (dispatcher)", e.Exception);
                 if (FlareAI.Core.Feedback.ErrorKinds.IsBug(e.Exception))
                     ErrorReporter.Show(Owner, "House Style couldn't finish what it was doing.", e.Exception, null);
@@ -265,7 +333,15 @@ namespace FlareAI.Flare
             var raw = RawHandlerFor(c);
             // Settings, Help and the like open as they are; every other command offers first-run setup once.
             var plain = c == Commands.Settings || c == Commands.Diagnostics || c == Commands.Help || c == Commands.WhatsNew || c == Commands.Tour || c == Commands.ReportProblem;
-            return Safe.Wrap(c.Label, plain ? raw : WithSetup(raw));
+            var inner = plain ? raw : WithSetup(raw);
+            return Safe.Wrap(c.Label, () =>
+            {
+                using (var scope = Log.Command(c.Id))
+                {
+                    try { inner(); }
+                    catch (Exception ex) { ((CommandScope)scope).Fail(ex); throw; }
+                }
+            });
         }
 
         private Action RawHandlerFor(CommandInfo c)
@@ -416,7 +492,7 @@ namespace FlareAI.Flare
             using (var f = new SettingsForm(PluginDirectory, _updates == null ? null : (Func<string>)_updates.WhyOff, _role,
                                             owner => OnExportLlm(owner), owner => OnDiagnostics(owner), owner => OnReportProblem(owner)))
             {
-                if (f.ShowDialog(Owner) == DialogResult.OK) RefreshTeam();
+                if (f.ShowDialog(Owner) == DialogResult.OK) { RefreshTeam(); ReapplyLogLevel(); }
                 runSetup = f.RunSetupRequested;
                 tour = f.TourRequested;
             }
@@ -474,6 +550,7 @@ namespace FlareAI.Flare
             bool completed;
             using (var f = new SetupForm()) { f.ShowDialog(Owner); completed = f.Completed; }
             Diagnostics.Enabled = PluginSettings.Load().WriteDiagnostics;
+            ReapplyLogLevel();
             RefreshTeam();
             if (!completed) return;
             var o = Onboarding.Load();
@@ -809,6 +886,7 @@ namespace FlareAI.Flare
                 }
                 var runner = NewRunner(adapter, true, kind == ActionKind.CheckStyle);
                 if (runner == null) return;
+                runner.LogChecks = rulesOnly ? "rules" : "rules+ai";
                 if (kind == ActionKind.CheckStyle)
                 {
                     // Docked (or floating) and modeless: the author works through the list while editing.
@@ -894,6 +972,12 @@ namespace FlareAI.Flare
                 var configured = settings.GuideRoots(pluginDir);
                 System.Threading.ThreadPool.QueueUserWorkItem(_ => copies.Prune(configured));
                 _styleKey = key;
+                // Stamp the log with the rule set in force; read off the UI thread, once per rebuild.
+                var engine = _style;
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try { FileLog.RuleSetVersion = engine.RuleSetVersion(null); } catch (Exception) { }
+                });
             }
             return _style;
         }

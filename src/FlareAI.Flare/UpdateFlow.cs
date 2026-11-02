@@ -115,7 +115,12 @@ namespace FlareAI.Flare
         private void CheckInBackground()
         {
             var off = WhyOff();
-            if (off != null) { Diagnostics.Log("Updates: " + off); return; }
+            if (off != null)
+            {
+                Diagnostics.Log("Updates: " + off);
+                try { FlareAI.Core.Logging.Log.Current.Info("update_check", "result", "off"); } catch (Exception) { }
+                return;
+            }
             var worker = new BackgroundWorker();
             worker.DoWork += (s, e) =>
             {
@@ -126,6 +131,13 @@ namespace FlareAI.Flare
             };
             worker.RunWorkerCompleted += (s, e) =>
             {
+                try
+                {
+                    var found = e.Error == null && ((object[])e.Result)[0] != null;
+                    FlareAI.Core.Logging.Log.Current.Info("update_check", "result", e.Error != null ? "error" : found ? "newer" : "current",
+                        "error_type", e.Error == null ? null : e.Error.GetType().Name);
+                }
+                catch (Exception) { }
                 if (e.Error != null) { Diagnostics.Log("update check", e.Error); ErrorReporter.Background(_owner(), "House Style couldn't check for updates.", e.Error); return; }
                 var release = (ReleaseInfo)((object[])e.Result)[0];
                 var state = (UpdateState)((object[])e.Result)[1];
