@@ -1085,6 +1085,32 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void AiOff_LintMakesNoAiCall_AndKeepsTheRuleIssues()
+        {
+            new FlareAI.Core.Settings.PluginSettings { AiOff = true }.Save();
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                Assert.Equal(0, client.Calls);
+                Assert.True(list.Items.Count >= 1, "the rule issue should still be listed");
+                Assert.Contains("rules only", Status(panel));
+            });
+        }
+
+        [Fact]
+        public void AiSwitched_IsANoOp_WhenNoReviewIsRunning()
+        {
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                var before = RowTexts(list);
+                panel.AiSwitched(true);
+                Pump(null, 200);
+                Assert.Equal(before, RowTexts(list));
+            });
+        }
+
+        [Fact]
         public void RulesOnly_LintAgain_StaysRulesOnly()
         {
             var client = RewordClient();

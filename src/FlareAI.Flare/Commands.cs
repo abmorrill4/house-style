@@ -15,7 +15,8 @@ namespace FlareAI.Flare
     /// The one place command text lives. The ribbon, the Tool Strip menu and toolbar, the editor's right-click menu,
     /// Settings and the Help menu are all built from this table, so a command cannot be named differently in two places.
     /// Adding a command here (and a handler in Plugin.cs) is all it takes. The ribbon shows the commands for the writer's
-    /// role (<see cref="Ribbon"/>); the rest are reached from Settings or the Help menu.
+    /// role (<see cref="Ribbon"/>); the rest are reached from Settings or the Help menu. The AI toggle is on the ribbon
+    /// only, because a Tool Strip menu item cannot change its label.
     /// </summary>
     internal static class Commands
     {
@@ -68,6 +69,12 @@ namespace FlareAI.Flare
         {
             Id = "ask", Label = "Ask AI", KeyTip = "A", Icon = "ask", Group = GroupAi,
             Tooltip = "Tell the AI what to change in the selected text."
+        };
+        /// <summary>The AI on/off toggle. Its label reads the saved state (AI On or AI Off). Ribbon only.</summary>
+        public static readonly CommandInfo AiToggle = new CommandInfo
+        {
+            Id = "ai", Label = AiSwitch.OnLabel, KeyTip = "Z", Icon = "ask", Group = GroupAi,
+            Tooltip = AiSwitch.Tooltip
         };
         public static readonly CommandInfo Rules = new CommandInfo
         {
@@ -143,7 +150,7 @@ namespace FlareAI.Flare
         public static readonly IList<CommandInfo> All = new List<CommandInfo>
         {
             LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules,
-            Rewrite, Ask, TopicMetadata,
+            Rewrite, Ask, AiToggle, TopicMetadata,
             RuleDecisions, ImportRules, TestRules,
             Settings, Help,
             ExportLlm, Diagnostics, WhatsNew, Tour, ReportProblem, MyRequests
@@ -169,7 +176,7 @@ namespace FlareAI.Flare
 
         /// <summary>
         /// The ribbon for a role, in order; groups appear in the order of their first command. A writer gets Lint Topic,
-        /// Lint Project, Rules, Rewrite, Ask AI, Topic Metadata, Settings and Help, plus My Requests when a team guide is set;
+        /// Lint Project, Rules, Rewrite, Ask AI, the AI On or AI Off toggle, Topic Metadata, Settings and Help, plus My Requests when a team guide is set;
         /// an owner also gets the Style Guide group (whose Rule Decisions has the requests).
         /// </summary>
         /// <param name="teamGuide">A team style guide is configured: writers send it requests, so they get My Requests.</param>
@@ -177,7 +184,7 @@ namespace FlareAI.Flare
         {
             var list = new List<CommandInfo> { LintTopic, LintProject, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
-            list.AddRange(new[] { Rewrite, Ask, TopicMetadata });
+            list.AddRange(new[] { Rewrite, Ask, AiToggle, TopicMetadata });
             if (role == UserRole.Owner) list.AddRange(OwnerOnly);
             list.Add(Settings);
             list.Add(Help);
