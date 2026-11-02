@@ -19,7 +19,7 @@ namespace FlareAI.Flare.UI
         private readonly TextBox _feedback;
         private readonly Button _addGuide, _removeGuide, _browseFeedback, _refreshModels, _test, _runSetup;
         private readonly Label _guideStatus, _feedbackStatus, _modelStatus, _testResult, _keyLabel, _keyStatus;
-        private readonly CheckBox _projectLayer, _llmExport, _markers, _live, _onSave, _beforeBuild, _diag, _autoUpdate, _autoReports;
+        private readonly CheckBox _projectLayer, _llmExport, _markers, _live, _onSave, _beforeBuild, _diag, _debugLog, _autoUpdate, _autoReports;
         private readonly Label _updateStatus;
         private readonly StackLayout _guide, _adv;
         private readonly StackLayout.Block _modelNoteBlock;
@@ -175,6 +175,7 @@ namespace FlareAI.Flare.UI
             _models = new ModelInfo[0];
             _timeout = a.Row("Timeout (s)", new TextBox { Text = _settings.TimeoutSeconds.ToString() }, a.S(60));
             _diag = a.Check("Write a diagnostics log (for support)", _settings.WriteDiagnostics);
+            _debugLog = a.Check("Log in more detail (for support)", _settings.DebugLogging);
             _autoReports = a.Check("Send error reports automatically", _settings.SendErrorReportsAutomatically);
             a.Note("House Style sends a report only when you choose Send, or by itself when this box is checked. Reports never include your topic text unless you type it in.");
             _llmExport = a.Check("After each HTML build, add LLM-ready Markdown and llms.txt to the output", _settings.LlmExportAfterBuild);
@@ -190,6 +191,7 @@ namespace FlareAI.Flare.UI
             a.Add(tools);
             if (exportLlm != null) ToolButton(tools, Commands.ExportLlm.Label + "…", Commands.ExportLlm.Tooltip, () => exportLlm(this));
             if (diagnostics != null) ToolButton(tools, Commands.Diagnostics.Label + "…", Commands.Diagnostics.Tooltip, () => diagnostics(this));
+            ToolButton(tools, "Send Diagnostics…", "Choose what to send to support. Nothing is sent until you confirm.", () => { using (var f = new SendDiagnosticsForm()) f.ShowDialog(this); });
             if (reportProblem != null) ToolButton(tools, Commands.ReportProblem.Label, Commands.ReportProblem.Tooltip, () => reportProblem(this));
             ToolButton(tools, Commands.Tour.Label, Commands.Tour.Tooltip, () => { TourRequested = true; DialogResult = DialogResult.Cancel; Close(); });
             a.Y += tools.PreferredSize.Height + a.S(8);
@@ -574,6 +576,7 @@ namespace FlareAI.Flare.UI
             }
             _settings.TimeoutSeconds = timeout;
             _settings.WriteDiagnostics = _diag.Checked;
+            _settings.DebugLogging = _debugLog.Checked;
             _settings.SendErrorReportsAutomatically = _autoReports.Checked;
             // A report sent while Settings was open may have created this install's id: keep it.
             if (string.IsNullOrEmpty(_settings.ClientId)) _settings.ClientId = PluginSettings.Load().ClientId;

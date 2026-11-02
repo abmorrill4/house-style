@@ -38,6 +38,8 @@ namespace FlareAI.Core.Settings
         /// <summary>DPAPI-protected, base64. Never the plaintext key.</summary>
         public string ProtectedApiKey { get; set; }
         public bool WriteDiagnostics { get; set; }
+        /// <summary>Log at Debug level for support. Off, the log is at Info in a release build.</summary>
+        public bool DebugLogging { get; set; }
         /// <summary>
         /// The team's style guide project: a Flare project with Content\Resources\StyleGuide\Google and \Company. One per
         /// line if there are several (later wins). Empty = the starter guide bundled with the plugin.
@@ -285,7 +287,11 @@ namespace FlareAI.Core.Settings
                 if (File.Exists(SettingsPath))
                 {
                     var s = JsonConvert.DeserializeObject<PluginSettings>(File.ReadAllText(SettingsPath, Encoding.UTF8));
-                    if (s != null) return s;
+                    if (s != null)
+                    {
+                        try { FlareAI.Core.Logging.Log.Current.Debug("settings_read", "count", SettingCount()); } catch (Exception) { }
+                        return s;
+                    }
                 }
             }
             catch (Exception) { /* corrupt file → defaults */ }
@@ -302,6 +308,12 @@ namespace FlareAI.Core.Settings
         {
             Directory.CreateDirectory(SettingsDirectory);
             File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(this, Formatting.Indented), Encoding.UTF8);
+            try { FlareAI.Core.Logging.Log.Current.Info("settings_write", "setting", "names", "count", SettingCount()); } catch (Exception) { }
+        }
+
+        private static int SettingCount()
+        {
+            return typeof(PluginSettings).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Length;
         }
     }
 }

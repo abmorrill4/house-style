@@ -39,6 +39,7 @@ namespace FlareAI.Flare
         /// <summary>The report dialog for a bug, or the background send when the writer chose that. Never throws.</summary>
         public static void Show(IWin32Window owner, string whatFailed, Exception ex, string action, string whatToDo = null, bool claimed = false)
         {
+            try { FlareAI.Core.Logging.Log.Caught("error_report", ex); } catch (Exception) { }
             try
             {
                 Diagnostics.Log("Error report offered: " + whatFailed, ex);

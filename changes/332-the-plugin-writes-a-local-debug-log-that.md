@@ -1,0 +1,1 @@
+- Turn on more detailed logging in Settings, and choose Send Diagnostics to see exactly which log files would go to support before anything is sent.
