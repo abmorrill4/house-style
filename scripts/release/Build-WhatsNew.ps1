@@ -10,7 +10,7 @@ lists bullets that break the copy rules and notes in one release that open the s
   Build-WhatsNew.ps1 -Version 0.3.5 -Out dist/stage/whats-new.md      # the file the plugin ships
   Build-WhatsNew.ps1 -Version 0.3.5 -NotesOnly                         # one version's notes, for the GitHub release
 #>
-param([Parameter(Mandatory)][string]$Version, [string]$Out, [switch]$NotesOnly, [switch]$Check,[string]$Repo = (Split-Path (Split-Path $PSScriptRoot)), [string]$Head = "HEAD")
+param([Parameter(Mandatory)][string]$Version, [string]$Out, [switch]$NotesOnly, [switch]$Check, [string]$Repo = (Split-Path (Split-Path $PSScriptRoot)), [string]$Head = "HEAD")
 $ErrorActionPreference = "Stop"
 
 # Bullets from the changes/ files added in (from, to], in the order they were added. Each has Kind, Lines (as written),
@@ -24,8 +24,8 @@ function Get-Bullets([string]$from, [string]$to) {
         $text = try { $ErrorActionPreference = "Continue"; git -C $Repo show "${to}:$f" 2>$null } catch { $null }
         if ($LASTEXITCODE -or -not $text) { continue }
         $all = @($text)
-        $all[0] = ([string]$all[0]) -replace '^(﻿|ï»¿)', ''
-        $all[0] = ([string]$all[0]) -replace '^(﻿|ï»¿)|^(﻿|ï»¿)', ''   # a byte order mark, however git's output was decoded
+        # A byte order mark, however git's output was decoded (one character, or up to three in an old code page).
+        $all[0] = ([string]$all[0]) -replace '^[^\x00-\x7F]{1,3}', ''
         $kind = "Improved"; $bad = $null
         $first = -1
         for ($i = 0; $i -lt $all.Count; $i++) { if ($all[$i].Trim()) { $first = $i; break } }
