@@ -1,0 +1,1 @@
+- Load a Word file in Build guide and get a clear message if the file is damaged or its text is larger than 20 MB.
