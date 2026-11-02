@@ -1,0 +1,2 @@
+- Stops following redirects when House Style talks to your AI address. You see a message to change the address in Settings to the final one.
+- Applies the same address check when loading the model list, so a remote http address is handled the same way everywhere.

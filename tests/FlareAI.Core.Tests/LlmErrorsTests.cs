@@ -79,6 +79,28 @@ namespace FlareAI.Core.Tests
             Assert.Contains("500", ex.Message);
         }
 
+        [Fact]
+        public void FromRedirect_AsksForTheFinalAddress_AndKeepsTheStatus()
+        {
+            var gw = LlmErrors.FromRedirect(302, true);
+            Assert.Contains("redirects", gw.Message);
+            Assert.Contains("final address", gw.Message);
+            Assert.Equal(302, gw.StatusCode);
+            Assert.DoesNotContain("vk-secret-1", gw.Message);
+            var an = LlmErrors.FromRedirect(301, false);
+            Assert.Contains("redirects", an.Message);
+            Assert.Contains("final address", an.Message);
+            Assert.Equal(301, an.StatusCode);
+            Assert.DoesNotContain("sk-secret-1", an.Message);
+        }
+
+        [Fact]
+        public void IsRedirect_IsTrueOnlyFor3xx()
+        {
+            foreach (var s in new[] { 301, 302, 307, 308 }) Assert.True(LlmErrors.IsRedirect(s));
+            foreach (var s in new[] { 200, 299, 400, 401 }) Assert.False(LlmErrors.IsRedirect(s));
+        }
+
         private sealed class Throwing : ILlmClient
         {
             private readonly Exception _ex;
