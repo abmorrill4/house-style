@@ -866,6 +866,24 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void TheDrawerToggleGlyph_IsLargerThanTheListFont()
+        {
+            WithByFile((panel, form, list) =>
+            {
+                var toggle = DrawerToggle(panel);
+                Assert.True(toggle.Font.Size > panel.Font.Size, "the glyph is " + toggle.Font.Size + " pt");
+                Assert.True(toggle.Height >= toggle.Font.Height, "the glyph is cut off");
+                toggle.PerformClick();
+                Pump(null, 300);
+                Assert.Equal("▴", toggle.Text);
+                Assert.True(toggle.Font.Size > panel.Font.Size);
+                // Restore the drawer, because its state is static and later tests rely on it.
+                toggle.PerformClick();
+                Pump(null, 300);
+            });
+        }
+
+        [Fact]
         public void HidingTheDrawer_ShowsEightRows_AndTheBarKeepsTheSelectedTitle_UntilItIsShownAgain()
         {
             WithByFile((panel, form, list) =>

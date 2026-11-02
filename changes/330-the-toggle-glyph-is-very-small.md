@@ -1,0 +1,1 @@
+- Makes the arrow on the Show details and Hide details button in the House Style Issues pane larger, so it is easier to see.
