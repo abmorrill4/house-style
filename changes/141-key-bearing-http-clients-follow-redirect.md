@@ -1,0 +1,1 @@
+- Stops following redirects when House Style talks to your AI address. You see a message to change the address in Settings to the final one.
