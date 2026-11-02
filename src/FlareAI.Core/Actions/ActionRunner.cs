@@ -1055,6 +1055,9 @@ namespace FlareAI.Core.Actions
 
         // ---- rewrite / ask ---------------------------------------------------------------------
 
+        /// <summary>The instruction a one-click rewrite sends. Pass it to Rewrite, so it is validated, linted and applied like any rewrite.</summary>
+        public string PresetInstruction(RewritePreset p) { return _prompts.BuildPreset(p); }
+
         public RewriteProposal Rewrite(IDocumentAdapter doc, string instruction)
         {
             return Rewrite(doc, PickBlocks(doc), instruction);

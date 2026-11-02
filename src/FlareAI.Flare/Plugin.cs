@@ -76,7 +76,7 @@ namespace FlareAI.Flare
                 CreateToolStrip();
                 try { _host.GetEditorContext().DocumentSwitched += OnDocumentSwitched; } catch (Exception ex) { Diagnostics.Log("subscribe", ex); }
                 try { _host.GetCompilerContext().CompileComplete += OnCompileComplete; } catch (Exception ex) { Diagnostics.Log("subscribe compile", ex); }
-                _editor = new EditorIntegration(_host, LintRunner, () => _nav.GetParentForm(), WithSetup(OnLintTopic), WithSetup(OnRewrite), WithSetup(OnAsk), WithSetup(OnLintProject));
+                _editor = new EditorIntegration(_host, LintRunner, () => _nav.GetParentForm(), WithSetup(OnLintTopic), WithSetup(OnRewrite), WithSetup(OnAsk), WithSetup(OnLintProject), RawPreset);
                 try { _host.GetCompilerContext().CompileStart += OnCompileStart; } catch (Exception ex) { Diagnostics.Log("subscribe compile start", ex); }
                 _editor.AttachAll();
                 _activated = true;
@@ -350,6 +350,8 @@ namespace FlareAI.Flare
             if (c == Commands.LintRulesOnly) return () => OnChooseChecks(true);
             if (c == Commands.LintRulesAndAi) return () => OnChooseChecks(false);
             if (c == Commands.Rewrite) return OnRewrite;
+            if (c == Commands.Simplify) return () => OnPreset(Commands.Simplify, RewritePresets.Simplify);
+            if (c == Commands.Shorten) return () => OnPreset(Commands.Shorten, RewritePresets.Shorten);
             if (c == Commands.Ask) return OnAsk;
             if (c == Commands.LintProject) return OnLintProject;
             if (c == Commands.ShowIssues) return () => { if (!PanelHost.Reopen(_nav.GetParentForm())) OnLintTopic(); };
@@ -448,6 +450,12 @@ namespace FlareAI.Flare
         }
 
         private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
+
+        /// <summary>A one-click rewrite (Simplify, Shorten): Rewrite's path with the preset's instruction.</summary>
+        private void OnPreset(CommandInfo c, RewritePreset p) { RunAction(c.Label, ActionKind.Rewrite, null, false, p); }
+
+        /// <summary>The right-click preset items: the same handler as the ribbon's, with first-run setup offered once.</summary>
+        private void RawPreset(CommandInfo c) { WithSetup(RawHandlerFor(c))(); }
 
         private void OnAsk()
         {
@@ -874,7 +882,7 @@ namespace FlareAI.Flare
             }
         }
 
-        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false)
+        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false, RewritePreset preset = null)
         {
             try
             {
@@ -886,6 +894,7 @@ namespace FlareAI.Flare
                 }
                 var runner = NewRunner(adapter, true, kind == ActionKind.CheckStyle);
                 if (runner == null) return;
+                if (preset != null) instruction = runner.PresetInstruction(preset);
                 runner.LogChecks = rulesOnly ? "rules" : "rules+ai";
                 if (kind == ActionKind.CheckStyle)
                 {

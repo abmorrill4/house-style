@@ -170,6 +170,23 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void ThePresetsAreInTheRewriteMenu()
+        {
+            Assert.Equal(new[] { FlareAI.Flare.Commands.Simplify, FlareAI.Flare.Commands.Shorten }, FlareAI.Flare.Commands.SplitMenus[FlareAI.Flare.Commands.Rewrite].ToArray());
+            Assert.Equal("Simplify", FlareAI.Flare.Commands.Simplify.Label);
+            Assert.Equal("Shorten", FlareAI.Flare.Commands.Shorten.Label);
+            Assert.Equal("Rewrite the selected text in plainer words.", FlareAI.Flare.Commands.Simplify.Tooltip);
+            Assert.Equal("Rewrite the selected text with fewer words.", FlareAI.Flare.Commands.Shorten.Tooltip);
+            foreach (var p in new[] { FlareAI.Flare.Commands.Simplify, FlareAI.Flare.Commands.Shorten })
+            {
+                Assert.DoesNotContain(p, FlareAI.Flare.Commands.All);
+                foreach (var role in new[] { FlareAI.Core.Settings.UserRole.Writer, FlareAI.Core.Settings.UserRole.Owner })
+                    Assert.DoesNotContain(p, FlareAI.Flare.Commands.Ribbon(role));
+            }
+            Assert.Equal(new[] { FlareAI.Flare.Commands.LintTopic, FlareAI.Flare.Commands.Rewrite, FlareAI.Flare.Commands.Ask }, FlareAI.Flare.Commands.Context.ToArray());
+        }
+
+        [Fact]
         public void CommandLabelsAreNotRetypedOutsideTheTable()
         {
             var root = RepoRoot();

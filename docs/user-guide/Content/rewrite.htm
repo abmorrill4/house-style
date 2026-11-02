@@ -6,6 +6,7 @@
     <body>
         <h1>Rewrite text</h1>
 <p>Select the paragraphs to rewrite, and then select <b>House Style &gt; Rewrite</b>. To give an instruction, such as shorten to two sentences, select <b>House Style &gt; Ask AI</b> instead.</p>
+<p>The arrow next to <b>Rewrite</b>, and the right-click <b>Rewrite</b> item, list <b>Simplify</b> and <b>Shorten</b>. Each one runs without an instruction. A team can change their wording in the FlareAI/prompts folder of the team style guide, in preset-simplify.md and preset-shorten.md.</p>
 <p>The AI changes only the wording. It can't change variables, cross-references, snippets, conditions, or formatting, because the AI never gets or writes markup: it gets the text pieces of each paragraph and returns new text for the pieces it changes. The result arrives as word-level tracked changes in one undo step.</p>
 <p>Before it applies anything, the plugin checks the AI's result against the style rules. If the rewrite still breaks a rule, the AI gets one more try, with the remaining problems listed.</p>
 <h2>When the structure must change</h2>
