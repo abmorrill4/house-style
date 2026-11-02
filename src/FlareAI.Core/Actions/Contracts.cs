@@ -255,7 +255,15 @@ namespace FlareAI.Core.Actions
                        P("alt", Str("One sentence of at most " + AltMaxLength + " characters (count them); empty when decorative.")));
         }
 
-        /// <summary>Alt text cut to <see cref="AltMaxLength"/> at a word boundary, without a dangling comma or "and".</summary>
+        /// <summary>A plain answer to a question about the text. It never carries an edit.</summary>
+        public static JObject AnswerSchema()
+        {
+            return Obj(P("answer", Str("Plain text answer to the question. When it rests on a style rule, name the rule by its id in [brackets].")),
+                       P("is_edit_request", Bool("True when the author asks for the text to be changed, rewritten or fixed instead of asking a question.")),
+                       P("rule_ids", Arr(Str("Id of a style-guide rule the answer relies on, from the [brackets] in the guide."))));
+        }
+
+        /// <summary>Alt text cut to<see cref="AltMaxLength"/> at a word boundary, without a dangling comma or "and".</summary>
         public static string FitAlt(string alt)
         {
             alt = (alt ?? "").Trim();

@@ -12,7 +12,16 @@ using FlareAI.Core.Style;
 
 namespace FlareAI.Core.Actions
 {
-    /// <summary>Outcome of a Rewrite/Ask: the proposed nodes (already imported into the document) plus validation.</summary>
+    /// <summary>The answer to a question about the text. Plain text; nothing in it is applied.</summary>
+    public sealed class AnswerResult
+    {
+        public string Text;
+        public bool IsEditRequest;
+        /// <summary>The guide rules the answer relies on, as "name (id)". Ids the guide doesn't have are dropped.</summary>
+        public List<string> Rules = new List<string>();
+    }
+
+    /// <summary>Outcome of a Rewrite/Ask:the proposed nodes (already imported into the document) plus validation.</summary>
     public sealed class RewriteProposal
     {
         public IList<XmlNode> OriginalBlocks { get; set; }
@@ -70,6 +79,11 @@ namespace FlareAI.Core.Actions
         private readonly IStyleService _style;
 
         private readonly string _project;
+
+        /// <summary>What an answer says when the question was really a request for a change.</summary>
+        public const string EditRequestAnswer = "This is a request for a change. Choose Make a change to apply it.";
+        /// <summary>Added to an answer that relies on no style rule.</summary>
+        public const string NoRuleAnswer = "No style rule applies.";
 
         /// <summary>Raised on the writing thread just before House Style writes to a document (its path, may be null).</summary>
         public static event Action<string> Writing;
@@ -1180,6 +1194,43 @@ namespace FlareAI.Core.Actions
             proposal.Notes = notes;
             proposal.RemainingLint = proposal.Validation.IsValid ? Significant(SafeLint(proposal.ProposedBlocks, notes)) : new List<StyleFinding>();
             return proposal;
+        }
+
+        /// <summary>
+        /// Answers a question about the blocks. Read-only: nothing here writes to the document, and the answer never goes
+        /// near <see cref="Apply"/>. A request for a change gets the fixed <see cref="EditRequestAnswer"/> instead.
+        /// </summary>
+        public AnswerResult Answer(IDocumentAdapter doc, IList<XmlNode> blocks, string question)
+        {
+            var view = AcceptedView.Of(blocks);
+            var resp = Ask("answer", _prompts.BuildAnswer(question, XhtmlFragment.Serialize(view)), Contracts.AnswerSchema(), null, ScopeOf(blocks));
+            var json = resp.Json;
+            var result = new AnswerResult();
+            var edit = json == null ? null : json["is_edit_request"];
+            if (edit != null && edit.Type == JTokenType.Boolean && (bool)edit)
+            {
+                result.IsEditRequest = true;
+                result.Text = EditRequestAnswer;
+                return result;
+            }
+            var answer = json == null ? null : json["answer"];
+            var text = answer == null || answer.Type != JTokenType.String ? "" : ((string)answer ?? "").Trim();
+            var ids = json == null ? null : json["rule_ids"] as JArray;
+            if (ids != null)
+                foreach (var t in ids)
+                {
+                    var rule = t.Type == JTokenType.String ? RuleFor((string)t) : null;
+                    if (rule == null) continue;
+                    var name = rule.Display + " (" + rule.Id + ")";
+                    if (!result.Rules.Contains(name)) result.Rules.Add(name);
+                }
+            if (result.Rules.Count == 0)
+            {
+                if (text.IndexOf('[') < 0) text += "\n\n" + NoRuleAnswer;
+            }
+            else text += "\n\nRule: " + string.Join("; ", result.Rules.ToArray());
+            result.Text = text;
+            return result;
         }
 
         private RewriteProposal Propose(IDocumentAdapter doc, IList<XmlNode> blocks, IList<XmlNode> view, string user, string task)

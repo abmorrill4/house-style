@@ -454,7 +454,8 @@ namespace FlareAI.Flare
             using (var f = new AskForm())
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
-                RunAction(Commands.Ask.Label, ActionKind.Ask, f.Instruction);   // title of the result window
+                if (f.Mode == AskMode.None) return;
+                RunAction(Commands.Ask.Label, ActionKind.Ask, f.Instruction, false, f.Mode == AskMode.Question);   // title of the result window
             }
         }
 
@@ -874,7 +875,7 @@ namespace FlareAI.Flare
             }
         }
 
-        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false)
+        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false, bool answer = false)
         {
             try
             {
@@ -893,8 +894,9 @@ namespace FlareAI.Flare
                     ShowFindings(adapter, runner, true, rulesOnly);
                     return;
                 }
-                using (var f = new ResultForm(title, runner, adapter, kind, instruction))
+                using (var f = new ResultForm(title, runner, adapter, kind, instruction) { Answer = answer })
                 {
+                    if (answer) { f.ShowDialog(); return; }   // an answer changes nothing, so no checklist or first-time note
                     if (f.ShowDialog() != DialogResult.OK) return;
                 }
                 GettingStarted.Mark(ChecklistItem.AiRewrite);

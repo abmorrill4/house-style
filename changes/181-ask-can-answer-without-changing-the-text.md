@@ -1,0 +1,1 @@
+- Ask AI now lets you choose Ask a question or Make a change. A question gets an answer in a result window and your topic stays as it is.

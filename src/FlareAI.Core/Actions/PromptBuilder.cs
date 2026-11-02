@@ -139,6 +139,12 @@ namespace FlareAI.Core.Actions
             return Contracts.RewriteFields + "\n\n" + Embedded("action-rewrite-runs.md").Replace("{{INSTRUCTION}}", task).Replace("{{LINT}}", string.IsNullOrEmpty(lint) ? "(none)" : lint).Replace("{{FRAGMENT}}", marked ?? "");
         }
 
+        /// <summary>A question about the text. The answer is plain text; nothing in it is applied.</summary>
+        public string BuildAnswer(string question, string fragment)
+        {
+            return Embedded("action-answer.md").Replace("{{QUESTION}}", (question ?? "").Trim()).Replace("{{FRAGMENT}}", fragment ?? "");
+        }
+
         /// <summary>Notes, an old guide, or another tool's prompt → candidate rules (JSON array).</summary>
         public string BuildExtract(string notes)
         {
@@ -162,7 +168,7 @@ namespace FlareAI.Core.Actions
         public string OverrideFolder { get; set; }
 
         /// <summary>Names of the templates a team can override.</summary>
-        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-rewrite-runs.md" };
+        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-rewrite-runs.md", "action-answer.md" };
 
         private string Embedded(string name)
         {

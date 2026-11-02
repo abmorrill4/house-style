@@ -32,6 +32,7 @@ namespace FlareAI.Core.Llm
             { "review", Standard },        // per-block style review: judgment + exact citations
             { "rewrite", Standard },       // run-level edits for a block
             { "restructure", Standard },   // XHTML edits that change structure (validated)
+            { "answer", Standard },        // a question about the text: plain answer, no edit
             { "refine", Fast },            // one proposal, re-asked
             { "alt", Standard },           // vision: UI labels must be exact
             { "assist", Fast },            // description, keywords, synonyms, micro content, glossary
@@ -50,6 +51,7 @@ namespace FlareAI.Core.Llm
         {
             { "review", "1h" }, { "rewrite", "1h" }, { "restructure", "1h" },
             { "draft", "5m" }, { "extract", "5m" }, { "refine", "5m" },
+            { "answer", "5m" },
             { "alt", "none" }, { "assist", "none" },
         };
 

@@ -70,6 +70,80 @@ namespace FlareAI.Core.Tests
             Assert.Contains("make it a bulleted list", llm.Requests[0].User);
         }
 
+        private const string PlainAnswer = "{\"answer\":\"The second sentence is long.\",\"is_edit_request\":false,\"rule_ids\":[]}";
+
+        [Fact]
+        public void Answer_ChangesNothing()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => PlainAnswer);
+            var runner = Runner(llm);
+            var before = doc.Document.OuterXml;
+
+            var result = runner.Answer(doc, runner.PickBlocks(doc), "What is unclear?");
+
+            Assert.Equal(before, doc.Document.OuterXml);
+            Assert.Empty(doc.Replacements);
+            Assert.Empty(doc.TextOperations);
+            Assert.False(result.IsEditRequest);
+            Assert.Contains("The second sentence is long.", result.Text);
+            Assert.Contains("No style rule applies.", result.Text);
+            Assert.Single(llm.Requests);
+            Assert.Equal("answer", llm.Requests[0].Task);
+            Assert.NotNull(llm.Requests[0].Schema);
+            Assert.Contains("What is unclear?", llm.Requests[0].User);
+        }
+
+        [Fact]
+        public void Answer_EditRequest_ReturnsFixedCopyAndChangesNothing()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => "{\"answer\":\"Here is a rewrite\",\"is_edit_request\":true,\"rule_ids\":[]}");
+            var runner = Runner(llm);
+            var before = doc.Document.OuterXml;
+
+            var result = runner.Answer(doc, runner.PickBlocks(doc), "Rewrite this");
+
+            Assert.Equal(ActionRunner.EditRequestAnswer, result.Text);
+            Assert.True(result.IsEditRequest);
+            Assert.Equal(before, doc.Document.OuterXml);
+            Assert.Empty(doc.Replacements);
+            Assert.Empty(doc.TextOperations);
+        }
+
+        [Fact]
+        public void Answer_NamesTheRule()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => "{\"answer\":\"Say administrators [company:terminology/1].\",\"is_edit_request\":false,\"rule_ids\":[\"company:terminology/1\",\"made-up\"]}");
+            var runner = new ActionRunner(llm, new PromptBuilder(null), 1024, new FakeStyleService());
+
+            var result = runner.Answer(doc, runner.PickBlocks(doc), "Does this match the glossary?");
+
+            Assert.Single(result.Rules);
+            Assert.Contains("company:terminology/1", result.Rules[0]);
+            Assert.Contains("Rule:", result.Text);
+            Assert.DoesNotContain("made-up", result.Text);
+            Assert.DoesNotContain("No style rule applies.", result.Text);
+        }
+
+        [Fact]
+        public void Answer_EmptyTopic_NoCall()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.Document.SelectSingleNode("//body").RemoveAll();
+            var llm = new FakeLlmClient(r => PlainAnswer);
+            var runner = Runner(llm);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => runner.Answer(doc, runner.PickBlocks(doc), "What is unclear?"));
+
+            Assert.Contains("Nothing to work on", ex.Message);
+            Assert.Empty(llm.Requests);
+        }
+
         [Fact]
         public void CheckStyle_ParsesFindings()
         {

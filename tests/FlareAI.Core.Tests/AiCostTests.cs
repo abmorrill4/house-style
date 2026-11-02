@@ -534,6 +534,27 @@ namespace FlareAI.Core.Tests
             Assert.Contains(because, refined.Suggestion);
         }
 
+        private static int AnswerCalls()
+        {
+            return FlareAI.Core.Llm.Usage.Snapshot().Where(l => string.Equals(l.Task, "answer", StringComparison.OrdinalIgnoreCase)).Sum(l => l.Calls);
+        }
+
+        [Fact]
+        public void Answer_CountsAsOneCall()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => "{\"answer\":\"It is clear.\",\"is_edit_request\":false,\"rule_ids\":[]}");
+            var runner = Runner(llm);
+            var blocks = runner.PickBlocks(doc);
+
+            var before = AnswerCalls();
+            runner.Answer(doc, blocks, "Is this clear?");
+
+            Assert.Single(llm.Requests);
+            Assert.Equal(before + 1, AnswerCalls());
+        }
+
         [Fact]
         public void TeamCanChangeACacheLifetime()
         {

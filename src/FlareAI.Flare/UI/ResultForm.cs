@@ -41,6 +41,9 @@ namespace FlareAI.Flare.UI
         /// <summary>The route for wording edits: "rewrite", or "draft" for owner edits to the style guide.</summary>
         public string Task { get; set; } = "rewrite";
 
+        /// <summary>True to answer a question about the text: plain text, nothing applied, nothing written to the topic.</summary>
+        public bool Answer { get; set; }
+
         private bool _restructuring;
         private readonly Button _restructure;
 
@@ -95,13 +98,18 @@ namespace FlareAI.Flare.UI
             _worker = new BackgroundWorker { WorkerSupportsCancellation = true };
             _worker.DoWork += Work;
             _worker.RunWorkerCompleted += Done;
-            Shown += (s, e) => _worker.RunWorkerAsync();
+            Shown += (s, e) =>
+            {
+                if (Answer) { Text = "House Style — Answer"; _apply.Visible = false; }
+                _worker.RunWorkerAsync();
+            };
             FormClosing += (s, e) => { if (_worker.IsBusy) _worker.CancelAsync(); };
         }
 
         private void Work(object sender, DoWorkEventArgs e)
         {
             var blocks = _blocks ?? _runner.PickBlocks(_doc);
+            if (Answer) { e.Result = _runner.Answer(_doc, blocks, _instruction); return; }
             e.Result = _restructuring ? _runner.Restructure(_doc, blocks, _instruction) : _runner.Rewrite(_doc, blocks, _instruction, Lint, Task);
         }
 
@@ -115,6 +123,17 @@ namespace FlareAI.Flare.UI
                 Diagnostics.Log(_title, e.Error); ErrorReporter.Background(this, "House Style couldn't finish \"" + _title + "\".", e.Error);
                 _status.Text = "Failed.";
                 _output.Text = e.Error is LlmException || e.Error is InvalidOperationException ? e.Error.Message : e.Error.ToString();
+                _close.Text = "Close";
+                return;
+            }
+
+            if (Answer)
+            {
+                var a = (AnswerResult)e.Result;
+                _status.Text = "Nothing in the topic was changed.";
+                _output.Font = SystemFonts.MessageBoxFont;
+                _output.Text = a.Text;
+                _output.Visible = true; _diff.Visible = false; _apply.Visible = false; _restructure.Visible = false;
                 _close.Text = "Close";
                 return;
             }
@@ -170,6 +189,7 @@ namespace FlareAI.Flare.UI
 
         private void OnApply()
         {
+            if (Answer) return;   // an answer never reaches the apply code
             try
             {
                 AppliedSummary = _runner.Apply(_doc, _proposal, "House Style: " + _title);
