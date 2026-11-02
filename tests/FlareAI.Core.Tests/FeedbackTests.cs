@@ -91,6 +91,60 @@ namespace FlareAI.Core.Tests
             Assert.False((bool)o["automatic"]);
         }
 
+        [Theory]
+        [InlineData("client_secret=VALUEclient1", "VALUEclient1", "client_secret")]
+        [InlineData("CLIENT_SECRET: VALUEclient2", "VALUEclient2", "CLIENT_SECRET")]
+        [InlineData("access_token=VALUEaccess1", "VALUEaccess1", "access_token")]
+        [InlineData("ANTHROPIC_API_KEY=VALUEanth1", "VALUEanth1", "ANTHROPIC_API_KEY")]
+        [InlineData("anthropic_api_key=VALUElow12", "VALUElow12", "anthropic_api_key")]
+        [InlineData("x-bf-vk: VALUEvk1234", "VALUEvk1234", "x-bf-vk")]
+        [InlineData("\"password\": \"VALUEpass1\"", "VALUEpass1", "password")]
+        [InlineData("\"pwd\":\"VALUEpwd1\"", "VALUEpwd1", "pwd")]
+        [InlineData("api key: VALUEapi1", "VALUEapi1", "api key")]
+        [InlineData("apikey=VALUEapi2", "VALUEapi2", "apikey")]
+        [InlineData("token='VALUEsingle1'", "VALUEsingle1", "token")]
+        [InlineData("Authorization: Token VALUEtok1", "VALUEtok1", "Authorization")]
+        [InlineData("Authorization: Bearer VALUEbear1", "VALUEbear1", "Authorization")]
+        [InlineData("Authorization: Basic VALUEbasic1", "VALUEbasic1", "Authorization")]
+        [InlineData("Authorization: ApiKey VALUEapik1", "VALUEapik1", "Authorization")]
+        [InlineData("\"clientSecret\": \"VALUEcamel1\"", "VALUEcamel1", "clientSecret")]
+        public void ANamedSecret_LosesItsValue_AndKeepsItsName(string line, string value, string name)
+        {
+            var ctx = Context("2026-10-22 10:00:00.000  " + line + "\n");
+            var reports = new[]
+            {
+                ReportBuilder.ToJson(ReportBuilder.ForProblem(ctx, "Something broke.", null, true)),
+                ReportBuilder.ToJson(ReportBuilder.ForError(ctx, Thrown("Failed: " + line), "House Style couldn't lint the topic.", null, false))
+            };
+            // A name inside quotation marks is already replaced by "…" along with the quoted text, before this rule runs.
+            var nameIsQuoted = line.Contains("\"" + name + "\"");
+            foreach (var json in reports)
+            {
+                Assert.DoesNotContain(value, json);
+                if (!nameIsQuoted) Assert.Contains(name, json);
+            }
+        }
+
+        [Fact]
+        public void OrdinaryWords_ThatContainSecretNames_AreNotChanged()
+        {
+            const string Line = "monkey=donkey1234 keyboard: layout1234 max_tokens=4096 tokens: counted1234 turkey=sandwich1";
+            var ctx = Context("2026-10-22 10:00:00.000  " + Line + "\n");
+            var json = ReportBuilder.ToJson(ReportBuilder.ForProblem(ctx, "Something broke.", null, true));
+            var log = (string)JObject.Parse(json)["diag_log_tail"];
+            foreach (var part in Line.Split(' ')) Assert.Contains(part, log);
+            Assert.Contains(Line, log);
+            Assert.Equal(Line, ReportBuilder.RedactNames(Line));
+        }
+
+        [Fact]
+        public void ATypedNote_IsNotChangedByTheNamedSecretRule()
+        {
+            var ctx = Context();
+            var json = ReportBuilder.ToJson(ReportBuilder.ForProblem(ctx, "My client_secret=WRITERTYPED99 is in the doc.", null, false));
+            Assert.Contains("client_secret=WRITERTYPED99", json);
+        }
+
         [Fact]
         public void AReport_HasNoEmailAddress_WriterName_OrFolderPath()
         {
