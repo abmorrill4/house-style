@@ -18,7 +18,7 @@ namespace FlareAI.Flare.UI
         private readonly ListBox _layers;
         private readonly TextBox _feedback;
         private readonly Button _addGuide, _removeGuide, _browseFeedback, _refreshModels, _test, _runSetup;
-        private readonly Label _guideStatus, _feedbackStatus, _modelStatus, _testResult, _keyLabel, _keyStatus;
+        private readonly Label _lintGuideStatus, _guideStatus, _feedbackStatus, _modelStatus, _testResult, _keyLabel, _keyStatus;
         private readonly CheckBox _projectLayer, _llmExport, _markers, _live, _onSave, _beforeBuild, _diag, _debugLog, _autoUpdate, _autoReports;
         private readonly Label _updateStatus;
         private readonly StackLayout _guide, _adv;
@@ -152,12 +152,14 @@ namespace FlareAI.Flare.UI
 
             // ---- Checking -----------------------------------------------------------------------------------------
             var c = new StackLayout(checkPage, scale);
+            _lintGuideStatus = c.Status(1);   // grows with its text (FitHeight)
             c.Note("Linting uses only the rules, with no AI and no cost. It never stops you from saving or building.", true);
             _live = c.Check("Lint my writing as I type", _settings.LiveCheck, true);
             _onSave = c.Check("When I save a topic, tell me how many issues it has", _settings.CheckOnSave, true);
             _beforeBuild = c.Check("When I start a build, lint the whole project", _settings.ReportBeforeBuild, true);
             _markers = c.Check("Mark paragraphs that have issues with a bar in the margin", _settings.ShowMarkers, true);
             c.Reflow();
+            _lintGuideStatus.TextChanged += (s, e) => c.FitHeight(_lintGuideStatus);
 
             // ---- Advanced -----------------------------------------------------------------------------------------
             var a = _adv = new StackLayout(advPage, scale);
@@ -237,6 +239,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_addGuide, "Add a team style guide folder");
             A11y.Name(_removeGuide, "Remove the selected style guide folder");
             A11y.Name(_guideStatus, "Style guide status");
+            A11y.Name(_lintGuideStatus, "Team style guide status");
             A11y.Name(_browseFeedback, "Browse for the team feedback folder");
             A11y.Name(_feedback, "Team feedback folder", "Shared folder where review decisions are pooled. Empty keeps them personal.");
             A11y.Name(_feedbackStatus, "Team feedback folder status");
@@ -492,15 +495,43 @@ namespace FlareAI.Flare.UI
         private void CheckGuides()
         {
             var paths = _layers.Items.Cast<string>().ToList();
-            if (paths.Count == 0) { _guideSeq++; _guideStatus.Text = "Using Google's guide plus your own changes."; return; }
+            if (paths.Count == 0)
+            {
+                _guideSeq++;
+                _guideStatus.Text = "Using Google's guide plus your own changes.";
+                _lintGuideStatus.Text = "Using Google's guide plus your own changes.";
+                return;
+            }
             var seq = ++_guideSeq;
             _guideStatus.Text = "Checking…";
+            _lintGuideStatus.Text = "Checking…";
             var w = new BackgroundWorker();
-            w.DoWork += (s, e) => e.Result = string.Join("\n", paths.Select(p => GuideFolderCheck.Check(p).Message).ToArray());
+            w.DoWork += (s, e) =>
+            {
+                var details = new List<string>();
+                var infos = new List<GuideInUseInfo>();
+                foreach (var p in paths)
+                {
+                    var check = GuideFolderCheck.Check(p);
+                    var info = GuideInUse.Describe(p, check);
+                    if (info != null) infos.Add(info);
+                    // The details keep the check's text for a folder that can be reached. A saved copy in use says so instead.
+                    details.Add(info != null && info.State == GuideState.Offline ? info.Line : check.Message);
+                }
+                e.Result = new[] { string.Join("\n", details.ToArray()), GuideInUse.Lines(infos) ?? "Using Google's guide plus your own changes." };
+            };
             w.RunWorkerCompleted += (s, e) =>
             {
                 if (_closed || seq != _guideSeq) return;
-                _guideStatus.Text = e.Error != null ? "Couldn't check these folders." : (string)e.Result;
+                if (e.Error != null)
+                {
+                    _guideStatus.Text = "Couldn't check these folders.";
+                    _lintGuideStatus.Text = "Couldn't check these folders.";
+                    return;
+                }
+                var result = (string[])e.Result;
+                _guideStatus.Text = result[0];
+                _lintGuideStatus.Text = result[1];
             };
             w.RunWorkerAsync();
         }

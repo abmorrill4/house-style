@@ -83,6 +83,12 @@ namespace FlareAI.Scenarios.Guide
                 Assert.DoesNotContain(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
                 Assert.All(found.Where(f => f.Layer == "google"), f => Assert.Equal("Google", runner.SourceName(f)));
                 Assert.Null(runner.GuideNotice);
+                // #348: the status names the guide and counts its rules, with the folder name only.
+                var status = runner.GuideStatus;
+                Assert.NotNull(status);
+                Assert.StartsWith("Using your team style guide TeamGuide with ", status);
+                Assert.Matches(@"with \d+ rules\.$", status);
+                Assert.DoesNotContain(i.TeamGuide, status);
             }
         }
 
@@ -99,6 +105,7 @@ namespace FlareAI.Scenarios.Guide
                 Assert.NotEmpty(starter);
                 Assert.All(starter, f => Assert.Equal(StyleEngine.StarterRules, runner.SourceName(f)));
                 Assert.Null(runner.GuideNotice);
+                Assert.Null(runner.GuideStatus);   // Google's guide plus the writer's own changes: no team line
             }
         }
 
@@ -120,10 +127,16 @@ namespace FlareAI.Scenarios.Guide
                 Assert.Contains(found, f => f.Layer == "company" && runner.SourceName(f) == StyleEngine.StarterRules);
                 Assert.DoesNotContain(found, f => f.RuleId == ThisPage);   // the shipped defaults still apply
                 Assert.Contains("can't be reached", File.ReadAllText(ws.DiagLog));
+                var missing = runner.GuideStatus;
+                Assert.NotNull(missing);
+                Assert.Contains("Can't reach TeamGuide.", missing);
+                Assert.DoesNotContain(i.TeamGuide, missing);   // the folder name, not the path
 
                 Directory.Move(away, i.TeamGuide);
                 found = runner.LintFiles(new[] { ws.PathOf(Topic) });
                 Assert.Null(runner.GuideNotice);
+                Assert.Contains("TeamGuide", runner.GuideStatus);
+                Assert.Contains("rules", runner.GuideStatus);
                 Assert.Contains(found, f => f.Layer == "company");
                 Assert.DoesNotContain(found, f => runner.SourceName(f) == StyleEngine.StarterRules);
             }
@@ -142,6 +155,8 @@ namespace FlareAI.Scenarios.Guide
                 ActionRunner runner;
                 var found = LintProject(ws, i, out runner);
                 Assert.Equal(StyleEngine.EmptyNotice + " The folder is " + empty + ".", runner.GuideNotice);
+                Assert.Contains("no rules yet", runner.GuideStatus);
+                Assert.Contains("EmptyGuide", runner.GuideStatus);
                 Assert.DoesNotContain(found, f => f.Layer == "company");
             }
         }

@@ -348,6 +348,21 @@ namespace FlareAI.Core.Actions
             }
         }
 
+        /// <summary>
+        /// One line saying which team style guide is in use and its rule count, or why it isn't. Null when the writer has no
+        /// team guide. Read from the guides the lint loaded: it never checks the folder.
+        /// </summary>
+        public string GuideStatus
+        {
+            get
+            {
+                var engine = _style as StyleEngine;
+                if (engine == null) return null;
+                try { return FlareAI.Core.Settings.GuideInUse.Lines(engine.Compose(_project).TeamGuides); }
+                catch (Exception ex) { Diagnostics.Log("guide status", ex); return null; }
+            }
+        }
+
         private Composition _comp;
 
         /// <summary>

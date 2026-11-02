@@ -1,0 +1,2 @@
+- Settings and the Issues pane now show which team style guide House Style is using and how many rules it has.
+- If the team style guide has no rules, can't be reached or can't be read, you see why and what to do.

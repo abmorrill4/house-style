@@ -148,6 +148,72 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        // ---- #348: the pane header says which team style guide is in use ------------------------------------------
+
+        private static string GuideLine(FindingsPanel p)
+        {
+            var state = p.E2EState();
+            return (string)state.GetType().GetProperty("guideLine").GetValue(state, null);
+        }
+
+        /// <summary>A pane over a runner that reads the style guide in <paramref name="team"/> (a folder that may not exist), done checking.</summary>
+        private static void WithGuidePane(string team, Action<FindingsPanel> body)
+        {
+            Sta(() =>
+            {
+                var bundled = FlareAI.TestKit.Workspace.Repo.StyleGuide;
+                var engine = new FlareAI.Core.Style.StyleEngine(new[] { team }, bundled) { Fallback = () => new[] { bundled } };
+                var doc = FlareSimDocument.FromXml(TwoParagraphs);
+                var runner = new ActionRunner(new ScriptedLlmClient().When(r => true, r => ScriptedLlmClient.Reply.Text(Rewords(r))(r)), new PromptBuilder(null), 1024, engine);
+                var panel = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false,
+                                             FormBorderStyle = FormBorderStyle.None, ClientSize = new Size(300, 800), Font = SystemFonts.MessageBoxFont })
+                {
+                    panel.Dock = DockStyle.Fill;
+                    form.Controls.Add(panel);
+                    form.Show();
+                    panel.Begin();
+                    Pump(() => All(panel).OfType<ProgressBar>().All(p => !p.Visible) && !Status(panel).Contains("Linting"), 15000);
+                    body(panel);
+                }
+            });
+        }
+
+        [Fact]
+        public void TheHeader_NamesTheTeamGuide_AndItsRuleCount()
+        {
+            var team = System.IO.Path.Combine(_root, "TeamGuide");
+            System.IO.Directory.CreateDirectory(team);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(team, "TeamGuide.flprj"), "<CatapultProject />");
+            var words = System.IO.Path.Combine(team, @"Content\Resources\StyleGuide\Company");
+            System.IO.Directory.CreateDirectory(words);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(words, "Words.htm"),
+                "<html><body><h1>Words</h1><table><tr><th>Avoid</th><th>Use</th><th>Example</th></tr><tr><td>frobnicate</td><td>adjust</td><td>We frobnicate it.</td></tr></table></body></html>");
+            WithGuidePane(team, panel =>
+            {
+                var line = GuideLine(panel);
+                Assert.NotNull(line);
+                Assert.StartsWith("Using your team style guide TeamGuide with ", line);
+                Assert.Matches(@"with \d+ rules?\.$", line);
+                Assert.DoesNotContain(_root, line);
+                Assert.Contains(All(panel).OfType<Label>(), l => l.AccessibleName == "Team style guide" && l.Visible);
+            });
+        }
+
+        [Fact]
+        public void TheHeader_SaysWhyAMissingTeamGuideIsNotUsed()
+        {
+            var team = System.IO.Path.Combine(_root, "Gone", "TeamGuide");
+            WithGuidePane(team, panel =>
+            {
+                var line = GuideLine(panel);
+                Assert.NotNull(line);
+                Assert.StartsWith("Can't reach TeamGuide.", line);
+                Assert.Contains("network, VPN or synced drive", line);
+                Assert.DoesNotContain(_root, line);
+            });
+        }
+
         private static IEnumerable<Control> All(Control c)
         {
             foreach (Control k in c.Controls) { yield return k; foreach (var d in All(k)) yield return d; }
