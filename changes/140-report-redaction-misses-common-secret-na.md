@@ -1,0 +1,1 @@
+- Removes more secrets from error reports and problem reports. Values after names such as client secret, access token, API key and password are now left out, and so is the value in an Authorization header.

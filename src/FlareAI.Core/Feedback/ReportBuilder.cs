@@ -60,13 +60,13 @@ namespace FlareAI.Core.Feedback
             var secrets = Secrets(ctx);
             ex = ErrorKinds.Unwrap(ex);
             var r = Base(ctx, ReportPayload.KindError, automatic);
-            r.WhatHappened = Text(Anonymize(whatFailed, ctx.Settings), FeedbackLimits.Text, true, secrets);
+            r.WhatHappened = Text(RedactNames(Anonymize(whatFailed, ctx.Settings)), FeedbackLimits.Text, true, secrets);
             r.UserNote = Text(userNote, FeedbackLimits.Text, true, secrets);
             r.Exception = new ExceptionInfo
             {
                 Type = Text(ex == null ? "Unknown" : ex.GetType().FullName, FeedbackLimits.ExceptionType, false, secrets) ?? "Unknown",
-                Message = Text(ex == null ? "" : Anonymize(Diagnostics.WithoutQuotedText(ex.Message), ctx.Settings), FeedbackLimits.ExceptionMessage, true, secrets) ?? "",
-                Stack = Text(ex == null ? "" : Anonymize(Diagnostics.WithoutQuotedText(ex.ToString()), ctx.Settings), FeedbackLimits.Stack, true, secrets) ?? ""
+                Message = Text(ex == null ? "" : RedactNames(Anonymize(Diagnostics.WithoutQuotedText(ex.Message), ctx.Settings)), FeedbackLimits.ExceptionMessage, true, secrets) ?? "",
+                Stack = Text(ex == null ? "" : RedactNames(Anonymize(Diagnostics.WithoutQuotedText(ex.ToString()), ctx.Settings)), FeedbackLimits.Stack, true, secrets) ?? ""
             };
             r.DiagLogTail = DiagTail(ctx.DiagLogPath, secrets, ctx.Settings);
             r.Settings = SafeSettings(ctx.Settings);
@@ -205,6 +205,27 @@ namespace FlareAI.Core.Feedback
             return new KeyValuePair<Regex, string>(new Regex(regex, RegexOptions.Compiled | RegexOptions.CultureInvariant), replacement);
         }
 
+        private static readonly Regex AuthScheme = new Regex(
+            @"(?i)\b(authorization(?:""|')?\s*[:=]\s*[""']?(?:token|bearer|basic|apikey)\s+)[^\s"",;&']+",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        private static readonly Regex NamedSecret = new Regex(
+            @"(?i)((?:(?<![A-Za-z0-9])|(?<=(?-i:[a-z]))(?=(?-i:[A-Z])))(?:api[_\- ]?key|key|secret|token|password|passwd|pwd|vk))(?![A-Za-z0-9])([""']?\s*[:=]\s*[""']?)[^\s"",;&']+",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The text with the value after a secret-type name (key, secret, token, password, pwd, api key, virtual key, with
+        /// or without a prefix such as client_secret) and the value of an Authorization header replaced by [removed].
+        /// The name stays. Covers named secrets in text House Style adds (log lines, exception text), not text the writer
+        /// types.
+        /// </summary>
+        public static string RedactNames(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            text = AuthScheme.Replace(text, "$1[removed]");
+            return NamedSecret.Replace(text, "$1$2[removed]");
+        }
+
         /// <summary>The text with the key and anything that looks like a key, token or password replaced by [removed].</summary>
         public static string Redact(string text, IList<string> secrets)
         {
@@ -306,7 +327,7 @@ namespace FlareAI.Core.Feedback
                     text = new UTF8Encoding(false, false).GetString(buf, skip, read - skip);
                 }
                 text = text.TrimStart((char)0xFEFF);   // the log file starts with a byte order mark
-                text = Anonymize(Redact(WithoutContent(Strip(text, true)), secrets), settings);
+                text = Anonymize(Redact(RedactNames(WithoutContent(Strip(text, true))), secrets), settings);
                 return Tail(text, FeedbackLimits.DiagLog);
             }
             catch (Exception) { return null; }
