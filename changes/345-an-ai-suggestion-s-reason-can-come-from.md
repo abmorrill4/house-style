@@ -1,0 +1,1 @@
+- Show the reason, the rule and the example on an AI suggestion only when they describe the same rule. When the reason is about a different rule, the suggestion shows no rule.
