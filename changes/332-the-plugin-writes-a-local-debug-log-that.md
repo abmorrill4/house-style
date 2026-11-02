@@ -1,0 +1,2 @@
+- Turn on "Record more detail in the log" in Settings to help support find out what happened.
+- Choose Send Diagnostics in Settings to see the log files in a zip before you save it. The log never holds your topic text or your key.

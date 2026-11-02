@@ -8,6 +8,13 @@ Write each entry from the writer's side, in short plain sentences. No arrows, co
 New entries go in changes/<name>.md, not here: the nightly release adds them to the shipped copy (changes/README.md).
 -->
 
+## 0.3.5
+
+- House Style now keeps a log of what it did on your computer. It never holds your topic text or your API key.
+- To record more detail for support, select Record more detail in the log in Settings.
+- To collect the log files for support, select Send Diagnostics in Settings. You see the files first, and nothing is
+  sent.
+
 ## 0.3.4
 
 - Closed the issues pane by mistake? Select Reopen Issues to bring back your last results without linting again.

@@ -115,7 +115,12 @@ namespace FlareAI.Flare
         private void CheckInBackground()
         {
             var off = WhyOff();
-            if (off != null) { Diagnostics.Log("Updates: " + off); return; }
+            if (off != null)
+            {
+                Diagnostics.Log("Updates: " + off);
+                try { FlareAI.Core.Logging.Log.Current.Info("update.check", FlareAI.Core.Logging.F.Of("result", "off")); } catch (Exception) { }
+                return;
+            }
             var worker = new BackgroundWorker();
             worker.DoWork += (s, e) =>
             {

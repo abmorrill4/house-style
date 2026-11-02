@@ -128,20 +128,34 @@ namespace FlareAI.Core.Update
         {
             if (!IsDue(state, nowUtc)) return null;
             state.LastCheckUtc = nowUtc;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var release = Parse(Get(Url, TimeoutMs));
                 state.LastCheckResult = "ok";
-                if (release == null) return null;
+                if (release == null) { LogCheck("up-to-date", null, timer); return null; }
                 state.LatestVersion = release.Version;
-                return SemVer.Compare(release.Version, CurrentVersion) > 0 ? release : null;
+                var newer = SemVer.Compare(release.Version, CurrentVersion) > 0;
+                LogCheck(newer ? "available" : "up-to-date", release.Version, timer);
+                return newer ? release : null;
             }
             catch (Exception ex)
             {
                 state.LastCheckResult = ex.GetType().Name + ": " + ex.Message;
                 Diagnostics.Log("Update check (" + Url + "): " + state.LastCheckResult);
+                LogCheck("error", null, timer);
                 return null;
             }
+        }
+
+        private static void LogCheck(string result, string latest, System.Diagnostics.Stopwatch timer)
+        {
+            try
+            {
+                if (latest == null) Logging.Log.Current.Info("update.check", Logging.F.Of("result", result), Logging.F.Of("ms", timer.ElapsedMilliseconds));
+                else Logging.Log.Current.Info("update.check", Logging.F.Of("result", result), Logging.F.Of("latest", latest), Logging.F.Of("ms", timer.ElapsedMilliseconds));
+            }
+            catch (Exception) { }
         }
 
         /// <summary>The release in a GitHub <c>releases/latest</c> answer, or null when it has no usable zip and checksums.</summary>

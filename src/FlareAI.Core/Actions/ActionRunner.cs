@@ -8,6 +8,7 @@ using System.Xml;
 using Newtonsoft.Json.Linq;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Llm;
+using FlareAI.Core.Logging;
 using FlareAI.Core.Style;
 
 namespace FlareAI.Core.Actions
@@ -132,14 +133,29 @@ namespace FlareAI.Core.Actions
             };
             var sw = Stopwatch.StartNew();
             LlmResponse resp;
-            try { resp = _llm.Complete(req); }
-            catch (LlmException ex) when (ex.Failure == LlmFailure.Truncated)
+            try
             {
-                Diagnostics.Log(task + ": cut off at " + req.MaxTokens + " tokens; retrying with more room");
-                req.MaxTokens *= 2;
-                resp = _llm.Complete(req);
+                try { resp = _llm.Complete(req); }
+                catch (LlmException ex) when (ex.Failure == LlmFailure.Truncated)
+                {
+                    Diagnostics.Log(task + ": cut off at " + req.MaxTokens + " tokens; retrying with more room");
+                    req.MaxTokens *= 2;
+                    resp = _llm.Complete(req);
+                }
+            }
+            catch (LlmException ex)
+            {
+                LogAiFailure(task, route.Model, sw.ElapsedMilliseconds, ex.Failure.ToString());
+                throw;
             }
             Usage.Record(task, route.Model, resp, sw.Elapsed.TotalSeconds);
+            try
+            {
+                Log.Current.Info("ai.call", F.Of("task", task), F.Of("model", route.Model), F.Of("in_tokens", resp.InputTokens),
+                    F.Of("out_tokens", resp.OutputTokens), F.Of("cache_read_tokens", resp.CacheReadTokens),
+                    F.Of("ms", sw.ElapsedMilliseconds), F.Of("result", "ok"));
+            }
+            catch (Exception) { }
             Diagnostics.Log(task + ": " + route.Model + "/" + route.Effort + " in=" + resp.InputTokens + " cached=" + resp.CacheReadTokens +
                             " out=" + resp.OutputTokens + " stop=" + resp.StopReason + " " + sw.ElapsedMilliseconds + "ms");
             if (schema != null && resp.Json == null)
@@ -148,6 +164,13 @@ namespace FlareAI.Core.Actions
                 catch (Newtonsoft.Json.JsonException ex) { throw new LlmException("The AI's answer didn't match the expected format.", 0, ex, LlmFailure.Contract); }
             }
             return resp;
+        }
+
+        /// <summary>Logs a failed model call: the task, model, time and the failure kind. Never the prompt or any text.</summary>
+        private static void LogAiFailure(string task, string model, long ms, string failure)
+        {
+            try { Log.Current.Warn("ai.call", F.Of("task", task), F.Of("model", model), F.Of("ms", ms), F.Of("result", failure)); }
+            catch (Exception) { }
         }
 
         /// <summary>Runs one job per item, a few at a time; the first failure is rethrown as itself.</summary>
@@ -202,6 +225,7 @@ namespace FlareAI.Core.Actions
             var findings = new List<StyleFinding>();
             if (_style == null) return findings;
             _comp = null;   // the labels follow the guide this lint uses
+            var timer = Stopwatch.StartNew();
             // Lint whole lines (inline markup flattened, variables resolved), then map each hit back to the run it
             // falls in. Hits inside a variable's value belong to the variable set, not this topic: dropped here.
             // Each line carries where it sits (step, cell, note, …) and its inline spans (UI labels, links), so rules fire
@@ -215,6 +239,12 @@ namespace FlareAI.Core.Actions
                 if (f != null) findings.Add(f); else inVariables++;
             }
             if (inVariables > 0) Diagnostics.Log("Lint: " + Plural.Of(inVariables, "finding") + " inside variable values skipped");
+            try
+            {
+                Log.Current.Info("lint", F.Of("blocks", blocks == null ? 0 : blocks.Count), F.Of("lines", lines.Count), F.Of("findings", findings.Count),
+                    F.Of("skipped_in_variables", inVariables), F.Of("ms", timer.ElapsedMilliseconds), F.Of("checks", "rules"));
+            }
+            catch (Exception) { }
             return findings;
         }
 
@@ -939,10 +969,20 @@ namespace FlareAI.Core.Actions
         public List<StyleFinding> CheckStyle(IDocumentAdapter doc)
         {
             var blocks = PickCheckBlocks(doc);
+            var timer = Stopwatch.StartNew();
             var lint = Lint(blocks);
-            lint.AddRange(LintSnippets(blocks, doc.SourcePath));
+            var snippets = LintSnippets(blocks, doc.SourcePath);
+            lint.AddRange(snippets);
             var all = new List<StyleFinding>(lint);
-            all.AddRange(Review(blocks, lint));
+            var reviewed = Review(blocks, lint);
+            all.AddRange(reviewed);
+            try
+            {
+                Log.Current.Info("lint.topic", F.Of("topic_hash", LogFields.TopicHash(doc.SourcePath)), F.Of("findings", all.Count),
+                    F.Of("snippet_findings", snippets.Count), F.Of("ai_findings", reviewed.Count), F.Of("ms", timer.ElapsedMilliseconds),
+                    F.Of("checks", "rules+ai"));
+            }
+            catch (Exception) { }
             return all;
         }
 

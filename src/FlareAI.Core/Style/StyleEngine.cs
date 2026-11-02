@@ -566,12 +566,21 @@ namespace FlareAI.Core.Style
                 var more = 0;
                 foreach (var o in l.Overrides)
                 {
-                    if (OverrideIds.IsKnown(this, o.Key)) { _overrides[StructureCheck.IdOf(OverrideIds.Canonical(o.Key))] = o.Value; continue; }
+                    if (OverrideIds.IsKnown(this, o.Key))
+                    {
+                        var canonical = StructureCheck.IdOf(OverrideIds.Canonical(o.Key));
+                        _overrides[canonical] = o.Value;
+                        try { Logging.Log.Current.Debug("rule.override", Logging.F.Of("rule_id", canonical), Logging.F.Of("setting", o.Value), Logging.F.Of("guide", guide)); }
+                        catch (Exception) { }
+                        continue;
+                    }
                     if (firstTime == null) continue;
                     if (written >= MaxIgnoredLines) { more++; continue; }
                     if (!firstTime(guide + "|" + o.Key)) continue;
                     written++;
                     Diagnostics.Log("Style guide " + guide + " has a rule setting for " + OverrideIds.ForLog(o.Key) + " that names no rule, so it was ignored.");
+                    try { Logging.Log.Current.Warn("rule.override.ignored", Logging.F.Of("rule_id", OverrideIds.ForLog(o.Key))); }
+                    catch (Exception) { }
                 }
                 if (more > 0) Diagnostics.Log("and " + more + " more in " + guide);
             }

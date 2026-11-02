@@ -157,7 +157,7 @@ namespace FlareAI.Core.Tests
             Assert.Equal(1, settings["team_guide_count"]);
             Assert.Equal(true, settings["team_feedback_folder_set"]);
             // Every PluginSettings property is either sent (renamed) or deliberately left out: a new one is a decision.
-            var reviewed = new[] { "Provider", "AiOff", "BaseUrl", "Model", "MaxTokens", "TimeoutSeconds", "ProtectedApiKey", "WriteDiagnostics", "StyleLayers",
+            var reviewed = new[] { "Provider", "AiOff", "BaseUrl", "Model", "MaxTokens", "TimeoutSeconds", "ProtectedApiKey", "WriteDiagnostics", "DebugLog", "StyleLayers",
                                    "UseProjectLayer", "LlmExportAfterBuild", "ShowMarkers", "LiveCheck", "CheckOnSave", "ReportBeforeBuild", "FastModel", "DeepModel",
                                    "Parallelism", "ProjectViewByFile", "PaneWidthTipDismissed", "LintChecks", "AutoUpdate", "Role", "FeedbackFolder", "ClientId", "FeedbackUrl",
                                    "SendErrorReportsAutomatically", "ReportEmail", "EffectiveFeedbackUrl", "HasStoredKey" };

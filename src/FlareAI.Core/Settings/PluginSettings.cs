@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using FlareAI.Core.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace FlareAI.Core.Settings
 {
@@ -38,6 +41,8 @@ namespace FlareAI.Core.Settings
         /// <summary>DPAPI-protected, base64. Never the plaintext key.</summary>
         public string ProtectedApiKey { get; set; }
         public bool WriteDiagnostics { get; set; }
+        /// <summary>Turns the debug level of the local log on, for support. Off, the log records Info and above in a released build.</summary>
+        public bool DebugLog { get; set; }
         /// <summary>
         /// The team's style guide project: a Flare project with Content\Resources\StyleGuide\Google and \Company. One per
         /// line if there are several (later wins). Empty = the starter guide bundled with the plugin.
@@ -285,11 +290,51 @@ namespace FlareAI.Core.Settings
                 if (File.Exists(SettingsPath))
                 {
                     var s = JsonConvert.DeserializeObject<PluginSettings>(File.ReadAllText(SettingsPath, Encoding.UTF8));
-                    if (s != null) return s;
+                    if (s != null)
+                    {
+                        LogSettings("settings.read", null, s.HasStoredKey);
+                        return s;
+                    }
                 }
             }
             catch (Exception) { /* corrupt file → defaults */ }
             return new PluginSettings();
+        }
+
+        /// <summary>Logs a read or write of the settings: the names that changed and whether a key is set, never a value.</summary>
+        private static void LogSettings(string evt, string names, bool keySet)
+        {
+            try
+            {
+                if (names == null)
+                    Log.Current.Debug(evt, F.Of("key_set", LogFields.KeySet(keySet)));
+                else
+                    Log.Current.Debug(evt, F.Of("names", names), F.Of("key_set", LogFields.KeySet(keySet)));
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>The property names whose value differs from the file stored now (all of them when there is none).</summary>
+        private string ChangedNames()
+        {
+            try
+            {
+                var now = JObject.Parse(JsonConvert.SerializeObject(this));
+                JObject old = null;
+                try
+                {
+                    if (File.Exists(SettingsPath)) old = JObject.Parse(File.ReadAllText(SettingsPath, Encoding.UTF8));
+                }
+                catch (Exception) { }
+                var names = new List<string>();
+                foreach (var p in now.Properties())
+                {
+                    JToken before = old == null ? null : old[p.Name];
+                    if (before == null || !JToken.DeepEquals(before, p.Value)) names.Add(p.Name);
+                }
+                return string.Join(",", names.ToArray());
+            }
+            catch (Exception) { return ""; }
         }
 
         /// <summary>A separate copy, for previews that must not change these settings.</summary>
@@ -300,8 +345,10 @@ namespace FlareAI.Core.Settings
 
         public void Save()
         {
+            var changed = ChangedNames();
             Directory.CreateDirectory(SettingsDirectory);
             File.WriteAllText(SettingsPath, JsonConvert.SerializeObject(this, Formatting.Indented), Encoding.UTF8);
+            LogSettings("settings.write", changed, HasStoredKey);
         }
     }
 }

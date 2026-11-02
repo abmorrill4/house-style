@@ -34,6 +34,10 @@ namespace FlareAI.Core
         public static string DiagLog { get { return In("diag.log"); } }
         /// <summary>The log of document text (Diagnostics command, AI contract breaches); never sent with a report.</summary>
         public static string DiagContentLog { get { return In("diag-content.log"); } }
+        /// <summary>The folder of the local JSON Lines debug log. Under <c>%LOCALAPPDATA%\FlareAI\logs</c> unless redirected.</summary>
+        public static string Logs { get { return IsRedirected ? In("logs") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FlareAI", "logs"); } }
+        /// <summary>Written at start and removed on a clean exit.</summary>
+        public static string CrashMarker { get { return Path.Combine(Logs, "running.marker"); } }
         public static string Feedback { get { return In("feedback.jsonl"); } }
         public static string Dismissed { get { return In("dismissed.json"); } }
         public static string Reviews { get { return In("reviews.json"); } }

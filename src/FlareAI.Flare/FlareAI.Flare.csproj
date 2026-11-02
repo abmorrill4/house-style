@@ -50,6 +50,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The local debug log (Logging\SerilogLog.cs). Core never references these; it writes to its own ILog. -->
+    <PackageReference Include="Serilog" Version="3.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Release notes for the What's new window; ships at the plugin root. -->
     <None Include="whats-new.md" CopyToOutputDirectory="PreserveNewest" />
     <!-- The practice project for the guided first lint; ships at Samples\HouseStylePractice in the plugin folder. -->

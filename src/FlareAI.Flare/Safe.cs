@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using FlareAI.Core;
+using FlareAI.Core.Logging;
 
 namespace FlareAI.Flare
 {
@@ -14,9 +15,10 @@ namespace FlareAI.Flare
     {
         public static void Run(string what, Action action)
         {
-            try { action(); }
+            try { CommandScope.Run(what, action); }
             catch (Exception ex)
             {
+                try { Log.Current.Error("command.error", ex); } catch (Exception) { }
                 try { Diagnostics.Log(what, ex); } catch (Exception) { }
                 try { UI.Notify.Error(null, "House Style couldn't finish \"" + what + "\".", ex.Message, ex); }
                 catch (Exception) { }

@@ -8,8 +8,10 @@ using FlareAI.Core;
 using FlareAI.Core.Editing;
 using FlareAI.Core.Actions;
 using FlareAI.Core.Llm;
+using FlareAI.Core.Logging;
 using FlareAI.Core.Settings;
 using FlareAI.Core.Style;
+using FlareAI.Flare.Logging;
 using FlareAI.Flare.UI;
 
 namespace FlareAI.Flare
@@ -55,6 +57,10 @@ namespace FlareAI.Flare
             {
                 E2EHook.IsolateIfRequested();
                 Diagnostics.Enabled = PluginSettings.Load().WriteDiagnostics;
+                try { SerilogLog.Install(PluginSettings.Load().DebugLog); } catch (Exception ex) { Diagnostics.Log("log install", ex); }
+                try { CrashTrail.Start(); } catch (Exception ex) { Diagnostics.Log("crash trail start", ex); }
+                try { CrashTrail.Hook(); } catch (Exception ex) { Diagnostics.Log("crash trail hook", ex); }
+                try { Log.Current.Info("plugin.start", F.Of("version", Version)); } catch (Exception) { }
                 Diagnostics.Log("House Style starting in " + _host.GetName() + " (" + _host.GetCompany() + "), plugin dir " + PluginDirectory);
                 _nav = _host.GetNavContext();
                 RefreshTeam();
@@ -92,6 +98,15 @@ namespace FlareAI.Flare
             _style = null;
             try { _host.Dispose(); } catch (Exception ex) { Diagnostics.Log("Stop", ex); }
             _activated = false;
+            try { Log.Current.Info("plugin.stop"); } catch (Exception) { }
+            try { CrashTrail.Stop(); } catch (Exception) { }
+            try
+            {
+                var log = Log.Current as SerilogLog;
+                Log.Current = new NullLog();
+                if (log != null) log.Dispose();
+            }
+            catch (Exception) { }
         }
 
         // ---- unhandled errors on the UI thread (issue #124) -------------------------------------------------------
@@ -414,14 +429,32 @@ namespace FlareAI.Flare
         {
             bool runSetup, tour;
             using (var f = new SettingsForm(PluginDirectory, _updates == null ? null : (Func<string>)_updates.WhyOff, _role,
-                                            owner => OnExportLlm(owner), owner => OnDiagnostics(owner), owner => OnReportProblem(owner)))
+                                            owner => OnExportLlm(owner), owner => OnDiagnostics(owner), owner => OnReportProblem(owner),
+                                            owner => OnSendDiagnostics(owner)))
             {
-                if (f.ShowDialog(Owner) == DialogResult.OK) RefreshTeam();
+                if (f.ShowDialog(Owner) == DialogResult.OK) { RefreshTeam(); UpdateLogLevel(); }
                 runSetup = f.RunSetupRequested;
                 tour = f.TourRequested;
             }
             if (runSetup) RunSetup();
             if (tour) StartTour();
+        }
+
+        /// <summary>Settings &gt; Send Diagnostics: lists the log files and builds a zip only when the writer clicks Create Zip.</summary>
+        private void OnSendDiagnostics(IWin32Window owner)
+        {
+            Safe.Run("Send Diagnostics", () => { using (var f = new SendDiagnosticsForm()) f.ShowDialog(owner); });
+        }
+
+        /// <summary>Applies the Settings choice for the debug level of the log.</summary>
+        private static void UpdateLogLevel()
+        {
+            try
+            {
+                var log = Log.Current as SerilogLog;
+                if (log != null) log.SetDebug(PluginSettings.Load().DebugLog);
+            }
+            catch (Exception) { }
         }
 
         private bool _setupOffered;
@@ -474,6 +507,7 @@ namespace FlareAI.Flare
             bool completed;
             using (var f = new SetupForm()) { f.ShowDialog(Owner); completed = f.Completed; }
             Diagnostics.Enabled = PluginSettings.Load().WriteDiagnostics;
+            UpdateLogLevel();
             RefreshTeam();
             if (!completed) return;
             var o = Onboarding.Load();
@@ -894,6 +928,14 @@ namespace FlareAI.Flare
                 var configured = settings.GuideRoots(pluginDir);
                 System.Threading.ThreadPool.QueueUserWorkItem(_ => copies.Prune(configured));
                 _styleKey = key;
+                try
+                {
+                    var ids = new List<string>();
+                    foreach (var r in _style.Rules(null)) if (r.Id != null) ids.Add(r.Id);
+                    ids.Sort(StringComparer.Ordinal);
+                    LogContext.RuleSetVersion = "r" + ids.Count + "-" + LogFields.HexHash(string.Join("\n", ids.ToArray()), 6);
+                }
+                catch (Exception) { }
             }
             return _style;
         }

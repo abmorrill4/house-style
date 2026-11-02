@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows.Forms;
 using FlareAI.Core;
 using FlareAI.Core.Feedback;
+using FlareAI.Core.Logging;
 using FlareAI.Core.Settings;
 using FlareAI.Flare.UI;
 
@@ -26,6 +27,10 @@ namespace FlareAI.Flare
         {
             try
             {
+                if (ex != null)
+                {
+                    try { Log.Current.Error("error.background", ex); } catch (Exception) { }
+                }
                 if (ex == null || !ErrorKinds.IsBug(ex) || !ErrorKinds.ThrownByUs(ex)) return;
                 // A repeat of a background error says nothing: it would come back after every pause in typing.
                 if (!SessionReports.Current.TryClaim(ex)) return;
