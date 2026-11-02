@@ -1,2 +1,3 @@
+Kind: Fixed
 - Lint Topic checks the whole topic again after you select an issue in the pane.
 - Issues in other paragraphs no longer disappear from the pane after you disable a rule and lint again.

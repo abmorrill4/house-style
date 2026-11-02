@@ -1,1 +1,2 @@
+Kind: Fixed
 - Stops sending your Anthropic API key to a gateway, and your gateway key to Anthropic, when you switch the AI option in Settings. You enter the key again for the option you switch to.

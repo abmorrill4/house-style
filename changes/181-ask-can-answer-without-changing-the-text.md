@@ -1,1 +1,2 @@
+Kind: New
 - Ask AI now lets you choose Ask a question or Make a change. A question shows an answer in a result window and doesn't change the topic.
