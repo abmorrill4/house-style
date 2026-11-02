@@ -28,6 +28,61 @@ namespace FlareAI.Core.Tests
             Assert.Null(ai.Single(f => f.Rule == "made up").RuleId);              // unknown id -> "general"
         }
 
+        private static FakeStyleService ColonAndProductStyle()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<GuideRule>
+            {
+                new GuideRule { Id = "google:colons/1", Layer = "google", Page = "Colons", Section = "Colons", Text = "Don't capitalize the text before a colon.", Bad = "Note: the file", Good = "Note: The file" },
+                new GuideRule { Id = "company:terminology/2", Layer = "company", Page = "Terminology", Section = "Audience", Text = "Insert the product name variable, not the product name as text.", Link = "file:///C:/guide/Terminology.htm" }
+            };
+            return style;
+        }
+
+        private static StyleFinding ReviewOne(FakeStyleService style, string ruleId, string why)
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""" + ruleId + @""",""rule"":""x"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""" + why + @"""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            return runner.CheckStyle(doc).Single(f => f.Source == "ai");
+        }
+
+        [Fact]
+        public void Review_ReasonAboutOneRuleWithAnotherRuleId_ShowsOneConsistentRule()
+        {
+            var f = ReviewOne(ColonAndProductStyle(), "google:colons/1", "Use the product name variable.");
+            Assert.NotEqual("google:colons/1", f.RuleId);
+            Assert.Equal("company:terminology/2", f.RuleId);
+            Assert.Equal("company", f.RuleLayer);
+            Assert.Equal("Use the product name variable.", f.Suggestion);
+        }
+
+        [Fact]
+        public void Review_ReasonThatMatchesNoRule_ShowsNoRule_AndKeepsTheReason()
+        {
+            var f = ReviewOne(ColonAndProductStyle(), "google:colons/1", "Rewrite for a calmer tone.");
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal("Rewrite for a calmer tone.", f.Suggestion);
+        }
+
+        [Fact]
+        public void Review_AMadeUpRuleId_ShowsTheReasonWithNoRule()
+        {
+            var f = ReviewOne(ColonAndProductStyle(), "company:invented/9", "Use the product name variable.");
+            Assert.Null(f.RuleId);
+            Assert.Equal("Use the product name variable.", f.Suggestion);
+        }
+
+        [Fact]
+        public void Review_ARuleTheWriterTurnedOff_IsNotChosenForTheReason()
+        {
+            var style = ColonAndProductStyle();
+            style.Off.Add("company:terminology/2");
+            var f = ReviewOne(style, "google:colons/1", "Use the product name variable.");
+            Assert.Null(f.RuleId);
+        }
+
         [Fact]
         public void VerifyExamples_PassesWhenBadIsCitedAndGoodIsClean()
         {

@@ -422,6 +422,39 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Review_GooglesRuleStays_WhenTheReasonIsNotAboutTheTeamRule()
+        {
+            var engine = Bundled();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var p = Paragraph(doc, "<p>Our best-in-class transfer experience delights members, and you can choose the members who see your transfers.</p>");
+            // The reason still names Google's rule ("excessive"), but nothing in the team's Claims rule.
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""best-in-class"",""replacement"":null,""why"":""This wording is excessive.""}]");
+            var runner = new ActionRunner(llm, PromptBuilder.For(engine, null), 1024, engine);
+            var found = runner.Review(new List<System.Xml.XmlNode> { p }, new List<StyleFinding>());
+            var claim = found.Single(f => f.Rule == "marketing claim");
+            Assert.Equal("google:excessive-claims/5", claim.RuleId);
+            Assert.Equal("google", claim.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_ATeamRuleTheWriterTurnedOff_IsNotChosenOverGooglesRule()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<FlareAI.Core.Style.GuideRule>
+            {
+                new FlareAI.Core.Style.GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Avoid unverifiable claims." },
+                new FlareAI.Core.Style.GuideRule { Id = "company:claims/1", Layer = "company", Page = "Claims", Section = "Promises", Text = "Do not make claims you can't verify." }
+            };
+            style.Off.Add("company:claims/1");
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Unverifiable claim.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Equal("google:excessive-claims/5", f.RuleId);
+            Assert.Equal("google", f.RuleLayer);
+        }
+
+        [Fact]
         public void WordingPass_ThatDeletesTheSentenceItMeantToMove_CantBeApplied()
         {
             var doc = new FakeDocumentAdapter("sample-topic.htm");
