@@ -38,6 +38,7 @@ namespace FlareAI.Bench
     {
         private static int Main(string[] args)
         {
+            RegexLimit.Apply();
             try
             {
                 if (args.Length > 0 && args[0] == "summarize") { Console.Write(Summarize(args.Length > 1 ? args[1] : "bench-out")); return 0; }

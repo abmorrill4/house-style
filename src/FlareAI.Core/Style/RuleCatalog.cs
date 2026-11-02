@@ -380,22 +380,37 @@ namespace FlareAI.Core.Style
                 try { rx = new Regex(r.Avoid[0], RegexOptions.CultureInvariant | RegexOptions.IgnoreCase); }
                 catch (ArgumentException) { continue; }
                 foreach (var p in phrases.Keys)
-                    if (rx.Match(p).Length > 0) foreach (var o in phrases[p]) union(r, o);
+                {
+                    var mm = SafeMatch(rx, p);
+                    if (mm != null && mm.Length > 0) foreach (var o in phrases[p]) union(r, o);
+                }
             }
             // Each rule's example, as the checker sees it: another rule's match on the same words, inside them, or around them.
             Func<Match, Match, bool> overlap = (a, b) => a.Index < b.Index + b.Length && b.Index < a.Index + a.Length;
             foreach (var r in table.Where(r => !string.IsNullOrEmpty(r.Example)))
             {
-                var mine = swaps[r].SelectMany(x => x.Matches(r.Example).Cast<Match>()).Where(m => m.Length > 0).ToList();
+                var mine = swaps[r].SelectMany(x => SafeMatches(x, r.Example)).Where(m => m.Length > 0).ToList();
                 if (mine.Count == 0) continue;
                 foreach (var o in table)
-                    if (o != r && swaps[o].Any(x => x.Matches(r.Example).Cast<Match>().Any(n => n.Length > 0 && mine.Any(m => overlap(m, n))))) union(r, o);
+                    if (o != r && swaps[o].Any(x => SafeMatches(x, r.Example).Any(n => n.Length > 0 && mine.Any(m => overlap(m, n))))) union(r, o);
             }
 
             var position = new Dictionary<CatalogRule, int>();
             for (var i = 0; i < cat.Rules.Count; i++) position[cat.Rules[i]] = i;
             foreach (var kv in near.Where(kv => kv.Value.Count > 0))
                 kv.Key.Overlaps = kv.Value.OrderBy(o => position[o]).Select(o => o.Key).ToList();
+        }
+
+        private static Match SafeMatch(Regex rx, string s)
+        {
+            try { return rx.Match(s); }
+            catch (TimeoutException) { return null; }
+        }
+
+        private static List<Match> SafeMatches(Regex rx, string s)
+        {
+            try { return rx.Matches(s).Cast<Match>().ToList(); }
+            catch (TimeoutException) { return new List<Match>(); }
         }
 
         private static string Norm(string s) { return Regex.Replace((s ?? "").ToLowerInvariant(), @"\s+", " ").Trim(); }

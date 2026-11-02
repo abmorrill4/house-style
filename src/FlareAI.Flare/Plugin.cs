@@ -48,6 +48,7 @@ namespace FlareAI.Flare
 
         public void Initialize(IHost host)
         {
+            FlareAI.Core.Style.RegexLimit.Apply();
             _host = host; // docs: do nothing else here
         }
 

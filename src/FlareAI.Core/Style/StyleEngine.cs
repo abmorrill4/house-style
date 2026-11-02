@@ -563,6 +563,9 @@ namespace FlareAI.Core.Style
         /// <summary>Every id and rule name here, ignoring case: guide items' ids, rules' ids, checker names and bare names. See <see cref="OverrideIds.IsKnown"/>.</summary>
         internal HashSet<string> KnownNames { get; private set; }
         private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<LintRule> _slow = new List<LintRule>();
+        private void NoteSlow(LintRule r) { lock (_slow) if (!_slow.Contains(r)) _slow.Add(r); }
+        private bool IsSlow(LintRule r) { lock (_slow) return _slow.Contains(r); }
 
         private const int MaxIgnoredLines = 20;
 
@@ -723,6 +726,7 @@ namespace FlareAI.Core.Style
             var order = new Dictionary<LintHit, int>();
             var active = Rules.Select((r, n) => new { r, n }).Where(x => ForOurProducts(x.r.Products))
                               .Select(x => new { x.r, o = Override(x.r), scope = LintScope.For(x.r), x.n }).Where(x => x.o != "off").ToList();
+            var skipped = new HashSet<LintRule>();
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i] ?? LintLine.Plain("");
@@ -731,9 +735,14 @@ namespace FlareAI.Core.Style
                 var breaks = raw.IndexOfAny(LineBreaks) >= 0;
                 foreach (var x in active)
                 {
+                    if (skipped.Contains(x.r)) continue;
                     var r = x.r;
                     foreach (var swap in r.Swaps)
-                        foreach (Match m in swap.Key.Matches(text))
+                    {
+                        List<Match> found;
+                        try { found = swap.Key.Matches(text).Cast<Match>().ToList(); }
+                        catch (TimeoutException) { skipped.Add(r); NoteSlow(r); break; }
+                        foreach (var m in found)
                         {
                             if (m.Length == 0) continue;
                             // Spacing made of a line break in the source (a wrapped text node) is formatting, not typed spaces.
@@ -745,6 +754,7 @@ namespace FlareAI.Core.Style
                             hits.Add(hit);
                             order[hit] = x.n;
                         }
+                    }
                 }
             }
             if (all) return hits;
@@ -872,7 +882,7 @@ namespace FlareAI.Core.Style
                     var r = withEx[i];
                     var mine = hits.Where(h => h.Index == i && h.RuleId == r.Id).ToList();
                     // A row for products this guide doesn't cover never lints here, so its Example can't be checked against it.
-                    if (mine.Count == 0) { if (ForOurProducts(r.Products)) issue("error", r, "The Example doesn't trigger this rule: '" + r.Example + "'."); continue; }
+                    if (mine.Count == 0) { if (ForOurProducts(r.Products) && !IsSlow(r)) issue("error", r, "The Example doesn't trigger this rule: '" + r.Example + "'."); continue; }
                     if (mine.All(h => h.Replacement != null))
                     {
                         var t = r.Example;
@@ -915,6 +925,7 @@ namespace FlareAI.Core.Style
                         issue(same ? "error" : "warning", uses[i], "The 'Use' wording '" + uses[i].Use + "' is itself flagged by " + (same ? "this same rule" : h.RuleId ?? h.Rule) + ": " + h.Message);
                     }
             }
+            foreach (var r in rows.Where(IsSlow)) issue("warning", r, "This pattern took more than " + RegexLimit.Timeout.TotalSeconds + " seconds to match, so House Style skipped the rule.");
             // Contradictions: one row's Use is another row's Avoid, and the other way round.
             for (var i = 0; i < rows.Count; i++)
                 for (var j = i + 1; j < rows.Count; j++)
