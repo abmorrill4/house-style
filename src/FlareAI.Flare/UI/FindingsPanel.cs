@@ -1188,7 +1188,7 @@ namespace FlareAI.Flare.UI
             exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
             menu.Opening += (s, e) =>
             {
-                var p = _list.PointToClient(Cursor.Position);
+                var p = _e2eMenuPoint ?? _list.PointToClient(Cursor.Position);
                 var hit = _list.GetItemAt(p.X, p.Y);
                 if (hit != null && !hit.Selected) hit.Selected = true;
                 var f = Current();
@@ -1376,6 +1376,8 @@ namespace FlareAI.Flare.UI
         /// <summary>For tests and the real-Flare check: the drawer's toggle button.</summary>
         internal void E2EToggleDrawer() { ToggleDrawer(); }
 
+        private Point? _e2eMenuPoint;   // where the row menu's Opening looks for the row, set by E2ERowMenu (null = the mouse)
+
         /// <summary>
         /// Right-clicks row <paramref name="index"/> (the real menu, so its Opening handler runs) and clicks the first item
         /// whose text starts with <paramref name="prefix"/>; returns the items the menu showed.
@@ -1386,9 +1388,12 @@ namespace FlareAI.Flare.UI
             _list.SelectedItems.Clear();
             item.Selected = true;
             var at = new Point(item.Bounds.Left + 8, item.Bounds.Top + item.Bounds.Height / 2);
-            Cursor.Position = _list.PointToScreen(at);   // Opening hit-tests the cursor
+            // Opening hit-tests this point, not the mouse: in an unattended VM the mouse can't be moved, so it stayed over
+            // the row picked last and re-selected it.
+            _e2eMenuPoint = at;
             var menu = _list.ContextMenuStrip;
-            menu.Show(_list, at);
+            try { menu.Show(_list, at); }
+            finally { _e2eMenuPoint = null; }
             var shown = new List<string>();
             ToolStripItem hit = null;
             foreach (ToolStripItem m in menu.Items)
