@@ -422,6 +422,105 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Review_GooglesRuleStays_WhenTheReasonIsNotAboutTheTeamRule()
+        {
+            var engine = Bundled();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var p = Paragraph(doc, "<p>Our best-in-class transfer experience delights members, and you can choose the members who see your transfers.</p>");
+            // The reason still names Google's rule ("excessive"), but nothing in the team's Claims rule.
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""best-in-class"",""replacement"":null,""why"":""This wording is excessive.""}]");
+            var runner = new ActionRunner(llm, PromptBuilder.For(engine, null), 1024, engine);
+            var found = runner.Review(new List<System.Xml.XmlNode> { p }, new List<StyleFinding>());
+            var claim = found.Single(f => f.Rule == "marketing claim");
+            Assert.Equal("google:excessive-claims/5", claim.RuleId);
+            Assert.Equal("google", claim.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_ATeamRuleTheWriterTurnedOff_IsNotChosenOverGooglesRule()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<FlareAI.Core.Style.GuideRule>
+            {
+                new FlareAI.Core.Style.GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Avoid unverifiable claims." },
+                new FlareAI.Core.Style.GuideRule { Id = "company:claims/1", Layer = "company", Page = "Claims", Section = "Promises", Text = "Do not make claims you can't verify." }
+            };
+            style.Off.Add("company:claims/1");
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Unverifiable claim.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Equal("google:excessive-claims/5", f.RuleId);
+            Assert.Equal("google", f.RuleLayer);
+        }
+
+        private static FakeStyleService ClaimsAndColonsGuide()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<FlareAI.Core.Style.GuideRule>
+            {
+                new FlareAI.Core.Style.GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Avoid unverifiable claims." },
+                new FlareAI.Core.Style.GuideRule { Id = "google:punctuation/1", Layer = "google", Page = "Colons", Section = "Colons", Text = "Capitalize the first word after a colon only when it begins a full sentence." }
+            };
+            return style;
+        }
+
+        [Fact]
+        public void Review_AReasonAboutADifferentRule_ShowsNoRuleOrOneThatMatches()
+        {
+            var style = ClaimsAndColonsGuide();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Capitalize the word after the colon.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.NotEqual("google:excessive-claims/5", f.RuleId);
+            Assert.True(f.RuleId == null || f.RuleId == "google:punctuation/1");
+            if (f.RuleId == null) Assert.Null(f.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_AMadeUpRuleId_ShowsTheReasonWithNoRule()
+        {
+            var style = ClaimsAndColonsGuide();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:no-such-rule/99"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Unverifiable claim.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal("Unverifiable claim.", f.Suggestion);
+        }
+
+        [Fact]
+        public void Review_AReasonForARuleTheWriterTurnedOff_ShowsNoRule()
+        {
+            var style = ClaimsAndColonsGuide();
+            style.Off.Add("google:punctuation/1");
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Capitalize the word after the colon.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal("Capitalize the word after the colon.", f.Suggestion);
+        }
+
+        [Theory]
+        [InlineData("Capitalize the word after the colon.", null)]
+        [InlineData("This claim is excessive and can't be verified.", "google:excessive-claims/5")]
+        public void Refine_AReasonThatNoLongerMatchesTheRule_DropsTheRule(string why, string expectedRuleId)
+        {
+            var style = ClaimsAndColonsGuide();
+            var llm = new FakeLlmClient(r => "{\"applies\":true,\"replacement\":null,\"why\":\"" + why + "\"}");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var earlier = new StyleFinding { RuleId = "google:excessive-claims/5", RuleLayer = "google", Excerpt = "appropriate permissions", Replacement = null, Suggestion = "Unverifiable claim." };
+            var refined = runner.Refine(earlier, "Grant appropriate permissions.", "Explain it again");
+            Assert.Equal(expectedRuleId, refined.RuleId);
+            if (expectedRuleId == null) Assert.Null(refined.RuleLayer);
+            Assert.Equal(why, refined.Suggestion);
+        }
+
+        [Fact]
         public void WordingPass_ThatDeletesTheSentenceItMeantToMove_CantBeApplied()
         {
             var doc = new FakeDocumentAdapter("sample-topic.htm");
