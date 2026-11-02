@@ -21,6 +21,8 @@ namespace FlareAI.Core.Tests
         [InlineData("http://127.0.0.1:8080/v1", "http://127.0.0.1:8080")]
         [InlineData("localhost:8080", "https://localhost:8080")]
         [InlineData("https://api.anthropic.com", "https://api.anthropic.com")]
+        [InlineData("HTTP://LOCALHOST:8080", "http://localhost:8080")]
+        [InlineData("HTTPS://gw.example.com:8443/", "https://gw.example.com:8443")]
         public void NormalizesBaseUrl(string input, string expected)
         {
             string url, err;
@@ -77,6 +79,14 @@ namespace FlareAI.Core.Tests
             var ex = LlmErrors.FromHttp(500, "oops", true, "k");
             Assert.Equal(LlmFailure.Http, ex.Failure);
             Assert.Contains("500", ex.Message);
+        }
+
+        [Fact]
+        public void Redirect_TellsTheOwnerToUseTheFinalAddress()
+        {
+            var ex = LlmErrors.FromRedirect(302);
+            Assert.Contains("redirects", ex.Message);
+            Assert.Contains("final address", ex.Message);
         }
 
         private sealed class Throwing : ILlmClient

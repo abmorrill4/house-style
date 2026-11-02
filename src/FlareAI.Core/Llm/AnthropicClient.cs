@@ -105,6 +105,7 @@ namespace FlareAI.Core.Llm
             http.Accept = "application/json";
             http.Timeout = _timeoutMs;
             http.ReadWriteTimeout = _timeoutMs;
+            http.AllowAutoRedirect = false;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
             http.Headers["x-api-key"] = _apiKey;
             http.Headers["anthropic-version"] = ApiVersion;
@@ -116,7 +117,10 @@ namespace FlareAI.Core.Llm
             {
                 using (var s = http.GetRequestStream()) s.Write(payload, 0, payload.Length);
                 using (var r = (HttpWebResponse)http.GetResponse())
+                {
+                    if ((int)r.StatusCode >= 300 && (int)r.StatusCode < 400) throw LlmErrors.FromRedirect((int)r.StatusCode);
                     resp = Parse(ReadAll(r));
+                }
             }
             catch (JsonException jex) { throw LlmErrors.FromMalformed(jex, false); }
             catch (IOException ioex) { throw LlmErrors.FromDropped(ioex, false, _baseUrl); }

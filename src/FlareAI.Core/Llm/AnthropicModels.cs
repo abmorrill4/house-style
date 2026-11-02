@@ -30,7 +30,8 @@ namespace FlareAI.Core.Llm
         public static IList<ModelInfo> List(string baseUrl, string apiKey, int timeoutSeconds, Fetcher fetch)
         {
             if (string.IsNullOrEmpty(apiKey)) throw new LlmException("No API key yet.");
-            var root = (string.IsNullOrEmpty(baseUrl) ? "https://api.anthropic.com" : baseUrl).TrimEnd('/');
+            string root, urlError;
+            if (!LlmErrors.TryNormalizeBaseUrl(string.IsNullOrEmpty((baseUrl ?? "").Trim()) ? "https://api.anthropic.com" : baseUrl, out root, out urlError)) throw new LlmException(urlError);
             var all = new List<ModelInfo>();
             string after = null;
             for (var page = 0; page < 20; page++)   // a hard stop against a server that never ends
@@ -71,13 +72,17 @@ namespace FlareAI.Core.Llm
             http.Accept = "application/json";
             http.Timeout = http.ReadWriteTimeout = Math.Max(10, timeoutSeconds) * 1000;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
+            http.AllowAutoRedirect = false;
             http.Headers["x-api-key"] = apiKey;
             http.Headers["anthropic-version"] = AnthropicClient.ApiVersion;
             try
             {
                 using (var r = (HttpWebResponse)http.GetResponse())
-                using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
-                    return s.ReadToEnd();
+                {
+                    if ((int)r.StatusCode >= 300 && (int)r.StatusCode < 400) throw LlmErrors.FromRedirect((int)r.StatusCode);
+                    using (var s = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
+                        return s.ReadToEnd();
+                }
             }
             catch (WebException wex)
             {
