@@ -841,9 +841,9 @@ namespace FlareAI.Flare.Tests
 
         private static Label BarTitle(FindingsPanel panel) { return All(panel).OfType<Label>().Single(l => l.AccessibleName == "Selected issue"); }
 
-        private static Button DrawerToggle(FindingsPanel panel)
+        private static FindingsPanel.DrawerToggleButton DrawerToggle(FindingsPanel panel)
         {
-            return All(panel).OfType<Button>().Single(b => b.AccessibleName == "Hide details" || b.AccessibleName == "Show details");
+            return All(panel).OfType<FindingsPanel.DrawerToggleButton>().Single(b => b.AccessibleName == "Hide details" || b.AccessibleName == "Show details");
         }
 
         private static bool IsHeading(ListViewItem i) { return i.Text.StartsWith("▾") || i.Text.StartsWith("▸"); }
@@ -866,17 +866,29 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
-        public void TheDrawerToggleGlyph_IsLargerThanTheListFont()
+        public void TheDrawerToggleTriangle_IsDrawnAtLeast12PixelsWide_AndFlipsWithTheDrawer()
         {
             WithByFile((panel, form, list) =>
             {
+                var scale = form.DeviceDpi / 96f;
                 var toggle = DrawerToggle(panel);
-                Assert.True(toggle.Font.Size > panel.Font.Size, "the glyph is " + toggle.Font.Size + " pt");
-                Assert.True(toggle.Height >= toggle.Font.Height, "the glyph is cut off");
+                var bounds = toggle.TriangleBounds();
+                Assert.True(bounds.Width >= (int)Math.Round(12 * scale), "the triangle is " + bounds.Width + " px wide");
+                Assert.True(toggle.ClientRectangle.Contains(bounds), "the triangle is cut off");
+                Assert.False(toggle.PointsUp);
+                using (var bmp = new System.Drawing.Bitmap(toggle.Width, toggle.Height))
+                {
+                    toggle.DrawToBitmap(bmp, toggle.ClientRectangle);
+                    var inside = bmp.GetPixel(bounds.Left + bounds.Width / 2, bounds.Top + 1);
+                    var outside = bmp.GetPixel(bounds.Left + 1, bounds.Bottom - 1);
+                    Assert.True(inside.R < 128, "the triangle pixel is " + inside);
+                    Assert.NotEqual(inside.ToArgb(), outside.ToArgb());
+                }
                 toggle.PerformClick();
                 Pump(null, 300);
+                Assert.True(toggle.PointsUp);
                 Assert.Equal("▴", toggle.Text);
-                Assert.True(toggle.Font.Size > panel.Font.Size);
+                Assert.Equal("Show details", toggle.AccessibleName);
                 // Restore the drawer, because its state is static and later tests rely on it.
                 toggle.PerformClick();
                 Pump(null, 300);
