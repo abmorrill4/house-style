@@ -18,6 +18,12 @@ on:
         description: 'Set by nightly.yml: the run that started this release'
         required: false
 
+# A newer push to a pull request makes the older run pointless, so the older one is cancelled. A push to main and a release
+# tag are never cancelled, because each run id is its own group.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read   # only the release job writes
 
