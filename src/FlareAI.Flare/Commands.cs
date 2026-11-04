@@ -32,6 +32,11 @@ namespace FlareAI.Flare
             Id = "project", Label = "Lint Project", KeyTip = "P", Icon = "project", Group = GroupLint,
             Tooltip = "Lint every topic and snippet in this project."
         };
+        public static readonly CommandInfo LintFolders = new CommandInfo
+        {
+            Id = "folders", Label = "Lint Folders…", KeyTip = "F", Icon = "project", Group = GroupLint,
+            Tooltip = "Lint the topics and snippets in the folders you pick."
+        };
         public static readonly CommandInfo LintRulesOnly = new CommandInfo
         {
             Id = "rulesonly", Label = "Rules Only", KeyTip = "N", Icon = "check", Group = GroupLint,
@@ -149,7 +154,7 @@ namespace FlareAI.Flare
         /// <summary>Every command, in ribbon order.</summary>
         public static readonly IList<CommandInfo> All = new List<CommandInfo>
         {
-            LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules,
+            LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules,
             Rewrite, Ask, AiToggle, TopicMetadata,
             RuleDecisions, ImportRules, TestRules,
             Settings, Help,
@@ -165,13 +170,16 @@ namespace FlareAI.Flare
         /// <summary>The items of Lint Topic's menu: the checks Lint Topic runs.</summary>
         public static readonly IList<CommandInfo> LintMenu = new List<CommandInfo> { LintRulesOnly, LintRulesAndAi };
 
+        /// <summary>The item of Lint Project's menu: lint part of the project.</summary>
+        public static readonly IList<CommandInfo> ProjectMenu = new List<CommandInfo> { LintFolders };
+
         /// <summary>The items of Rewrite's menu and of the right-click Rewrite item: the one-click rewrites.</summary>
         public static readonly IList<CommandInfo> RewriteMenu = new List<CommandInfo> { Simplify, Shorten };
 
         /// <summary>The ribbon's split buttons and their menu items. The button runs its own command.</summary>
         public static readonly IDictionary<CommandInfo, IList<CommandInfo>> SplitMenus = new Dictionary<CommandInfo, IList<CommandInfo>>
         {
-            { LintTopic, LintMenu }, { Rewrite, RewriteMenu }, { Help, HelpMenu }
+            { LintTopic, LintMenu }, { LintProject, ProjectMenu }, { Rewrite, RewriteMenu }, { Help, HelpMenu }
         };
 
         /// <summary>
@@ -197,7 +205,7 @@ namespace FlareAI.Flare
         /// <summary>The Tool Strip menu for a role, in order; null is a separator.</summary>
         public static IList<CommandInfo> Menu(UserRole role, bool teamGuide = false)
         {
-            var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules };
+            var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
             list.AddRange(new CommandInfo[] { Rewrite, Ask, TopicMetadata, null });
             if (role == UserRole.Owner) { list.AddRange(OwnerOnly); list.Add(null); }
