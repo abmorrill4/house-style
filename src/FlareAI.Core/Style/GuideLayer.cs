@@ -24,6 +24,8 @@ namespace FlareAI.Core.Style
         public string Link { get; set; }
         public string Variable { get; set; }       // generated variable rule: the variable this value belongs to
         public bool IgnoreCase { get; set; }
+        /// <summary>The row carries class="uses-roles": a team's role names are shown on its findings (<see cref="GuideLayer.RoleNames"/>).</summary>
+        public bool UsesRoles { get; set; }
         /// <summary>True for a Pattern/Use row: <see cref="Avoid"/> holds one regular expression, not words.</summary>
         public bool IsPattern { get; set; }
         /// <summary>Each alternative: the regex that finds it and its replacement (null when Action isn't "replace").</summary>
@@ -60,6 +62,13 @@ namespace FlareAI.Core.Style
         public List<LintRule> Rules = new List<LintRule>();
         public List<KeyValuePair<string, string>> Overrides = new List<KeyValuePair<string, string>>();   // rule name or id → "off" / severity
         public List<GlossaryEntry> Glossary = new List<GlossaryEntry>();
+        /// <summary>
+        /// The role names the team uses for its readers, from a table headed "Role names" in any guide topic. The starter rules
+        /// marked class="uses-roles" suggest these. Guide files are shared input, so each name is checked (<see cref="RoleName"/>).
+        /// </summary>
+        public List<string> RoleNames = new List<string>();
+        public const int MaxRoleNames = 20;
+        private static readonly Regex RoleName = new Regex(@"^[A-Za-z][A-Za-z '\-]{0,39}$", RegexOptions.Compiled);
         public List<KeyValuePair<string, string>> Variables = new List<KeyValuePair<string, string>>();   // "Set.Name" → value
         public List<GuideIssue> Problems = new List<GuideIssue>();
         /// <summary>The products this guide covers: the tags of its Product condition tag set (Project\ConditionTagSets\Product.flcts).</summary>
@@ -288,8 +297,24 @@ namespace FlareAI.Core.Style
             var tableConditions = s.HeadingConditions.Concat(Conditions(table)).ToList();
             var file = System.IO.Path.GetFileName(s.Path);
 
+            int roleC = col(new[] { "role name" });
             int termC = col(new[] { "term", "when" }), proseC = col(new[] { "rule", "guidance" });
-            if (termC >= 0 && proseC >= 0 && termC != proseC)
+            if (roleC >= 0)
+            {
+                // Role names: one or more names per row; the team's words for its readers.
+                for (var r = 1; r < keep.Count; r++)
+                {
+                    var row = keep[r].r;
+                    foreach (var n in Regex.Split(roleC < row.Count ? row[roleC] : "", @"\s*[,;]\s*").Select(x => x.Trim()).Where(x => x.Length > 0))
+                    {
+                        if (!RoleName.IsMatch(n)) { Problem("warning", file, "table row " + (r + 1), "'" + (n.Length > 40 ? n.Substring(0, 40) : n) + "' isn't a role name (letters, spaces and hyphens, up to 40), so it was left out."); continue; }
+                        if (RoleNames.Count >= MaxRoleNames) { Problem("warning", file, "table row " + (r + 1), "A guide lists at most " + MaxRoleNames + " role names; the rest were left out."); break; }
+                        if (!RoleNames.Contains(n, StringComparer.OrdinalIgnoreCase)) RoleNames.Add(n);
+                    }
+                }
+                s.Section.Lines.Add("- Role names in this guide: " + string.Join(", ", RoleNames.ToArray()));
+            }
+            else if (termC >= 0 && proseC >= 0 && termC != proseC)
             {
                 // Term / Rule tables: prose rules about one word or phrase, sent to the AI only when the text uses it.
                 int badC = col(new[] { "bad" }), goodC = col(new[] { "good" });
@@ -333,7 +358,7 @@ namespace FlareAI.Core.Style
                     try { rule = BuildRule(avoid, use, sev, why, isPattern); }
                     catch (ArgumentException e) { Problem("error", file, "table row " + rowNo, "Pattern isn't a valid regular expression: " + e.Message); continue; }
                     rule.Id = item.Id; rule.LocalName = Camel(s.Topic) + Camel(item.Id.Substring(item.Id.LastIndexOf('/') + 1)); rule.Layer = Name; rule.Link = s.Link;
-                    rule.Applies = item.Applies; rule.Products = item.Products;
+                    rule.Applies = item.Applies; rule.Products = item.Products; rule.UsesRoles = item.UsesRoles;
                     rule.File = file; rule.Row = rowNo; rule.Avoid = avoid; rule.IsPattern = isPattern; rule.Use = use; rule.Example = cell(exC);
                     var markup = rule.Swaps.Select(x => x.Key.ToString()).FirstOrDefault(LintPatterns.MatchesMarkup);
                     if (markup != null)
@@ -488,6 +513,7 @@ namespace FlareAI.Core.Style
             }
             var item = AddItem(s.Topic + "/" + (key ?? (s.Keyed ? "~" + n : n.ToString())), section, text, link, s.Path, bad, good);
             item.HasKey = key != null;
+            item.UsesRoles = (" " + el.GetAttribute("class") + " ").Replace('\t', ' ').Contains(" uses-roles ");
             item.Page = s.Section.Title;
             item.Element = el;
             item.Position = n;
@@ -805,7 +831,7 @@ namespace FlareAI.Core.Style
         // ---- output ----------------------------------------------------------------------------------------------
 
         /// <summary>The layer as guide text for the AI: sections with [id] bullets and their examples.</summary>
-        public string Guide(Func<GuideRule, bool> include = null)
+        public string Guide(Func<GuideRule, bool> include = null, IList<string> roles = null)
         {
             var parts = new List<string>();
             foreach (var s in _sections)
@@ -814,10 +840,28 @@ namespace FlareAI.Core.Style
                 var lines = include == null ? s.Lines : s.Lines.Where(l => (l.StartsWith("- [") || l.StartsWith("### ") || l.StartsWith("    ")) && Included(l, include)).ToList();
                 if (include != null)   // drop headings left with no rule under them
                     lines = lines.Where((l, i) => !l.StartsWith("### ") || (i + 1 < lines.Count && !lines[i + 1].StartsWith("### "))).ToList();
+                if (roles != null && roles.Count > 0) lines = lines.Select(l => WithRoles(l, roles)).ToList();
                 var body = string.Join("\n", lines.ToArray()).Trim();
                 if (body.Length > 0 && (include == null || lines.Any(l => l.StartsWith("- [")))) parts.Add("## " + s.Title + "  (" + s.Source + ")\n" + body);
             }
             return string.Join("\n\n", parts.ToArray());
+        }
+
+        /// <summary>The rule line with the team's role names, when the rule is marked to use them.</summary>
+        private string WithRoles(string line, IList<string> roles)
+        {
+            var m = Regex.Match(line, @"^- \[([^\]]+)\]");
+            if (!m.Success) return line;
+            var item = Items.FirstOrDefault(i => i.Id == m.Groups[1].Value);
+            if (item == null || !item.UsesRoles) return line;
+            var nl = line.IndexOf((char)10);   // an item's Bad and Good lines follow its first line
+            return nl < 0 ? line + " " + RoleNote(roles) : line.Substring(0, nl).TrimEnd((char)13) + " " + RoleNote(roles) + line.Substring(nl);
+        }
+
+        /// <summary>The sentence that names the team's roles, for the AI's rule text and for a finding's message.</summary>
+        public static string RoleNote(IList<string> roles)
+        {
+            return "Your team's role names: " + string.Join(", ", roles.ToArray()) + ".";
         }
 
         private bool Included(string line, Func<GuideRule, bool> include)

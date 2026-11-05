@@ -648,7 +648,7 @@ namespace FlareAI.Core.Actions
             var terms = new List<string>(unit.Runs.Texts.Values);
             var engine = _style as StyleEngine;
             if (engine != null)
-                try { terms.AddRange(engine.GlossaryTerms(_project)); } catch (Exception ex) { Diagnostics.Log("rule words", ex); }
+                try { terms.AddRange(engine.GlossaryTerms(_project)); terms.AddRange(engine.RoleNames(_project)); } catch (Exception ex) { Diagnostics.Log("rule words", ex); }
             return terms;
         }
 

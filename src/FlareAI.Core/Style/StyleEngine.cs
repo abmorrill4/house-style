@@ -283,7 +283,7 @@ namespace FlareAI.Core.Style
         private static bool IsEmpty(string g, List<GuideLayer> layers)
         {
             var l = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
-            return l != null && l.Items.Count == 0 && l.Rules.Count == 0 && l.Overrides.Count == 0 && l.Glossary.Count == 0 && l.Variables.Count == 0;
+            return l != null && l.Items.Count == 0 && l.Rules.Count == 0 && l.Overrides.Count == 0 && l.Glossary.Count == 0 && l.Variables.Count == 0 && l.RoleNames.Count == 0;
         }
 
         // ---- where a rule comes from ------------------------------------------------------------------------
@@ -535,6 +535,9 @@ namespace FlareAI.Core.Style
             return Compose(project).Layers.SelectMany(l => l.Glossary).Select(g => g.Term).Where(t => !string.IsNullOrEmpty(t)).ToList();
         }
 
+        /// <summary>The role names the team's guide lists (empty when it lists none).</summary>
+        public IList<string> RoleNames(string project) { return Compose(project).RoleNames; }
+
         public List<GlossaryEntry> Glossary(string project) { return Compose(project).Layers.SelectMany(l => l.Glossary).ToList(); }
 
         /// <summary>Candidate rules from a Flare project's own content, minus what the layered guide already flags.</summary>
@@ -559,6 +562,8 @@ namespace FlareAI.Core.Style
 
         public List<GuideLayer> Layers { get; private set; }
         public List<GuideRule> Items { get; private set; }
+        /// <summary>The team's role names: those of the last guide layer that lists any (a later layer overrides), else empty.</summary>
+        public IList<string> RoleNames { get; private set; }
         public List<LintRule> Rules { get; private set; }
         /// <summary>Every id and rule name here, ignoring case: guide items' ids, rules' ids, checker names and bare names. See <see cref="OverrideIds.IsKnown"/>.</summary>
         internal HashSet<string> KnownNames { get; private set; }
@@ -590,6 +595,7 @@ namespace FlareAI.Core.Style
                 foreach (var r in l.Rules) r.Name = name + "." + r.LocalName;
             }
             Items = layers.SelectMany(l => l.Items).ToList();
+            RoleNames = layers.Where(l => !l.OverridesOnly).Select(l => l.RoleNames).LastOrDefault(n => n.Count > 0) ?? new List<string>();
             Rules = layers.SelectMany(l => l.Rules).ToList();
             KnownNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in Items) if (g.Id != null) KnownNames.Add(g.Id);
@@ -635,7 +641,7 @@ namespace FlareAI.Core.Style
             var parts = new List<string>();
             for (var i = 0; i < Layers.Count; i++)
             {
-                var g = Layers[i].Guide(include).Trim();
+                var g = Layers[i].Guide(include, RoleNames).Trim();
                 if (g.Length > 0) parts.Add("# " + (packsOnly ? "Rules for what this text contains, layer: " : "Layer: ") + Layers[i].Name + " (" + (i == 0 ? "baseline" : "overrides the layers above") + ")\n\n" + g);
             }
             return parts.Count == 0 ? "" : string.Join("\n\n---\n\n", parts.ToArray()) + "\n";
@@ -751,6 +757,7 @@ namespace FlareAI.Core.Style
                             var hit = Hit(r, swap.Value, text, m.Index, m.Index + m.Length, x.o);
                             if (hit == null) continue;
                             hit.Index = i;
+                            if (r.UsesRoles && RoleNames.Count > 0) hit.Message = ((hit.Message ?? "") + " " + GuideLayer.RoleNote(RoleNames)).Trim();
                             hits.Add(hit);
                             order[hit] = x.n;
                         }
