@@ -88,7 +88,7 @@ namespace FlareAI.Core.Actions
         {
             if (e == null) return;
             foreach (Action<string> h in e.GetInvocationList())
-                try { h(path); } catch (Exception ex) { Diagnostics.Log("write event: " + path + " " + ex.GetType().Name); }
+                try { h(path); } catch (Exception ex) { Diagnostics.Log("write event: " + Diagnostics.Path(path) + " " + ex.GetType().Name); }
         }
 
         /// <param name="project">Path of the topic (any path inside its Flare project) for the project style layer; null for none.</param>
@@ -275,7 +275,7 @@ namespace FlareAI.Core.Actions
                 if (!seen.Add(path) || !System.IO.File.Exists(path)) continue;
                 XmlDocument snippet;
                 try { snippet = FlareAI.Core.Editing.SafeXml.Load(path, true); }
-                catch (Exception ex) { Diagnostics.Log("snippet " + path, ex); continue; }
+                catch (Exception ex) { Diagnostics.Log("snippet " + Diagnostics.Path(path), ex); continue; }
                 var body = BlockSelector.FindBody(snippet);
                 if (body == null) continue;
                 var inner = new List<XmlNode>();
@@ -430,7 +430,7 @@ namespace FlareAI.Core.Actions
                     foreach (var l in TextLines.Of(blocks, VariableValue)) { lines.Add(l); owners.Add(path); }
                     foreach (var s in StructureCheck.Of(blocks)) { s.DocumentPath = path; s.Block = null; findings.Add(s); }
                 }
-                catch (Exception ex) { Diagnostics.Log("project lint: " + path, ex); }
+                catch (Exception ex) { Diagnostics.Log("project lint: " + Diagnostics.Path(path), ex); }
                 if (progress != null && (done % 25 == 0 || done == paths.Count)) progress(done, paths.Count);
             }
             const int Batch = 1500;

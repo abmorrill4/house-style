@@ -71,7 +71,7 @@ namespace FlareAI.Core.Actions
                     File.AppendAllText(path, line + Environment.NewLine, ProjectRules.NoBom);
                     return null;
                 }
-                catch (Exception ex) { Diagnostics.Log("feedback " + path, ex); return path; }
+                catch (Exception ex) { Diagnostics.Log("feedback " + Diagnostics.Path(path), ex); return path; }
             }
         }
     }

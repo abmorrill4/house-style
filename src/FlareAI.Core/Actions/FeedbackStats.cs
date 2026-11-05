@@ -53,7 +53,7 @@ namespace FlareAI.Core.Actions
             {
                 if (!File.Exists(file)) continue;
                 string[] lines;
-                try { lines = ReadShared(file); } catch (Exception ex) { Diagnostics.Log("feedback " + file, ex); continue; }
+                try { lines = ReadShared(file); } catch (Exception ex) { Diagnostics.Log("feedback " + Diagnostics.Path(file), ex); continue; }
                 var fileDecisions = new List<Decision>();
                 foreach (var line in lines)
                 {

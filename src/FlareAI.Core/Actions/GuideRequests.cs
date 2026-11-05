@@ -213,7 +213,7 @@ namespace FlareAI.Core.Actions
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
-                    Diagnostics.Log("request " + folder, ex);
+                    Diagnostics.Log("request " + Diagnostics.Path(folder), ex);
                     problem = "House Style couldn't write to " + folder + " (" + ex.Message.TrimEnd('.', ' ') + ")";
                 }
             }
@@ -256,7 +256,7 @@ namespace FlareAI.Core.Actions
                             if (r != null && IsValidId(r.Id) && string.Equals(name, r.Id + ".json", StringComparison.OrdinalIgnoreCase)) list.Add(r);
                         }
                     }
-                    catch (Exception ex) { Diagnostics.Log("request " + file, ex); }   // a file still syncing: read it next time
+                    catch (Exception ex) { Diagnostics.Log("request " + Diagnostics.Path(file), ex); }   // a file still syncing: read it next time
                 }
             }
             if (team != null) list.AddRange(Legacy(team.FeedbackFolder));
@@ -268,7 +268,7 @@ namespace FlareAI.Core.Actions
                         var r = JsonConvert.DeserializeObject<GuideRequest>(File.ReadAllText(file, Encoding.UTF8));
                         if (r != null && IsValidId(r.Id) && !list.Exists(x => x.Id == r.Id)) { r.Unsent = true; list.Add(r); }
                     }
-                    catch (Exception ex) { Diagnostics.Log("request outbox " + file, ex); }
+                    catch (Exception ex) { Diagnostics.Log("request outbox " + Diagnostics.Path(file), ex); }
                 }
             foreach (var r in list)
             {
@@ -386,7 +386,7 @@ namespace FlareAI.Core.Actions
                     GuideRequest sent;
                     var local = ledger.Sent.TryGetValue(r.Id, out sent) && sent != null && sent.Kind == RequestKinds.ProjectException ? sent : null;
                     // Sent before local copies were kept: the shared copy, but never a network path.
-                    if (local == null && IsNetworkPath(r.ProjectPath)) continue;
+                    if (local == null && SafePath.IsNetworkPath(r.ProjectPath)) continue;
                     var apply = local ?? r;
                     try
                     {
@@ -419,16 +419,8 @@ namespace FlareAI.Core.Actions
         }
 
         private static readonly HashSet<string> Settings = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "off", "suggestion", "warning", "error" };
-        private static readonly System.Text.RegularExpressions.Regex IdPattern = new System.Text.RegularExpressions.Regex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$");
-
         /// <summary>A request id that is safe as a file name: letters, digits, dots, dashes and underscores (what <see cref="New"/> makes).</summary>
-        public static bool IsValidId(string id) { return id != null && IdPattern.IsMatch(id) && !id.Contains(".."); }
-
-        /// <summary>A UNC path (<c>\\host\share</c>): looking at it makes Windows sign in to that host.</summary>
-        private static bool IsNetworkPath(string path)
-        {
-            return !string.IsNullOrEmpty(path) && (path.StartsWith(@"\\") || path.StartsWith("//") || path.StartsWith(@"\/") || path.StartsWith(@"/\"));
-        }
+        public static bool IsValidId(string id) { return SafePath.IsValidId(id); }
 
         /// <summary>
         /// Applies an approved change to the team guide (owners): a level or turn-off row, turning a rule back on, a wording
@@ -531,14 +523,14 @@ namespace FlareAI.Core.Actions
                     if (!File.Exists(target)) File.Copy(file, target);
                     File.Delete(file);
                 }
-                catch (Exception ex) { Diagnostics.Log("request outbox: send " + file, ex); return; }   // still offline: try next time
+                catch (Exception ex) { Diagnostics.Log("request outbox: send " + Diagnostics.Path(file), ex); return; }   // still offline: try next time
             }
         }
 
         private static RequestDecision ReadDecision(string path)
         {
             try { return File.Exists(path) ? JsonConvert.DeserializeObject<RequestDecision>(ReadShared(path)) : null; }
-            catch (Exception ex) { Diagnostics.Log("decision " + path, ex); return null; }
+            catch (Exception ex) { Diagnostics.Log("decision " + Diagnostics.Path(path), ex); return null; }
         }
 
         /// <summary>Creates the file; throws IOException when it already exists (that is how the first decision wins).</summary>
