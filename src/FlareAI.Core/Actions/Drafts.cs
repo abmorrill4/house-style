@@ -105,6 +105,9 @@ namespace FlareAI.Core.Actions
             return proposal;
         }
 
+        /// <summary>The fixed instruction for Write an Introduction.</summary>
+        public string IntroductionInstruction() { return _prompts.BuildIntroduction(); }
+
         private DraftProposal DraftOnce(IDocumentAdapter doc, XmlNode anchor, string user, GuideScope scope, string known, List<string> notes)
         {
             var resp = Ask("compose", user, Contracts.EditSchema, null, scope);

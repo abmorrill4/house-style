@@ -20,6 +20,37 @@ namespace FlareAI.Core.Editing
             return Under(body, nodes[0], out refusal);
         }
 
+        public const string NoHeading = "Add a heading to the topic first. House Style writes an introduction under a heading.";
+
+        /// <summary>
+        /// Where an introduction goes: right after the heading above the caret, or after the topic's first heading when the caret is not
+        /// in the body or is above every heading. Null with the reason in <paramref name="refusal"/> when the topic has no heading.
+        /// </summary>
+        public static XmlNode ForIntroduction(IDocumentAdapter doc, out string refusal)
+        {
+            refusal = null;
+            var body = doc == null || doc.Document == null ? null : BlockSelector.FindBody(doc.Document);
+            if (body == null) { refusal = NoHeading; return null; }
+            XmlNode top = null;
+            var nodes = doc.SelectionNodes;
+            if (nodes != null && nodes.Count > 0)
+            {
+                top = nodes[0];
+                while (top != null && top.ParentNode != body) top = top.ParentNode;
+            }
+            for (var n = top; n != null; n = n.PreviousSibling)
+                if (IsHeading(n)) return n;
+            foreach (XmlNode n in body.ChildNodes)
+                if (IsHeading(n)) return n;
+            refusal = NoHeading;
+            return null;
+        }
+
+        private static bool IsHeading(XmlNode n)
+        {
+            return n.NodeType == XmlNodeType.Element && string.IsNullOrEmpty(n.NamespaceURI) && n.LocalName.Length == 2 && n.LocalName[0] == 'h' && n.LocalName[1] >= '1' && n.LocalName[1] <= '6';
+        }
+
         /// <summary>The child of <paramref name="body"/> that holds <paramref name="node"/>, when it is a paragraph or heading.</summary>
         public static XmlNode Under(XmlNode body, XmlNode node, out string refusal)
         {

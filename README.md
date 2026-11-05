@@ -9,8 +9,9 @@ House Style is a free plugin for MadCap Flare Desktop. It lints your topics agai
 documentation style guide and your team's own rules, and lists the issues it finds. You change or ignore each one, and
 every change is a Flare tracked change.
 
-Linting runs on your computer at no cost. An AI review, rewrites and other AI features are optional. They use your
-own Anthropic API key or your company's AI gateway.
+Linting runs on your computer at no cost. An AI review, rewrites, answers and new text written for you are optional. They
+use your own Anthropic API key or your company's AI gateway. Anything the AI writes goes into the topic as one tracked
+change that you can undo.
 
 Website: <https://gethousestyle.com/>
 
