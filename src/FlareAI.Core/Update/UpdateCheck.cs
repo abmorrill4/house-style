@@ -223,9 +223,7 @@ namespace FlareAI.Core.Update
             req.Timeout = timeoutMs;
             req.ReadWriteTimeout = Math.Max(timeoutMs, 30000);
             req.AllowAutoRedirect = true;           // release assets redirect to GitHub's download host
-            // A loopback address is only ever a test server on this computer (IsAllowedUpdateUrl): no proxy, so Windows' proxy
-            // auto-detect can't stall the first request in a busy process (the 10 s timeout that made a test fail now and then).
-            if (req.RequestUri.IsLoopback) { req.Proxy = null; return req; }
+            if (LoopbackProxy.Apply(req)) return req;   // a test server on this computer: no proxy (see LoopbackProxy)
             try
             {
                 var proxy = WebRequest.GetSystemWebProxy();
