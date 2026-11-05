@@ -83,6 +83,7 @@ namespace FlareAI.Core.Llm
             http.ReadWriteTimeout = _timeoutMs;
             http.AllowAutoRedirect = false;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
+            FlareAI.Core.Update.LoopbackProxy.Apply(http);
             http.Headers["x-bf-vk"] = _virtualKey;
             http.ContentLength = payload.Length;
 

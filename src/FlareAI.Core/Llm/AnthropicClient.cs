@@ -128,6 +128,7 @@ namespace FlareAI.Core.Llm
             http.ReadWriteTimeout = _timeoutMs;
             http.AllowAutoRedirect = false;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
+            FlareAI.Core.Update.LoopbackProxy.Apply(http);
             http.Headers["x-api-key"] = _apiKey;
             http.Headers["anthropic-version"] = ApiVersion;
             if (UsesFallback(model)) http.Headers["anthropic-beta"] = FallbackBeta;
