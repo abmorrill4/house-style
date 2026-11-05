@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -32,8 +33,11 @@ namespace FlareAI.Core.Style
                 bytes = ms.ToArray();
             }
             var ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
-            if (ext == ".docx" || (bytes.Length > 3 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4))
-                return FromDocx(bytes);
+            if (ext == ".docx") return FromDocx(bytes);
+            if (bytes.Length > 3 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4) return FromPackage(bytes);
+            if (bytes.Length > 4 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F')
+                throw new InvalidDataException("House Style can't read the text of a PDF. Open it, copy the text and paste it here, or save it as a Word (.docx) file and load that.");
+            if (bytes.Length > 5 && bytes[0] == '{' && bytes[1] == '\\' && bytes[2] == 'r' && bytes[3] == 't' && bytes[4] == 'f') return FromRtf(DecodeText(bytes));
             if (bytes.Length > 7 && bytes[0] == 0xD0 && bytes[1] == 0xCF && bytes[2] == 0x11 && bytes[3] == 0xE0)
                 throw new InvalidDataException("This is an older binary Word file (.doc) or a protected file. Save it as .docx or as a Web Page (.htm) in Word, then load that.");
             var text = DecodeText(bytes);
@@ -62,6 +66,143 @@ namespace FlareAI.Core.Style
             t = Regex.Replace(t, @"<[^>]*>", "");
             t = WebUtility.HtmlDecode(t).Replace(' ', ' ');
             return Tidy(t);
+        }
+
+        /// <summary>Text of any zip-package document House Style reads: Word, Excel, PowerPoint or OpenDocument.</summary>
+        public static string FromPackage(byte[] zip)
+        {
+            if (ZipEntryBytes(zip, "word/document.xml") != null) return FromDocx(zip);
+            if (ZipEntryBytes(zip, "xl/workbook.xml") != null) return FromXlsx(zip);
+            if (ZipEntryBytes(zip, "ppt/presentation.xml") != null) return FromPptx(zip);
+            if (ZipEntryBytes(zip, "content.xml") != null) return FromOdt(zip);
+            throw new InvalidDataException("House Style can't read this kind of file. It reads Word (.docx), Excel (.xlsx), PowerPoint (.pptx), OpenDocument (.odt), Rich Text (.rtf), web pages and text files. Save it as one of those, or paste the text.");
+        }
+
+        private static XDocument Load(byte[] xml)
+        {
+            try
+            {
+                using (var r = XmlReader.Create(new MemoryStream(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null }))
+                    return XDocument.Load(r);
+            }
+            catch (XmlException ex) { throw new InvalidDataException("The document's text couldn't be read: " + ex.Message); }
+        }
+
+        /// <summary>One line per spreadsheet row, cells separated by " | ", sheets one after another. A rule table in Excel reads as its rows.</summary>
+        public static string FromXlsx(byte[] zip)
+        {
+            const string S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            var shared = new System.Collections.Generic.List<string>();
+            var ss = ZipEntryBytes(zip, "xl/sharedStrings.xml");
+            if (ss != null)
+                foreach (var si in Load(ss).Root.Elements(XName.Get("si", S)))
+                    shared.Add(string.Concat(si.Descendants(XName.Get("t", S)).Select(t => t.Value).ToArray()));
+            var sb = new StringBuilder();
+            for (var n = 1; n <= 30; n++)
+            {
+                var sheet = ZipEntryBytes(zip, "xl/worksheets/sheet" + n + ".xml");
+                if (sheet == null) { if (n == 1) continue; break; }
+                foreach (var row in Load(sheet).Descendants(XName.Get("row", S)))
+                {
+                    var cells = new System.Collections.Generic.List<string>();
+                    foreach (var c in row.Elements(XName.Get("c", S)))
+                    {
+                        var type = (string)c.Attribute("t");
+                        var v = c.Element(XName.Get("v", S));
+                        string text = null;
+                        if (type == "s" && v != null) { int i; if (int.TryParse(v.Value, out i) && i >= 0 && i < shared.Count) text = shared[i]; }
+                        else if (type == "inlineStr") text = string.Concat(c.Descendants(XName.Get("t", S)).Select(t => t.Value).ToArray());
+                        else if (v != null) text = v.Value;
+                        if (!string.IsNullOrWhiteSpace(text)) cells.Add(text.Trim());
+                    }
+                    if (cells.Count > 0) sb.Append(string.Join(" | ", cells.ToArray())).Append('\n');
+                }
+                sb.Append('\n');
+            }
+            return Tidy(sb.ToString());
+        }
+
+        /// <summary>The text of each slide, one line per paragraph.</summary>
+        public static string FromPptx(byte[] zip)
+        {
+            const string A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+            var sb = new StringBuilder();
+            for (var n = 1; n <= 300; n++)
+            {
+                var slide = ZipEntryBytes(zip, "ppt/slides/slide" + n + ".xml");
+                if (slide == null) { if (n == 1) continue; break; }
+                foreach (var p in Load(slide).Descendants(XName.Get("p", A)))
+                    sb.Append(string.Concat(p.Descendants(XName.Get("t", A)).Select(t => t.Value).ToArray())).Append('\n');
+                sb.Append('\n');
+            }
+            return Tidy(sb.ToString());
+        }
+
+        /// <summary>Text of content.xml in an OpenDocument text file: one line per paragraph or heading.</summary>
+        public static string FromOdt(byte[] zip)
+        {
+            const string T = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+            var sb = new StringBuilder();
+            foreach (var p in Load(ZipEntryBytes(zip, "content.xml")).Descendants().Where(e => e.Name.Namespace.NamespaceName == T && (e.Name.LocalName == "p" || e.Name.LocalName == "h")))
+            {
+                foreach (var n in p.DescendantNodes())
+                {
+                    var t = n as XText;
+                    if (t != null) sb.Append(t.Value);
+                    var e = n as XElement;
+                    if (e != null && e.Name.LocalName == "s") sb.Append(' ');
+                    if (e != null && e.Name.LocalName == "tab") sb.Append('\t');
+                    if (e != null && e.Name.LocalName == "line-break") sb.Append('\n');
+                }
+                sb.Append('\n');
+            }
+            return Tidy(sb.ToString());
+        }
+
+        /// <summary>Plain text of Rich Text Format: paragraph ends kept, fonts, styles and pictures dropped, \'hh and \uN decoded.</summary>
+        public static string FromRtf(string rtf)
+        {
+            var sb = new StringBuilder();
+            var skip = new System.Collections.Generic.Stack<bool>();
+            var skipping = false;
+            var skipDepth = 0;
+            var depth = 0;
+            for (var i = 0; i < rtf.Length; i++)
+            {
+                var c = rtf[i];
+                if (c == '{') { depth++; skip.Push(skipping); if (skipping) skipDepth++; continue; }
+                if (c == '}') { depth--; if (skip.Count > 0) { skipping = skip.Pop(); } continue; }
+                if (c != '\\') { if (!skipping && c != '\r' && c != '\n') sb.Append(c); continue; }
+                if (++i >= rtf.Length) break;
+                var d = rtf[i];
+                if (d == '\'' && i + 2 < rtf.Length)
+                {
+                    int code;
+                    if (int.TryParse(rtf.Substring(i + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out code) && !skipping) sb.Append(Encoding.Default.GetString(new[] { (byte)code }));
+                    i += 2;
+                    continue;
+                }
+                if (d == '\\' || d == '{' || d == '}') { if (!skipping) sb.Append(d); continue; }
+                if (d == '*') { skipping = true; continue; }   // an optional destination: skip its group
+                var j = i;
+                while (j < rtf.Length && char.IsLetter(rtf[j])) j++;
+                var word = rtf.Substring(i, j - i);
+                var k = j;
+                if (k < rtf.Length && (rtf[k] == '-' || char.IsDigit(rtf[k]))) { k++; while (k < rtf.Length && char.IsDigit(rtf[k])) k++; }
+                var arg = rtf.Substring(j, k - j);
+                if (k < rtf.Length && rtf[k] == ' ') k++;
+                i = k - 1;
+                if (word == "fonttbl" || word == "colortbl" || word == "stylesheet" || word == "info" || word == "pict" || word == "header" || word == "footer" || word == "listtable" || word == "listoverridetable") skipping = true;
+                else if (skipping) { }
+                else if (word == "par" || word == "line" || word == "row") sb.Append('\n');
+                else if (word == "tab" || word == "cell") sb.Append(word == "tab" ? '\t' : ' ');
+                else if (word == "u")
+                {
+                    int u;
+                    if (int.TryParse(arg, out u)) { sb.Append((char)(u < 0 ? u + 65536 : u)); if (i + 1 < rtf.Length && rtf[i + 1] == '?') i++; }
+                }
+            }
+            return Tidy(sb.ToString());
         }
 
         /// <summary>Text of word/document.xml in a .docx: one line per paragraph (table cells included).</summary>
