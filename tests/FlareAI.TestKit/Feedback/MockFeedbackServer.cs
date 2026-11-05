@@ -33,6 +33,7 @@ namespace FlareAI.TestKit.Feedback
 
         public MockFeedbackServer()
         {
+            FlareAI.TestKit.PoolFloor.Raise();
             for (var attempt = 0; ; attempt++)
             {
                 Port = FreePort();
@@ -79,7 +80,7 @@ namespace FlareAI.TestKit.Feedback
                 HttpListenerContext ctx;
                 try { ctx = _listener.GetContext(); }
                 catch (Exception) { return; }
-                ThreadPool.QueueUserWorkItem(_ => Serve(ctx));
+                new Thread(() => Serve(ctx)) { IsBackground = true, Name = "mock server request" }.Start();   // not the thread pool: a starved pool delayed answers past the client's timeout (#396)
             }
         }
 
