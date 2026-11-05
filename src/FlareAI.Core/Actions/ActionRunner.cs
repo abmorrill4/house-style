@@ -834,6 +834,26 @@ namespace FlareAI.Core.Actions
             return GuideBuilder.FromExtracted(all);
         }
 
+        /// <summary>
+        /// Candidate rules from each source in turn, each marked with the source it came from. A rule that repeats one
+        /// from an earlier source is left out, so it stays listed under the first.
+        /// </summary>
+        public List<RuleCandidate> ExtractRules(IEnumerable<NoteSource> sources)
+        {
+            var all = new List<RuleCandidate>();
+            foreach (var src in sources)
+            {
+                var found = src.Pdf != null ? ExtractRulesFromPdf(src.Pdf, src.Name)
+                          : string.IsNullOrWhiteSpace(src.Text) ? new List<RuleCandidate>() : ExtractRules(src.Text);
+                foreach (var c in found)
+                {
+                    c.Source = src.Name;
+                    if (!all.Any(h => RuleCandidate.SameRule(h, c))) all.Add(c);
+                }
+            }
+            return all;
+        }
+
         /// <summary>Candidate rules from a PDF of notes or an old style guide. The model reads the PDF itself, so scans and layouts work too.</summary>
         public List<RuleCandidate> ExtractRulesFromPdf(byte[] pdf, string fileName)
         {

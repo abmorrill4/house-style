@@ -10,6 +10,14 @@ using System.Xml.Linq;
 
 namespace FlareAI.Core.Style
 {
+    /// <summary>One thing added to the notes box: pasted text, a file read as text, or a PDF sent as it is.</summary>
+    public sealed class NoteSource
+    {
+        public string Name { get; set; }
+        public string Text { get; set; }
+        public byte[] Pdf { get; set; }
+    }
+
     /// <summary>
     /// Plain text from the files an owner drops into "Add notes or an old guide": .txt/.md as is, Word "Web Page"
     /// HTML (.htm/.html) cleaned of styles, scripts and Office markup, and .docx read straight from the package.
