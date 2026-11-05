@@ -52,6 +52,19 @@ namespace FlareAI.Core
             return string.IsNullOrEmpty(s) ? s : Quoted.Replace(s, m => m.Value[0] == '"' ? "\"…\"" : "“…”");
         }
 
+        /// <summary>
+        /// A path as it may appear in a log or report: a drive or network path (which holds a user name, a drive or a host)
+        /// becomes <c>[project]\</c> and its last part, the same form a report uses. A relative path stays as it is.
+        /// </summary>
+        public static string Path(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            var rooted = path[0] == '\\' || path[0] == '/' || (path.Length >= 2 && path[1] == ':');
+            if (!rooted) return path;
+            var last = path.Substring(path.LastIndexOfAny(new[] { '\\', '/' }) + 1);
+            return last.Length == 0 ? "[project]" : "[project]\\" + last;
+        }
+
         private static void Write(string path, string message)
         {
             var sink = Sink;

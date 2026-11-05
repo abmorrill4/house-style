@@ -100,7 +100,7 @@ namespace FlareAI.Core.Actions
                 var saved = JsonConvert.DeserializeObject<List<KeyValuePair<string, List<StyleFinding>>>>(File.ReadAllText(path, Encoding.UTF8));
                 if (saved != null) foreach (var kv in saved) if (kv.Value != null) { _items[kv.Key] = kv.Value; _order.AddLast(kv.Key); }
             }
-            catch (Exception ex) { Diagnostics.Log("review cache " + path, ex); }
+            catch (Exception ex) { Diagnostics.Log("review cache " + Diagnostics.Path(path), ex); }
         }
 
         public static string Key(string prompt)
@@ -293,7 +293,7 @@ namespace FlareAI.Core.Actions
                 Directory.CreateDirectory(Path.GetDirectoryName(_path));
                 File.WriteAllText(_path, JsonConvert.SerializeObject(list), ProjectRules.NoBom);
             }
-            catch (Exception ex) { Diagnostics.Log("review cache " + _path, ex); }
+            catch (Exception ex) { Diagnostics.Log("review cache " + Diagnostics.Path(_path), ex); }
         }
 
         private static StyleFinding Copy(StyleFinding f)

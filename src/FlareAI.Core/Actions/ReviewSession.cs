@@ -568,7 +568,7 @@ namespace FlareAI.Core.Actions
                 else if (!_writtenIn.TryGetValue(path, out d) && checkedTopic) d = _doc;
                 dom = d == null ? (checkedTopic ? _doc.Document : null) : d.Document;
             }
-            catch (Exception ex) { Diagnostics.Log("recheck: " + path + " " + ex.GetType().Name); dom = null; }
+            catch (Exception ex) { Diagnostics.Log("recheck: " + Diagnostics.Path(path) + " " + ex.GetType().Name); dom = null; }
             if (dom == null) _writtenIn.Remove(path);
             seen[path] = dom;
             return dom;
@@ -637,7 +637,7 @@ namespace FlareAI.Core.Actions
                 }
                 catch (Exception ex)
                 {
-                    if (failed.Add(file)) Diagnostics.Log("recheck edits: " + file + " " + ex.GetType().Name);
+                    if (failed.Add(file)) Diagnostics.Log("recheck edits: " + Diagnostics.Path(file) + " " + ex.GetType().Name);
                 }
             }
             foreach (var g in groups)
@@ -752,7 +752,7 @@ namespace FlareAI.Core.Actions
                 CheckEdits(path, null, marked, out reopened);
                 _pendingMarked += marked.Count; _pendingReopened += reopened;
             }
-            catch (Exception ex) { Diagnostics.Log("recheck before write: " + path + " " + ex.GetType().Name); }
+            catch (Exception ex) { Diagnostics.Log("recheck before write: " + Diagnostics.Path(path) + " " + ex.GetType().Name); }
         }
 
         private void OnWrote(string path)
