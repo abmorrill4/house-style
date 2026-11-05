@@ -15,6 +15,7 @@ namespace FlareAI.Core.Tests
     /// bundled defaults keep arriving with plugin updates, personal rows still win (and can turn a default back on), and
     /// an old full copy is reduced to what the writer changed.
     /// </summary>
+    [Collection("Core statics")]
     public class PersonalGuideTests : IDisposable
     {
         private const string ThisPage = "google:word-list/221";       // turned off by the bundled Company/Google-overrides.htm

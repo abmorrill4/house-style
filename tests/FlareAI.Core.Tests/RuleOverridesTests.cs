@@ -12,6 +12,7 @@ namespace FlareAI.Core.Tests
     /// Turning rules off without a team guide (the writer's own guide in %APPDATA%, never the plugin folder), the engine
     /// picking the change up before the next check, and the turned-off rules list with who/when/why and Turn back on.
     /// </summary>
+    [Collection("Core statics")]
     public class RuleOverridesTests : IDisposable
     {
         private const string Curly = "The section’s title is “Care and feeding of the emu.”";

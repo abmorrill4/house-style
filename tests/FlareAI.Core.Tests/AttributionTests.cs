@@ -6,7 +6,7 @@ using Xunit;
 
 namespace FlareAI.Core.Tests
 {
-    [Collection("Feedback")] // these tests set the static Team.Current / FeedbackLog.PersonalPath
+    [Collection("Core statics")] // these tests set the static Team.Current / FeedbackLog.PersonalPath
     public class AttributionTests : IDisposable
     {
         private readonly string _dir = Path.Combine(Path.GetTempPath(), "attr-" + Guid.NewGuid());

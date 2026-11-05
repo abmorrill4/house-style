@@ -7,6 +7,7 @@ using Xunit;
 
 namespace FlareAI.Core.Tests
 {
+    [Collection("Core statics")]
     public class TeamFeedbackTests
     {
         [Fact]

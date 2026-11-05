@@ -8,6 +8,7 @@ using Xunit;
 namespace FlareAI.Core.Tests
 {
     /// <summary>The AI choices, first-run setup answers and team guide folder check behind Settings and setup (#13, #39, #91).</summary>
+    [Collection("Core statics")]
     public class FirstRunSetupTests : IDisposable
     {
         private readonly string _tmp = Path.Combine(Path.GetTempPath(), "hs-setup-" + Guid.NewGuid().ToString("N"));

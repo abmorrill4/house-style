@@ -9,6 +9,7 @@ using Xunit;
 
 namespace FlareAI.Core.Tests.Update
 {
+    [Collection("Core statics")]
     public class SemVerTests
     {
         [Theory]
@@ -40,6 +41,7 @@ namespace FlareAI.Core.Tests.Update
         }
     }
 
+    [Collection("Core statics")]
     public class UpdatePolicyTests
     {
         [Fact]
@@ -88,6 +90,7 @@ namespace FlareAI.Core.Tests.Update
         }
     }
 
+    [Collection("Core statics")]
     public class UpdateCheckTests
     {
         private static readonly DateTime Now = new DateTime(2026, 10, 21, 9, 0, 0, DateTimeKind.Utc);
