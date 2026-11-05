@@ -1,5 +1,5 @@
 # Publishes site/ (plain static HTML and CSS) to GitHub Pages, with the documentation (docs-site, Astro Starlight) built
-# into site/docs and a redirect page for each page of the old user guide in site/guide.
+# into site/docs and a redirect page for each page of the retired user guide in site/guide.
 # Repo Settings > Pages > Source must be "GitHub Actions".
 # Two jobs: the build runs repo code with read-only access and no stored credentials; only the deploy job, which runs
 # no repo code, holds the Pages and OIDC permissions.

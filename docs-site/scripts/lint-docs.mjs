@@ -89,7 +89,8 @@ if (!fs.existsSync(exe)) {
   process.exit(2);
 }
 
-const child = spawn(exe, ['--guide', path.join(ROOT, 'styleguide')], { stdio: ['pipe', 'pipe', 'inherit'] });
+// The second guide turns off two rules for these pages only (docs-site/lint-guide). The product's rules are not changed.
+const child = spawn(exe, ['--guide', path.join(ROOT, 'styleguide'), '--guide', path.join(SITE, 'lint-guide')], { stdio: ['pipe', 'pipe', 'inherit'] });
 const pending = new Map();
 let buffer = '';
 child.stdout.setEncoding('utf8');

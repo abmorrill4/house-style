@@ -22,7 +22,7 @@ site/guide/
 !.env.example
 settings.json
 
-# signing keys and certificates — never
+# signing keys and certificates ï¿½ never
 *.pfx
 *.p12
 *.snk
@@ -40,8 +40,6 @@ bench-out/
 corpus/DigitalBanking/Analyzer/
 corpus/DigitalBanking/Output/
 corpus/DigitalBanking/Project/Reports/
-docs/user-guide/Analyzer/
-docs/user-guide/Output/
 **/Project/Users/
 *.flprjuser
 

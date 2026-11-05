@@ -1,7 +1,7 @@
 # House Style tester guide
 
-Thank you for testing House Style. This page gets you started. The full user guide is a Flare project in
-`docs/user-guide` (open `FlareAI-Guide.flprj`). For what changed since 0.2, see **House Style > Help > What's New** or
+Thank you for testing House Style. This page gets you started. The full user guide is at
+<https://gethousestyle.com/docs/>. For what changed since 0.2, see **House Style > Help > What's New** or
 `docs/release-notes/0.3.0.md`.
 
 ## Install or upgrade

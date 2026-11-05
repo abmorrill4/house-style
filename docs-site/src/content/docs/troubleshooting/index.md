@@ -33,7 +33,7 @@ Right-click the issue in the pane and select **Report False Positive…**, then 
 
 ## "Your team's style guide couldn't be read"
 
-House Style can't reach the team's guide folder, for example because you're offline. It lints with the copy it saved the last time it could reach the folder, and says the date of that copy after each lint. If it has no copy yet, it lints with Google's guide, the starter rules and your own changes. You can't change the team's rules until the folder is back. Check the folder in **Settings > Style guide**.
+House Style can't reach the team's guide folder, such as when you're offline. It lints with the copy it saved the last time it could reach the folder, and says the date of that copy after each lint. If it has no copy yet, it lints with Google's guide, the starter rules and your own changes. You can't change the team's rules until the folder is back. Check the folder in **Settings > Style guide**.
 
 ## "Your team's style guide has no rules yet"
 
@@ -49,6 +49,6 @@ House Style refuses any AI result that would drop or change a variable, cross-re
 
 ## Known Flare limitation
 
-House Style won't restructure a paragraph that contains a variable, for example split it or make it a list, because Flare can't redo (Ctrl+Y) that kind of change. The result window says why, and nothing changes. Wording-only edits and word-level fixes work. Make the structural change yourself.
+House Style won't restructure a paragraph that contains a variable, such as splitting it or making it a list, because Flare can't redo (Ctrl+Y) that kind of change. The result window says why, and nothing changes. Wording-only edits and word-level fixes work. Make the structural change yourself.
 
-House Style also won't turn one kind of block into another, for example a list into a table or a paragraph into a list, because Flare can't make that change as a tracked change. Make that change yourself, or ask for an edit that keeps the first block, for example an intro paragraph followed by a list.
+House Style also won't turn one kind of block into another, such as a list into a table or a paragraph into a list, because Flare can't make that change as a tracked change. Make that change yourself, or ask for an edit that keeps the first block, such as an intro paragraph followed by a list.

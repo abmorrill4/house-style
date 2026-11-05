@@ -28,11 +28,11 @@ House Style needs Flare 2026 in the Ribbon interface. Flare 2024 and 2025 aren't
 when you close Flare. If something goes wrong, see the [install page](https://gethousestyle.com/install.html)
 or `docs/README-INSTALL.md`.
 
-## Docs
+## Where docs live
 
 | For | Read |
 |---|---|
-| Writers | The user guide at <https://gethousestyle.com/docs/>. Its pages are Markdown in `docs-site/src/content/docs`. The old Flare project in `docs/user-guide` stays until the new site replaces it |
+| Writers | The user guide at <https://gethousestyle.com/docs/>. Its pages are Markdown in `docs-site/src/content/docs`. The earlier Flare version of the guide is kept only in git history |
 | Pilot testers | `docs/TESTER-GUIDE.md` |
 | Style guide owners | The *Team style guide* section of the user guide |
 | Contributors | <https://gethousestyle.com/docs/dev/>: test reports, architecture, Flare API notes. Built from `docs/testing`, `PLAN.md`, `docs/flare-api-notes.md` and `CLAUDE.md`, so edit those files |
