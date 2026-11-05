@@ -89,8 +89,6 @@ powershell.exe -File .\scripts\bootstrap.ps1   # first run on a machine (Windows
 .\scripts\install-plugin.ps1                   # no admin needed if the Plugins folder is writable. Then .\scripts\run-flare.ps1 starts Flare with the dev key
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and check in real Flare, no clicking (tests/e2e/README.md)
 ```
-- **NuGet lock files.** Every project has a `packages.lock.json`, and CI restores with `CI=true`, which fails if a restore would
-  change one. After you add or change a package, run `dotnet restore` and commit the changed lock files.
 - **Security scanners** run in `.github/workflows/security.yml` (not a required check). Locally:
   `gitleaks git . --redact` (history) or `gitleaks dir . --redact` (working tree),
   `zizmor --persona auditor --min-severity medium .github`, `actionlint`,

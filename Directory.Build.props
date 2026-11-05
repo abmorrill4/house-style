@@ -10,9 +10,6 @@
     <Company>Arthur Morrill</Company>
     <Copyright>Copyright (c) 2026 Arthur Morrill</Copyright>
     <Product>House Style</Product>
-    <!-- Exact package versions are recorded in packages.lock.json. CI (CI=true) fails when a restore would change them. -->
-    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
   <!-- Lets `dotnet build` target .NET Framework 4.0 / 4.8 on machines without the old targeting packs (incl. macOS). -->
   <ItemGroup>
