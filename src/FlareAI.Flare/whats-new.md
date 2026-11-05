@@ -83,12 +83,12 @@ New entries go in changes/<name>.md, not here: the nightly release adds them to 
   This window shows what changed.
 - Build style guide reads Word files (.docx) and Word web pages. Extract rules is the main button, and you can edit
   or remove a suggested rule before you add it. A file that's still open in Word no longer causes an error.
-- Settings has four tabs: AI, Style guide, Checking and Advanced.
+- Settings has four tabs. They are AI, Style guide, Checking and Advanced.
 - With No AI chosen, earlier AI suggestions are hidden and the pane says "AI review is off".
 - If you undo a fix with Ctrl+Z, its suggestion comes back in the pane.
 - AI suggestions that change must, should or may, or a code term, are left for you to decide.
 - Suggested alt text is 125 characters or fewer.
-- AI costs less: reviews are reused after you apply fixes, and prompts are smaller. Validate style guide checks only
+- AI costs less. Reviews are reused after you apply fixes, and prompts are smaller. Validate style guide checks only
   your team's rules unless you include Google's.
 - If your team's guide can't be read, House Style checks with Google's guide and tells you why.
 - Errors are written to House Style's own log, and the Plugins list shows the real version number.
