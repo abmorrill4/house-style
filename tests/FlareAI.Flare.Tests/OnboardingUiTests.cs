@@ -143,15 +143,19 @@ namespace FlareAI.Flare.Tests
                 var f = NewSetup();
                 try
                 {
+                    Mark("opened setup");
                     ToGuideStep(f);
+                    Mark("on the guide step");
                     Choose(f, "My team's shared style guide folder");
                     var box = (TextBox)Named(f, "Team feedback folder");
                     var status = Named(f, "Team feedback folder status");
 
+                    Mark("checking the writable folder");
                     box.Text = writable; Leave(box);
                     Pump(() => status.Text != "Checking…" && status.Text.Length > 0, 10000);
                     Assert.Equal("✓ Shared with your team", status.Text);
 
+                    Mark("checking the missing folder");
                     box.Text = missing; Leave(box);
                     Pump(() => status.Text != "Checking…" && status.Text != "✓ Shared with your team", 10000);
                     Assert.Equal("Can't write to this folder", status.Text);
@@ -160,18 +164,22 @@ namespace FlareAI.Flare.Tests
                     Pump(null, 100);
                     Assert.Equal("", status.Text);
 
+                    Mark("clearing the folder");
                     // An unwritable folder doesn't stop setup, and the last step says requests wait.
                     box.Text = missing; Leave(box);
                     Pump(() => status.Text == "Can't write to this folder", 10000);
+                    Mark("choosing the guide folder");
                     ((TextBox)Named(f, "Team style guide folder")).Text = guide;
                     Button(f, "Next").PerformClick();   // checks the guide folder
                     Pump(() => !VisibleLabels(f).Any(t => t.StartsWith("Checking", StringComparison.Ordinal)), 10000);
+                    Mark("going to the last step");
                     Button(f, "Next").PerformClick();
                     Pump(null, 100);
+                    Mark("reading the summary");
                     var summary = Named(f, "What was set up").Text;
                     Assert.Contains("Requests: kept on this computer until " + missing + " can be reached.", summary);
                 }
-                finally { f.Dispose(); }
+                finally { Mark("disposing the form"); f.Dispose(); }
             });
         }
 
@@ -506,8 +514,14 @@ namespace FlareAI.Flare.Tests
             if (done != null && mustFinish) throw new TimeoutException("The pane didn't finish linting.");
         }
 
+        private static volatile string _stage = "not started";
+
+        /// <summary>Notes where a UI test is, so a test that blocks fails naming the step it stopped at.</summary>
+        private static void Mark(string stage) { _stage = stage; }
+
         private static void Sta(Action body)
         {
+            _stage = "not started";
             Exception error = null;
             // A failed step can leave a form unable to dispose, and that error then hides the step's: keep the first
             // assertion or timeout raised on the test's thread too.
@@ -535,7 +549,8 @@ namespace FlareAI.Flare.Tests
             try
             {
                 t.Start();
-                if (!t.Join(180000)) throw new TimeoutException("The UI test didn't finish in 180 s.");   // a loaded CI runner took the suite from 50 s to 2 min (2026-10-29)
+                // The test passes in about 2 s. A hang (#295) blocks the thread for good, so a short limit fails it fast; the last Mark says where.
+                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s. It was stuck at: " + _stage + ". Its thread is " + t.ThreadState + ".");
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);

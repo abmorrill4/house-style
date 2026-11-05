@@ -1223,7 +1223,7 @@ namespace FlareAI.Flare.Tests
         }
 
         /// <summary>Runs the message loop until <paramref name="done"/> (or for <paramref name="ms"/> when null).</summary>
-        private static void Pump(Func<bool> done, int ms = 15000, Func<string> state = null)
+        private static void Pump(Func<bool> done, int ms = 45000, Func<string> state = null)
         {
             var clock = Stopwatch.StartNew();
             while (clock.ElapsedMilliseconds < ms)

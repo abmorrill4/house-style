@@ -317,12 +317,20 @@ namespace FlareAI.Core.Tests
             Glossary(Enumerable.Range(1, 500).Select(i => "term " + i + " word").ToArray());
             var comp = Engine().Compose(_topic);
 
-            var watch = Stopwatch.StartNew();
-            var cat = RuleCatalog.Build(comp);
-            watch.Stop();
+            // The fastest of several builds, so a busy runner pausing one of them (#425) doesn't fail the test. A build that
+            // slows down with the glossary (quadratic) is slow every time and still misses the limit.
+            RuleCatalog cat = null;
+            var best = TimeSpan.MaxValue;
+            for (var i = 0; i < 5 && best >= TimeSpan.FromSeconds(1); i++)
+            {
+                var watch = Stopwatch.StartNew();
+                cat = RuleCatalog.Build(comp);
+                watch.Stop();
+                if (watch.Elapsed < best) best = watch.Elapsed;
+            }
 
             Assert.NotNull(cat.Find("Company.GlossaryTerms"));
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), "Build took " + watch.Elapsed.TotalSeconds.ToString("0.00") + " s");
+            Assert.True(best < TimeSpan.FromSeconds(2), "The fastest of the builds took " + best.TotalSeconds.ToString("0.00") + " s");
         }
     }
 }
