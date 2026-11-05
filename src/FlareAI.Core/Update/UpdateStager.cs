@@ -150,6 +150,7 @@ namespace FlareAI.Core.Update
             var part = path + ".part";
             using (var resp = (HttpWebResponse)UpdateCheck.Request(url, TimeoutMs).GetResponse())
             {
+                UpdateCheck.RequireAllowedFinalUrl(resp);
                 if (resp.ContentLength > MaxZipBytes) throw new UpdateException("The update is unexpectedly large.");
                 using (var input = resp.GetResponseStream())
                 using (var output = File.Create(part))

@@ -33,6 +33,32 @@ param(
 $ErrorActionPreference = "Stop"
 if ($Silent) { $NoPause = $true }
 
+# The elevated copy runs with administrator rights, so it takes nothing from settings the signed-in user can change:
+# the test-only environment variables (a fake Flare folder, another registry key, skipping the "Flare is running" check)
+# are dropped before anything else runs. The non-elevated install keeps using them for tests.
+if ($Elevated -or $LinkTarget) {
+    foreach ($name in @("FLARE_ROOT", "HOUSESTYLE_PLUGINS_KEY", "HOUSESTYLE_INSTALL_TEST")) {
+        Remove-Item -LiteralPath "Env:\$name" -ErrorAction SilentlyContinue
+    }
+}
+# The only folder the elevated step may link Flare to is a per-user install: ...\HouseStyle\current holding the plugin.
+if ($LinkTarget) {
+    $okTarget = $false
+    try {
+        $full = [IO.Path]::GetFullPath($LinkTarget).TrimEnd('\')
+        $parent = Split-Path $full -Parent
+        $okTarget = ($full -eq $LinkTarget.TrimEnd('\')) -and ((Split-Path $full -Leaf) -eq "current") -and `
+                    $parent -and ((Split-Path $parent -Leaf) -eq "HouseStyle") -and `
+                    (Test-Path -LiteralPath (Join-Path $full "FlareAI.Flare.dll")) -and `
+                    -not ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+    } catch { $okTarget = $false }
+    if (-not $okTarget) {
+        Write-Host ""
+        Write-Host "ERROR: Refusing to link Flare to '$LinkTarget'. It is not a House Style install folder." -ForegroundColor Red
+        exit 1
+    }
+}
+
 function Wait-Exit([int]$code) {
     if (-not $NoPause) { Write-Host ""; Read-Host "Press Enter to close" | Out-Null }
     exit $code
@@ -201,10 +227,11 @@ try {
             if ($Elevated) { Fail "Administrator rights were not granted." }
             Write-Host "Administrator rights are needed to write to Program Files. Asking Windows for permission..."
             $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Flare $($target.Number) -Elevated -NoJunction"
+            $psExe = Join-Path ([Environment]::SystemDirectory) "WindowsPowerShell\v1.0\powershell.exe"
             if ($NoPause) { $argList += " -NoPause" }
             if ($Silent) { $argList += " -Silent" }
             if ($NoAutoUpdate) { $argList += " -NoAutoUpdate" }
-            try { $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argList -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
+            try { $p = Start-Process -FilePath $psExe -ArgumentList $argList -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
             # The elevated copy may run as another (admin) account: turn the plugin on for the signed-in user here.
             if ($p.ExitCode -eq 0) { [void](Enable-Plugin) }
             Wait-Exit $p.ExitCode
@@ -279,7 +306,8 @@ try {
         } elseif ($underPF -and -not $isAdmin) {
             Write-Host "Administrator rights are needed once, to link Flare's Plugins folder to your install. Asking Windows for permission..."
             $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Flare $($target.Number) -Elevated -NoPause -LinkTarget `"$current`""
-            try { $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argList -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
+            $psExe = Join-Path ([Environment]::SystemDirectory) "WindowsPowerShell\v1.0\powershell.exe"
+            try { $p = Start-Process -FilePath $psExe -ArgumentList $argList -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
             if ($p.ExitCode -ne 0) { Fail "Linking Flare's Plugins folder failed (exit code $($p.ExitCode))." }
         } else {
             Set-PluginsLink $dest $current
