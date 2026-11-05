@@ -64,7 +64,16 @@ const decode = (s) =>
     if (e[0] === '#') return String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
     return ENT[e.toLowerCase()] ?? m;
   });
-const text = (html) => decode(html.replace(/<[^>]*>/g, '').replace(/[<>]/g, '')).replace(/\s+/g, ' ').trim();
+/** Removes tags until none are left, so nested fragments such as <<b>script> can't survive one pass. */
+function stripTags(s) {
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/<[^>]*>/g, '');
+  } while (s !== prev);
+  return s.replace(/[<>]/g, '');
+}
+const text = (html) => decode(stripTags(html)).replace(/\s+/g, ' ').trim();
 const esc = (s) => s.replace(/([\\`*_\[\]<>|])/g, '\\$1');
 const cell = (s) => esc(s).replace(/\n/g, ' ');
 const slug = (s) => (s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x');

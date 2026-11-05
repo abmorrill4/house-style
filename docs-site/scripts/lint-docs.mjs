@@ -44,13 +44,21 @@ function blocks(file) {
     if (para) out.push(para);
     para = null;
   };
+  const stripTags = (s) => {
+    let prev;
+    do {
+      prev = s;
+      s = s.replace(/<[^>]*>/g, '');
+    } while (s !== prev);
+    return s.replace(/[<>]/g, '');
+  };
   const clean = (s) =>
-    s
-      .replace(/`[^`]*`/g, '')
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/<[^>]*>/g, '')
-      .replace(/[<>]/g, '')
+    stripTags(
+      s
+        .replace(/`[^`]*`/g, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'),
+    )
       .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
       .replace(/\s+/g, ' ')
       .trim();
