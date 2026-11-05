@@ -8,6 +8,7 @@ using Xunit;
 namespace FlareAI.Core.Tests
 {
     /// <summary>The in-process style guide and linter, against the style guide project shipped with the plugin.</summary>
+    [Collection("Core statics")]
     public class StyleEngineTests
     {
         private static string Repo

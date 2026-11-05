@@ -13,6 +13,7 @@ namespace FlareAI.Core.Tests
     /// Onboarding (#123): the role and its default, setup's role answer, the getting-started checklist, the first-time
     /// notes, the guided first lint, the focused first Lint Project and the practice project.
     /// </summary>
+    [Collection("Core statics")]
     public class OnboardingTests : IDisposable
     {
         private readonly string _tmp = Path.Combine(Path.GetTempPath(), "hs-onboarding-" + Guid.NewGuid().ToString("N"));

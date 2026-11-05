@@ -14,6 +14,7 @@ namespace FlareAI.Core.Tests
     /// guide, the writer's own guide, the open project), its state from the same overrides the checker uses (Default, team,
     /// personal "on" and level rows, project exceptions, open requests), the rules that share words, and search and filters.
     /// </summary>
+    [Collection("Core statics")]
     public class RuleCatalogTests : IDisposable
     {
         private const string Team1 = "team:team-words/k1", Kick = "team:team-words/k2", PleaseKindly = "team:team-words/k3", Kindly = "team:team-words/k4";

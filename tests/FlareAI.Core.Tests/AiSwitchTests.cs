@@ -6,6 +6,7 @@ using Xunit;
 
 namespace FlareAI.Core.Tests
 {
+    [Collection("Core statics")]
     public class AiSwitchTests : IDisposable
     {
         private readonly string _oldRoot, _oldKey, _oldGateway, _dir;
