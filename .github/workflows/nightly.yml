@@ -16,10 +16,7 @@ on:
         description: 'Say what would be released, without tagging'
         type: boolean
         default: false
-permissions:
-  contents: write   # create the tag
-  actions: write    # start build.yml on it
-  issues: write     # report a failure
+permissions: {}   # each job asks for what it needs
 concurrency:
   group: nightly
   cancel-in-progress: false
@@ -28,8 +25,12 @@ jobs:
     if: github.repository == 'abmorrill4/house-style' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write   # create the tag
+      actions: write    # start build.yml on it
+      issues: write     # report a failure
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
