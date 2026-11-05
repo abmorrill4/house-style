@@ -18,7 +18,16 @@ site/guide/
 # secrets â€” never
 .env
 *.env
+.env.*
+!.env.example
 settings.json
+
+# signing keys and certificates — never
+*.pfx
+*.p12
+*.snk
+*.pem
+*.key
 
 # python
 __pycache__/
