@@ -297,6 +297,33 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void RecheckAfterTheAuthorEditedOneSection_ReviewsOnlyThatSection_AndKeepsTheOthersIssues()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var body = doc.Document.SelectSingleNode("//body");
+            while (body.FirstChild != null) body.RemoveChild(body.FirstChild);
+            // A topic under 3,000 characters is one review unit; two sections of about 1,700 split into one unit each.
+            var filler = string.Concat(Enumerable.Repeat(" The fee applies to every account.", 50));
+            foreach (var n in FlareAI.Core.Editing.XhtmlFragment.ParseInto(
+                "<h1>Fees</h1><p>We utilize the app. Please note that the fee is waived." + filler + "</p><h2>Limits</h2><p>We utilize the cap. Please note that the limit is waived." + filler + "</p>", doc.Document))
+                body.AppendChild(n);
+            var blocks = body.ChildNodes.Cast<System.Xml.XmlNode>().Where(n => n.NodeType == System.Xml.XmlNodeType.Element).ToList();
+            var llm = new FakeLlmClient(r => TwoFindings);
+            var runner = new ActionRunner(llm, new PromptBuilder(null), 1024);
+            var cache = new ReviewCache();
+
+            List<ReviewUnit> Units() { return runner.PrepareReview(blocks, runner.Lint(blocks)); }
+            foreach (var u in Units()) { var raw = cache.Get(u); if (raw == null) cache.Put(u, runner.CallReview(u)); }
+            Assert.Equal(2, llm.Requests.Count);                                   // one call per section
+
+            // The author rewrites the second section by hand.
+            var limits = blocks[3];
+            ((System.Xml.XmlText)limits.FirstChild).Value = "We utilize the cap. The limit is waived for new members only." + filler;
+            foreach (var u in Units()) { var raw = cache.Get(u); if (raw == null) cache.Put(u, runner.CallReview(u)); }
+            Assert.Equal(3, llm.Requests.Count);                                   // only the edited section went back to the model
+        }
+
+        [Fact]
         public void RecheckAfterTheAuthorRewroteText_ReviewsAgain()
         {
             var doc = new FakeDocumentAdapter("sample-topic.htm");
