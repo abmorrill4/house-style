@@ -16,6 +16,14 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
 3. **Ending or switching chats**, or when context is getting long, run `/handoff` to write a note. The next chat
    then starts from that note and doesn't re-read the repo.
 
+## Flare questions: look them up
+Before you write or change anything that touches Flare itself (the plugin API, ribbon, menus, panes, the editor, topic
+XML, tracked changes, or how a Flare feature behaves), use the `flare-dev` skill (`.claude/skills/flare-dev`; from a
+chat started in `E:\HouseStyle`, read its `SKILL.md` directly). It sends
+you to `docs/api-dump.txt`, `docs/flare-api-notes.md` and the local copy of MadCap's Flare 2026 documentation, in that
+order, then to a real-Flare test. Don't answer from memory or a fresh web search. Add what you learn to
+`docs/flare-api-notes.md`.
+
 ## Map
 | Path | What it is |
 |---|---|
