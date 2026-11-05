@@ -38,7 +38,9 @@ Pasted text becomes its own source, named *Pasted text*, and isn't in the file l
 | Rich Text (.rtf) | The text. |
 | Web pages (.htm, .html) | The text, without styles and scripts. |
 | Text and Markdown (.txt, .md) | As written. |
-| PDF | Sent to the AI as a document, so scanned pages and layouts can work too. A PDF can be up to 20 MB. For a larger one, split it, or save only the pages with the rules as a new PDF. |
+| PDF | House Style sends the PDF to the AI as a document and asks it to read the PDF. A PDF can be up to 20 MB. For a larger one, split it, or save only the pages with the rules as a new PDF. |
+
+If you connect through a gateway, House Style sends the PDF to it as a file. Some models behind a gateway don't accept PDFs. When that happens, the window says it could not read the notes and shows the gateway's own message, and nothing is added from that file. Choose another model, or paste the text into the box instead.
 
 An older Word file (.doc) or a protected file can't be read. Save it as .docx or as a web page in Word, and add that. If one file can't be read, House Style lists the problem and still loads the others.
 
@@ -67,7 +69,7 @@ You can run **Add notes or an old guide…** again and again. Each run adds to t
 
 ## Add the rules to the guide
 
-Check the rules to keep and select **Add checked rules to the guide**. The button shows how many, for example *Add 3 checked rules to the guide*.
+Check the rules to keep and select **Add checked rules to the guide**. The button shows how many, such as *Add 3 checked rules to the guide*.
 
 House Style writes them into a topic named *From our content* in your guide's `Content/Resources/StyleGuide` folder. It creates the topic the first time. Word swaps go in a table under **Terms**. Prose rules go in a list under **Conventions**, with their Bad and Good examples. The topic opens when it's done, and the added rules leave the list.
 

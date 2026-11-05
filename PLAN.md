@@ -310,7 +310,7 @@ Install is "copy the plugin folder, paste the key": no Python, uv or Vale.
       (fast/standard/deep, team `FlareAI/models.json`), usage and cost in Diagnostics.
 - [x] Stress test: synthetic 250-topic corpus with ground truth (`scripts/make-corpus.py`), headless bench
       (`tools/FlareAI.Bench`), model bake-off, in-Flare runs. Findings and fixes: `docs/testing/STRESS-REPORT.md`.
-- [x] Tester pack: user guide as a Flare project (`docs/user-guide`, dogfooded with the plugin), test plan with
+- [x] Tester pack: user guide (first a Flare project, now `docs-site`), test plan with
       expected results and bug template (`docs/testing`).
 - [ ] Feedback loop: 1-week trial, collect findings in `docs\FEEDBACK.md`. (Needs real writers.)
 

@@ -36,7 +36,7 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
 | `scripts/` | Bootstrap, install, run Flare, package, release `Install.ps1`/`.cmd`, Confluence publisher. |
 | `site/` | gethousestyle.com: static GitHub Pages, deployed by `pages.yml` on pushes to `main`. |
 | `docs-site/` | The documentation site (Astro Starlight), published at gethousestyle.com/docs/ by `pages.yml`. See "Docs site" below. |
-| `docs/` | `PLAN.md` (architecture), `flare-api-notes.md` (verified Flare behavior), `api-dump.txt` (the real API, authoritative), `testing/`, `release-notes/`, `user-guide/`. |
+| `docs/` | `PLAN.md` (architecture), `flare-api-notes.md` (verified Flare behavior), `api-dump.txt` (the real API, authoritative), `testing/`, `release-notes/`. The writers' user guide is in `docs-site/`. |
 | `../../planning/` | Outside the repo and not git tracked: the roadmap, plans, research and handoff notes. The main checkout lives at `<project>/repos/house-style`. |
 
 ## Hard constraints
@@ -82,7 +82,7 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
 ## Docs site (`docs-site/`)
 The writers' user guide is Markdown in `docs-site/src/content/docs/<section>/` (Get started, Check your writing, AI assists,
 Team style guide, Settings and privacy, Troubleshoot). `pages.yml` builds it into `site/docs/` and writes a redirect for
-each old `/guide/` page (`docs-site/scripts/guide-redirects.mjs`). `docs/user-guide` (the Flare project) stays until the owner retires it.
+each old `/guide/` page (`docs-site/scripts/guide-redirects.mjs`).
 - **Run it.** `cd docs-site; npm ci; npm run dev`. `npm run build` also fails on a broken internal link. Node is pinned in the workflows.
 - **Add a page.** Add a `.md` file in a section folder with `title`, `description` and `sidebar.order`. User pages follow
   "Writing copy" below and contain no repo paths, test talk or developer terms. Check a feature page against the source before you write it.

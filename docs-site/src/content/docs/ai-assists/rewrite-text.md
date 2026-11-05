@@ -9,7 +9,7 @@ Select the paragraphs to rewrite, and then select **House Style > Rewrite**. To 
 
 The arrow next to **Rewrite**, and the right-click **Rewrite** item, list **Simplify** and **Shorten**. Each one runs without an instruction. A team can change their wording in the `FlareAI/prompts` folder of the team style guide, in `preset-simplify.md` and `preset-shorten.md`.
 
-The AI changes only the wording. It can't change variables, cross-references, snippets, conditions, or formatting. The result arrives as word-level tracked changes in one undo step. Press Ctrl+Z to take all of it out.
+The AI changes only the wording. It can't change variables, cross-references, snippets, conditions, or formatting, and it doesn't write variables into its results. House Style refuses a rewrite that would. The result arrives as word-level tracked changes in one undo step. Press Ctrl+Z to take all of it out.
 
 Before it applies anything, House Style checks the AI's result against the style rules. If the rewrite still breaks a rule, the AI gets one more try, with the remaining problems listed.
 

@@ -225,9 +225,12 @@ namespace FlareAI.Core.Tests
         [Fact]
         public void EveryCommandIsInTheUserGuide()
         {
-            var guide = string.Join("\n", Directory.GetFiles(Path.Combine(RepoRoot(), "docs/user-guide/Content"), "*.htm").Select(File.ReadAllText).ToArray());
+            var docs = Path.Combine(RepoRoot(), "docs-site", "src", "content", "docs");
+            var pages = Directory.GetFiles(docs, "*.md*", SearchOption.AllDirectories)
+                .Where(f => !f.Substring(docs.Length + 1).StartsWith("reference") && !f.Substring(docs.Length + 1).StartsWith("dev") && !f.EndsWith("release-notes.md"));
+            var guide = string.Join("\n", pages.Select(File.ReadAllText).ToArray());
             var missing = FlareAI.Flare.Commands.All.Where(c => guide.IndexOf(c.Label.TrimEnd('…'), StringComparison.OrdinalIgnoreCase) < 0).Select(c => c.Label).ToList();
-            Assert.True(missing.Count == 0, "Not in docs/user-guide/Content: " + string.Join(", ", missing.ToArray()));
+            Assert.True(missing.Count == 0, "Not in docs-site/src/content/docs: " + string.Join(", ", missing.ToArray()));
         }
 
         [Fact]

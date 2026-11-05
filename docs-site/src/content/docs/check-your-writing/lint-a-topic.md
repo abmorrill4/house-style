@@ -13,7 +13,7 @@ To lint without AI, select the arrow on **Lint Topic** and then **Rules Only**. 
 
 ## Read an issue
 
-Issues are listed in reading order, under the topic's headings. The line at the top counts them, for example *5 issues in 2 sections. 2 Auto-fix, 3 Needs you.* Select an issue to see:
+Issues are listed in reading order, under the topic's headings. The line at the top counts them, such as *5 issues in 2 sections. 2 Auto-fix, 3 Needs you.* Select an issue to see:
 
 - **The heading**: its level (Error, Warning or Suggestion), where the rule comes from (Google, Starter rules, Our rules, This project, Built-in checks, or AI), and its type.
 - **What changes**: the words around it, with removed words struck through and added words underlined.
@@ -34,7 +34,7 @@ For text in a snippet, the pane also says how many files use the snippet.
 | **Change All** | Makes the same Auto-fix change for every issue of this rule in the topic. |
 | **Ignore ▾** (Delete) | Hides the issue for that text. Choose why: the suggestion is wrong, it's correct in this context, or the rule doesn't apply here. Your reason helps your style guide owners. **Skip for Now** hides it without a reason. **Report False Positive…** tells the House Style team that the rule got it wrong. **Mark as Fixed**, in this menu or when you right-click an issue, marks an issue you've fixed yourself. If the issue is wrong, choose why instead. |
 | **Edit…** | Type the replacement yourself. |
-| **Rewrite…** | Tell the AI how to change this one issue, for example "keep the term SSO". |
+| **Rewrite…** | Tell the AI how to change this one issue, such as "keep the term SSO". |
 | **Go To** (Ctrl+Enter) | Selects the text in the editor, so you can fix it yourself. |
 | **Lint Paragraph** | Lints the paragraph again after you change it in the editor. |
 | **Open Guide** | Opens the rule's page in the style guide. |
@@ -62,7 +62,7 @@ Use the level list (All Levels, Errors, Warnings or Suggestions) and the source 
 
 ## Use a variable instead of typed text
 
-When a project variable holds the text you typed, the issue reads *Use variable* and the variable's name, and it is a **Needs you** issue. Select **Change** (or press Enter). House Style selects the text and puts the variable in its place as a tracked change, and then goes to the next issue. If it can't insert the variable, the text stays selected and the pane tells you to select **Insert > Variable** and choose it yourself.
+When a project variable holds the text you typed, the issue reads *Use variable* and the variable's name, and it is a **Needs you** issue. Select **Change** (or press Enter). House Style selects the text and puts the variable in its place with Flare's own Insert Variable command. It is one tracked change, and Undo, Redo, Accept All and Reject All work on it as they do on any other. Then it goes to the next issue. If House Style can't reach Flare's command, the text stays selected and the pane tells you to select **Insert > Variable** and choose the variable yourself.
 
 House Style finds a variable when your text has the same letters, capitals included, as the variable's value. The value needs at least three characters and at least one letter. **Edit…** isn't available for these issues.
 

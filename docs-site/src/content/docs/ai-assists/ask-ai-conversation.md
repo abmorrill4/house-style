@@ -32,7 +32,7 @@ If the text changed since that reply, House Style applies the reply's wording to
 
 ## What it costs
 
-Each reply shows what it cost, and the conversation total, for example *This reply cost about $0.01. Conversation total $0.03.* Amounts under a cent show three decimals.
+Each reply shows what it cost, and the conversation total, such as *This reply cost about $0.01. Conversation total $0.03.* Amounts under a cent show three decimals.
 
 ## Limits
 

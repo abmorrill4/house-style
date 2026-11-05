@@ -2,7 +2,7 @@
 
 For testers. Each case says what to do and what you should see. Mark it pass or fail. For a fail, use
 **Help > Report a Problem…** in Flare, or file a report with [BUG-TEMPLATE.md](BUG-TEMPLATE.md). The user guide
-(`docs/user-guide`, a Flare project) explains every feature; this plan is how to check them.
+(<https://gethousestyle.com/docs/>) explains every feature; this plan is how to check them.
 
 ## Setup (once)
 
