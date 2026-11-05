@@ -1,0 +1,1 @@
+- Show only a rule that matches the reason on an AI suggestion card. After you refine a suggestion, the card drops the rule line if the new reason is about something else.
