@@ -15,12 +15,12 @@ function Note($s) { Write-Host "   SPIKE $s"; $script:log += $s }
 # S1: what does Flare report for a caret in a paragraph
 Send-E2E select "You can change a payee" | Out-Null
 $c = (Send-E2E caret).value
-Note ("S1 selected=[{0}] position={1} nodes={2}" -f $c.selected, $c.position, (($c.nodes | ForEach-Object { "$($_.name)<$($_.parent)" }) -join ","))
+Note ("S1 selected=[{0}] nodes={1}" -f $c.selected, (($c.nodes | ForEach-Object { "$($_.name)<$($_.parent)" }) -join ","))
 
 # A caret with nothing selected: collapse the selection with the Right key, then ask again.
 Keys "{RIGHT}"
 $c2 = (Send-E2E caret).value
-Note ("S1 caret only: selected=[{0}] position={1} nodes={2}" -f $c2.selected, $c2.position, (($c2.nodes | ForEach-Object { "$($_.name)<$($_.parent)" }) -join ","))
+Note ("S1 caret only: selected=[{0}] nodes={1}" -f $c2.selected, (($c2.nodes | ForEach-Object { "$($_.name)<$($_.parent)" }) -join ","))
 
 $before = Body
 Send-E2E insertBlocks '<p>New <strong>draft</strong> paragraph with <code>code</code>.</p><ul><li>One</li><li>Two</li></ul>' -Extra @{ after = "You can change a payee" } | Out-Null

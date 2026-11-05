@@ -33,11 +33,28 @@ namespace FlareAI.Flare.Tests
             using (var f = new AskForm())
             {
                 var choices = Choices(f);
-                Assert.Equal(2, choices.Count);
+                Assert.Equal(3, choices.Count);
                 Assert.All(choices, c => Assert.False(c.Checked));
                 Assert.Contains(choices, c => c.Text == "Ask a question");
                 Assert.Contains(choices, c => c.Text == "Make a change");
+                Assert.Contains(choices, c => c.Text == "Insert at the cursor");
                 Assert.False(f.IsQuestion);
+                Assert.False(f.IsInsert);
+            }
+        }
+
+        [Fact]
+        public void InsertAtTheCursor_IsOnlyOfferedWhenNothingIsSelected()
+        {
+            using (var selected = new AskForm(false))
+                Assert.False(Find<RadioButton>(selected, "Insert at the cursor").Enabled);
+            using (var caret = new AskForm(true))
+            {
+                var insert = Find<RadioButton>(caret, "Insert at the cursor");
+                Assert.True(insert.Enabled);
+                insert.Checked = true;
+                Assert.True(caret.IsInsert);
+                Assert.False(caret.IsQuestion);
             }
         }
 

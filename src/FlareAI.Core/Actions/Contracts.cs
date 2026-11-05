@@ -105,6 +105,9 @@ namespace FlareAI.Core.Actions
         public const string RewriteFields = "Answer in \"changes\", \"needs_restructure\" and \"note\". Leave \"findings\" empty and \"revised\" empty.";
         public const string RestructureFields = "Answer in \"revised\": the whole revised fragment as XHTML (no <revised> wrapper needed). Leave \"findings\" and \"changes\" empty, \"needs_restructure\" false, and \"note\" empty.";
 
+        /// <summary>Insert at the cursor: the new blocks go in "revised", what the topic doesn't say in "note".</summary>
+        public const string ComposeFields = "Answer in \"revised\" (the new blocks only, as XHTML) and \"note\". Leave \"findings\" and \"changes\" empty and \"needs_restructure\" false.";
+
         /// <summary>Findings for one unit (the review's part of <see cref="EditSchema"/>).</summary>
         public static readonly JObject ReviewSchema = EditSchema;
 

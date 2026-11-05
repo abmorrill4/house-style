@@ -147,12 +147,10 @@ namespace FlareAI.Flare
         internal object E2ECaret()
         {
             var nodes = SelectionNodes;
-            int pos = -1;
-            try { pos = _doc.GetCursorPosition(); } catch (Exception) { }
             var list = new List<object>();
             foreach (var n in nodes)
                 list.Add(new { type = n.NodeType.ToString(), name = n.Name, parent = n.ParentNode == null ? null : n.ParentNode.Name, text = n.InnerText.Length > 60 ? n.InnerText.Substring(0, 60) : n.InnerText });
-            return new { selected = SelectionText, position = pos, nodes = list };
+            return new { selected = SelectionText, nodes = list };
         }
 
         public bool SelectText(XmlText run, int start, int length)

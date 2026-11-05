@@ -38,6 +38,7 @@ namespace FlareAI.Core.Llm
             { "extract", Standard },       // rules from notes
             { "answer", Standard },        // a question about the text, answered in words
             { "draft", Deep },             // owner-only edits to the shared style guide
+            { "compose", Standard },       // new text written at the cursor, same cached prefix as restructure
         };
 
         /// <summary>
@@ -51,7 +52,7 @@ namespace FlareAI.Core.Llm
         {
             { "review", "1h" }, { "rewrite", "1h" }, { "restructure", "1h" },
             { "draft", "5m" }, { "extract", "5m" }, { "refine", "5m" },
-            { "alt", "none" }, { "assist", "none" }, { "answer", "5m" },
+            { "alt", "none" }, { "assist", "none" }, { "answer", "5m" }, { "compose", "1h" },
         };
 
         private readonly Dictionary<string, string> _cache = new Dictionary<string, string>(DefaultCache, StringComparer.OrdinalIgnoreCase);
