@@ -35,11 +35,12 @@ describe("error reports", () => {
 		const res = await post("/v1/report", errorReport({ automatic: true }));
 		expect(res.status).toBe(200);
 		const json = await res.json<Record<string, unknown>>();
-		expect(json).toEqual({ ok: true, reference: "#1", duplicate: false });
+		expect(json).toEqual({ ok: true, reference: expect.stringMatching(/^r-[0-9a-f]{8}$/), duplicate: false });
 
 		const issue = gh.issues.get(1)!;
 		expect(issue.title).toBe("[error] NullReferenceException in FindingsPanel.Rebuild (0.2.0)");
 		expect(issue.labels).toEqual(["error", "v0.2.0", "automatic"]);
+		expect(issue.body).toContain(`| Reference | \`${(json as { reference: string }).reference}\` |`);
 		expect(issue.body).toContain("| House Style | 0.2.0 |");
 		expect(issue.body).toContain("| Flare | 22.1.8936 |");
 		expect(issue.body).toContain("> I clicked Check Topic.");
@@ -57,9 +58,9 @@ describe("error reports", () => {
 	it("comments on the open issue instead of filing a duplicate", async () => {
 		await post("/v1/report", errorReport());
 		const second = await post("/v1/report", errorReport({ client_id: CLIENT_B, user_note: "Happens on long topics.", automatic: true }));
-		expect(await second.json()).toEqual({ ok: true, reference: "#1", duplicate: true });
+		expect(await second.json()).toEqual({ ok: true, reference: expect.stringMatching(/^r-[0-9a-f]{8}$/), duplicate: true });
 		const third = await post("/v1/report", errorReport({ user_note: null }));
-		expect(await third.json()).toMatchObject({ reference: "#1", duplicate: true });
+		expect(await third.json()).toMatchObject({ reference: expect.stringMatching(/^r-[0-9a-f]{8}$/), duplicate: true });
 
 		expect(gh.issues.size).toBe(1);
 		const comments = gh.issues.get(1)!.comments;
@@ -85,7 +86,7 @@ describe("error reports", () => {
 		await post("/v1/report", errorReport());
 		gh.issues.get(1)!.state = "closed";
 		const res = await post("/v1/report", errorReport({ client_id: CLIENT_B }));
-		expect(await res.json()).toEqual({ ok: true, reference: "#2", duplicate: false });
+		expect(await res.json()).toEqual({ ok: true, reference: expect.stringMatching(/^r-[0-9a-f]{8}$/), duplicate: false });
 		await post("/v1/report", errorReport());
 		expect(gh.issues.get(2)!.comments).toHaveLength(1);
 	});
@@ -118,7 +119,7 @@ describe("error reports", () => {
 describe("problem reports", () => {
 	it("uses the first line of what_happened as the title", async () => {
 		const res = await post("/v1/report", problemReport());
-		expect(await res.json()).toEqual({ ok: true, reference: "#1", duplicate: false });
+		expect(await res.json()).toEqual({ ok: true, reference: expect.stringMatching(/^r-[0-9a-f]{8}$/), duplicate: false });
 		const issue = gh.issues.get(1)!;
 		expect(issue.title).toBe("[problem] The Fix button did nothing (0.2.0)");
 		expect(issue.labels).toEqual(["problem", "v0.2.0"]);
