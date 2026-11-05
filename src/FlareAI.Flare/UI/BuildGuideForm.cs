@@ -132,8 +132,10 @@ namespace FlareAI.Flare.UI
 
         private void Notes()
         {
-            var text = NotesDialog.Ask(this);
+            System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs;
+            var text = NotesDialog.Ask(this, out pdfs);
             if (string.IsNullOrEmpty(text)) return;
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"^\(PDF attached[^\r\n]*\)\s*$", "", System.Text.RegularExpressions.RegexOptions.Multiline).Trim();
             var runner = _runner();
             if (runner == null) return;
             Busy(true, "Reading your notes…");
@@ -141,7 +143,8 @@ namespace FlareAI.Flare.UI
             var skipped = 0;
             worker.DoWork += (s, e) =>
             {
-                var found = runner.ExtractRules(text);
+                var found = text.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(text, @"^(— [^\r\n]* —\s*)+$") ? runner.ExtractRules(text) : new List<RuleCandidate>();
+                foreach (var pdf in pdfs) found.AddRange(runner.ExtractRulesFromPdf(pdf.Value, pdf.Key));
                 // Like mining: drop rows whose words the guide already flags (the validator would report the duplicate).
                 if (_style != null)
                 {
@@ -350,12 +353,13 @@ namespace FlareAI.Flare.UI
     /// <summary>A large box for pasting notes, an old guide, or another tool's prompt (or loading a text file).</summary>
     internal static class NotesDialog
     {
-        public static string Ask(IWin32Window owner)
+        public static string Ask(IWin32Window owner, out System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs)
         {
+            var attached = pdfs = new System.Collections.Generic.List<KeyValuePair<string, byte[]>>();
             using (var form = new Form { Text = "House Style — Notes for the style guide", StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(680, 460), MinimumSize = new Size(480, 300), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font })
             {
                 var label = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 8, 8, 0),
-                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or add files: Word, Excel, PowerPoint, OpenDocument, Rich Text, web pages, .txt or .md. Add as many as you like, all at once or one at a time." };
+                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or add files: Word, Excel, PowerPoint, PDF, OpenDocument, Rich Text, web pages, .txt or .md. Add as many as you like, all at once or one at a time." };
                 var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, WordWrap = true };
                 var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 40, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
                 var ok = new Button { Text = "Extract rules", AutoSize = true, DialogResult = DialogResult.OK, Enabled = false, Font = new Font(form.Font, FontStyle.Bold) };
@@ -375,6 +379,13 @@ namespace FlareAI.Flare.UI
                         {
                             try
                             {
+                                var pdf = NoteText.ReadPdf(file);
+                                if (pdf != null)
+                                {
+                                    attached.Add(new KeyValuePair<string, byte[]>(Path.GetFileName(file), pdf));
+                                    box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n(PDF attached. It is read when you extract.)");
+                                    continue;
+                                }
                                 var text = NoteText.ReadFile(file).Replace("\r\n", "\n").Replace("\n", "\r\n");   // a TextBox shows only CRLF as a line break
                                 box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n" + text);   // each file under its own name, added to what is there
                             }

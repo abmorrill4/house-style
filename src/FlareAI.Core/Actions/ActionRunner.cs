@@ -114,7 +114,7 @@ namespace FlareAI.Core.Actions
         /// </summary>
         /// <param name="scope">The text's content and words: the rules to send besides the always-on ones (null = none).</param>
         /// <param name="guide">False for tasks that apply no style rule (alt text, topic assists): a short system prompt, no guide.</param>
-        private LlmResponse Ask(string task, string user, JObject schema, List<LlmImage> images = null, GuideScope scope = null, bool guide = true, List<LlmTurn> history = null)
+        private LlmResponse Ask(string task, string user, JObject schema, List<LlmImage> images = null, GuideScope scope = null, bool guide = true, List<LlmTurn> history = null, List<LlmImage> documents = null)
         {
             var route = Routing.For(task);
             // The cached prefix is (model, output schema, system prompt): the schema sits ahead of the system prompt, and
@@ -128,7 +128,7 @@ namespace FlareAI.Core.Actions
             {
                 Task = task, System = system[0], SystemPacks = system[1], SystemTerms = system[2], User = user, Schema = schema, Model = route.Model, Effort = route.Effort,
                 CacheTtl = Routing.CacheFor(task),
-                Images = images, History = history, MaxTokens = Math.Max(_maxTokens, AnthropicClient.DefaultMaxTokens)
+                Images = images, Documents = documents, History = history, MaxTokens = Math.Max(_maxTokens, AnthropicClient.DefaultMaxTokens)
             };
             var sw = Stopwatch.StartNew();
             LlmResponse resp;
@@ -832,6 +832,15 @@ namespace FlareAI.Core.Actions
             var all = new JArray();
             foreach (var a in answers) foreach (var r in a) all.Add(r);
             return GuideBuilder.FromExtracted(all);
+        }
+
+        /// <summary>Candidate rules from a PDF of notes or an old style guide. The model reads the PDF itself, so scans and layouts work too.</summary>
+        public List<RuleCandidate> ExtractRulesFromPdf(byte[] pdf, string fileName)
+        {
+            var doc = new LlmImage { MediaType = "application/pdf", Base64 = Convert.ToBase64String(pdf) };
+            var notes = "The notes are in the attached PDF file (" + fileName + "). Read all of it.";
+            var answer = Ask("extract", _prompts.BuildExtract(notes), Contracts.Extract(), documents: new List<LlmImage> { doc });
+            return GuideBuilder.FromExtracted((JArray)(answer.Json["rules"] ?? new JArray()));
         }
 
         private static readonly Dictionary<string, int> SnippetUses = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

@@ -73,7 +73,7 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void APdf_GetsAClearMessageThatSaysWhatToDoInstead()
+        public void APdf_IsNotReadAsText()
         {
             var path = Path.Combine(Path.GetTempPath(), "notes-" + System.Guid.NewGuid().ToString("N") + ".pdf");
             File.WriteAllBytes(path, Encoding.ASCII.GetBytes("%PDF-1.7\n1 0 obj\n"));
@@ -81,7 +81,7 @@ namespace FlareAI.Core.Tests
             {
                 var ex = Assert.Throws<InvalidDataException>(() => NoteText.ReadFile(path));
                 Assert.Contains("PDF", ex.Message);
-                Assert.Contains("paste", ex.Message);
+                Assert.Contains("Add Files", ex.Message);
             }
             finally { File.Delete(path); }
         }

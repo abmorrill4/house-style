@@ -38,6 +38,8 @@ namespace FlareAI.Core.Llm
         public string CacheTtl { get; set; }
         /// <summary>Images sent before the text (vision): media type ("image/png") and base64 data.</summary>
         public List<LlmImage> Images { get; set; }
+        /// <summary>PDF files sent before the text; the model reads their text and pages itself.</summary>
+        public List<LlmImage> Documents { get; set; }
     }
 
     /// <summary>One earlier message of a conversation: "user" or "assistant", and its text (an assistant turn is the reply JSON as sent back).</summary>
