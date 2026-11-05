@@ -196,6 +196,11 @@ namespace FlareAI.Core.Actions
             var json = JsonConvert.SerializeObject(r, Formatting.Indented);
             // The local copy is what this machine applies later: the shared file can be rewritten by anyone with the folder.
             Remember(l => { l.Mine.Add(r.Id); l.Sent[r.Id] = JsonConvert.DeserializeObject<GuideRequest>(json); });
+            // The shared and outbox copy has no local path (it usually holds the writer's Windows account); the ledger copy above keeps it.
+            var projectPath = r.ProjectPath;
+            r.ProjectPath = null;
+            try { json = JsonConvert.SerializeObject(r, Formatting.Indented); }
+            finally { r.ProjectPath = projectPath; }
             var folder = Folder(team);
             if (folder == null) problem = "no team feedback folder is set in Settings, so the owners can't receive requests";
             else
