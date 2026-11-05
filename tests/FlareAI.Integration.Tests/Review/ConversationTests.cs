@@ -103,6 +103,12 @@ namespace FlareAI.Integration.Tests.Review
 
                 fx.Runner.ApplyTurn(fx.Doc, conv, two, "House Style: Ask AI");
                 Assert.Contains("beta", fx.Doc.Xml);
+                // Reply two's tracked changes are still pending: real Flare garbles word-level changes placed over them, so it is refused.
+                var before = fx.Doc.Xml;
+                var refused = Assert.Throws<System.InvalidOperationException>(() => fx.Runner.ApplyTurn(fx.Doc, conv, one, "House Style: Ask AI"));
+                Assert.Contains("tracked changes", refused.Message);
+                Assert.Equal(before, fx.Doc.Xml);
+                fx.Doc.AcceptAll();                                       // the writer accepts them in the Review tab
                 var undo = fx.Doc.UndoCount;
                 // The text changed since reply one was written: its wording is planned again against the text as it is now.
                 var said = fx.Runner.ApplyTurn(fx.Doc, conv, one, "House Style: Ask AI");

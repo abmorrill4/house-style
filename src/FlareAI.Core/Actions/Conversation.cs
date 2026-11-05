@@ -211,7 +211,11 @@ namespace FlareAI.Core.Actions
                 turn.Applied = true;
                 return done;
             }
-            // The text changed after this reply: plan this reply's wording against the text as it is now.
+            // The text changed after this reply. Word-level changes can't be placed reliably over tracked changes that are still pending
+            // (real Flare garbled the sentence), so those are accepted or undone first, as Rewrite asks.
+            if (TrackedChanges.HasPending(conv.Blocks))
+                throw new InvalidOperationException("The text still has tracked changes from an earlier reply, and this reply can't be placed over them. Close this window, accept or undo those changes (Review tab or Ctrl+Z), and ask again.");
+            // Plan this reply's wording against the text as it is now.
             var current = AcceptedView.Of(conv.Blocks);
             var plan = WordDiff.Plan(current, proposal.ProposedBlocks, conv.Blocks);
             if (plan == null) throw new InvalidOperationException("The text changed after this reply, and this reply can't be applied to it word by word. Ask again.");

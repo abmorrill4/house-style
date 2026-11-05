@@ -27,7 +27,7 @@ namespace FlareAI.Flare
         /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
         internal static readonly string[] Verbs =
         {
-            "state", "command", "open", "click", "caret", "bodyXml", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
             "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
         };
 
@@ -152,6 +152,7 @@ namespace FlareAI.Flare
                 case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
                 case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
+                case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
                 case "bodyXml": return new { xml = FlareAI.Core.Editing.BlockSelector.FindBody(Active().Document).InnerXml };   // the live body, to compare before and after undo and redo
                 case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false);   // new blocks after the body block holding "after"; one tracked operation
                 case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true);       // the same without the refusal: only for the control that proves a crash is seen
@@ -161,6 +162,19 @@ namespace FlareAI.Flare
                 case "saveAs": SetSavePath(arg); return null;
                 default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
+        }
+
+        private static string AcceptedText(FlareDocumentAdapter a, string contains)
+        {
+            var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
+            foreach (System.Xml.XmlNode n in body.ChildNodes)
+            {
+                if (n.NodeType != System.Xml.XmlNodeType.Element || (n.LocalName.Length == 2 && n.LocalName[0] == 'h')) continue;   // headings are not the paragraph
+                var view = FlareAI.Core.Editing.AcceptedView.Of(new List<System.Xml.XmlNode> { n });
+                var text = System.Text.RegularExpressions.Regex.Replace(view[0].InnerText, @"\s+", " ").Trim();
+                if (text.Contains(contains)) return text;
+            }
+            throw new InvalidOperationException("No body block with the text " + contains);
         }
 
         private static object InsertBlocks(FlareDocumentAdapter a, string xml, string after, bool raw)
@@ -364,7 +378,7 @@ namespace FlareAI.Flare
                 Valid(All(root).Where(x => x.Visible && (x is TextBox || x is ComboBox) && !string.IsNullOrEmpty(x.AccessibleName) && !(x is TextBox && ((TextBox)x).UseSystemPasswordChar))
                     .Select(x => x.AccessibleName)));
             var combo = box as ComboBox;
-            if (combo != null && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.SelectedItem = combo.Items.Cast<object>().First(i => i.ToString() == text);
+            if (combo != null && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.SelectedItem = combo.Items.Cast<object>().FirstOrDefault(i => i.ToString() == text) ?? combo.Items.Cast<object>().First(i => i.ToString().StartsWith(text, StringComparison.Ordinal));   // a prefix works too: text a script sends loses non-ASCII characters
             else box.Text = text;
         }
 
@@ -396,7 +410,7 @@ namespace FlareAI.Flare
                     // Never a password box: an API key must not reach the results.
                     boxes = All(f).Where(x => x.Visible && (x is TextBox || x is ComboBox) && !string.IsNullOrEmpty(x.AccessibleName) &&
                                               !(x is TextBox && (((TextBox)x).UseSystemPasswordChar || ((TextBox)x).PasswordChar != '\0')))
-                                  .Select(x => new { name = x.AccessibleName, text = x.Text }).ToList()
+                                  .Select(x => new { name = x.AccessibleName, text = x.Text, items = x is ComboBox ? ((ComboBox)x).Items.Cast<object>().Select(i => i.ToString()).ToList() : null }).ToList()
                 }).ToList()
             };
         }
