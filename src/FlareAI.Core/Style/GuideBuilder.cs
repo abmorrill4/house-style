@@ -248,8 +248,8 @@ namespace FlareAI.Core.Style
         {
             GuideCopy.RefuseWrite(topicPath);
             var doc = new XmlDocument { PreserveWhitespace = false };
-            if (File.Exists(topicPath)) doc.Load(topicPath);
-            else doc.LoadXml("<?xml version=\"1.0\" encoding=\"utf-8\"?><html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>" +
+            if (File.Exists(topicPath)) FlareAI.Core.Editing.SafeXml.Load(doc, topicPath);
+            else FlareAI.Core.Editing.SafeXml.LoadXml(doc, "<?xml version=\"1.0\" encoding=\"utf-8\"?><html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>" +
                              Esc(title) + "</title></head><body><h1>" + Esc(title) + "</h1></body></html>");
             var body = (XmlElement)doc.SelectSingleNode("//*[local-name()='body']");
             var ns = body.NamespaceURI;

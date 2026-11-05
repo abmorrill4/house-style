@@ -27,8 +27,7 @@ namespace FlareAI.Core.Editing
         public static IList<XmlNode> ParseInto(string fragment, XmlDocument target)
         {
             var wrapped = "<root xmlns:MadCap=\"" + BlockSelector.MadCapNs + "\">" + fragment + "</root>";
-            var tmp = new XmlDocument { PreserveWhitespace = true };
-            tmp.LoadXml(wrapped);
+            var tmp = SafeXml.LoadXml(wrapped, true);
 
             var result = new List<XmlNode>();
             foreach (XmlNode child in tmp.DocumentElement.ChildNodes)

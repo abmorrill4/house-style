@@ -51,7 +51,7 @@ namespace FlareAI.Core.Style
             foreach (var file in Topics(folder))
             {
                 var doc = new XmlDocument { PreserveWhitespace = true };
-                try { doc.Load(file); } catch (XmlException) { continue; }
+                try { FlareAI.Core.Editing.SafeXml.Load(doc, file); } catch (XmlException) { continue; }
                 var table = doc.SelectNodes("//*[local-name()='table']").Cast<XmlElement>().FirstOrDefault(IsOverrideTable);
                 if (table == null) continue;
                 Upsert(table, ruleId, setting, reason, by, date);
@@ -73,8 +73,7 @@ namespace FlareAI.Core.Style
         internal static void Put(string topic, string ruleId, string setting, string reason, string by, string date)
         {
             if (!File.Exists(topic)) CreateTopic(topic, true);
-            var doc = new XmlDocument { PreserveWhitespace = true };
-            doc.Load(topic);
+            var doc = FlareAI.Core.Editing.SafeXml.Load(topic, true);
             var table = doc.SelectNodes("//*[local-name()='table']").Cast<XmlElement>().First(IsOverrideTable);
             Upsert(table, ruleId, setting, reason ?? "", by ?? "", date ?? "");
             try { GuideLayer.Save(doc, topic); }
@@ -101,8 +100,7 @@ namespace FlareAI.Core.Style
         /// <summary>Removes the rule's rows from the override tables in <paramref name="file"/>. Returns how many were removed.</summary>
         public static int Remove(string file, string ruleId)
         {
-            var doc = new XmlDocument { PreserveWhitespace = true };
-            doc.Load(file);
+            var doc = FlareAI.Core.Editing.SafeXml.Load(file, true);
             var removed = 0;
             foreach (var table in doc.SelectNodes("//*[local-name()='table']").Cast<XmlElement>().Where(IsOverrideTable).ToList())
             {
@@ -130,7 +128,7 @@ namespace FlareAI.Core.Style
             foreach (var file in Topics(StyleFolder(guideRoot)))
             {
                 var doc = new XmlDocument { PreserveWhitespace = true };
-                try { doc.Load(file); } catch (XmlException) { continue; } catch (IOException) { continue; }
+                try { FlareAI.Core.Editing.SafeXml.Load(doc, file); } catch (XmlException) { continue; } catch (IOException) { continue; }
                 list.AddRange(Read(file, doc));
             }
             return list;

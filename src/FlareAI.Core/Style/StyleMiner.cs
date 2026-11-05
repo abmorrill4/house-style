@@ -197,13 +197,13 @@ namespace FlareAI.Core.Style
             var vs = Path.Combine(root, @"Project\VariableSets");
             if (Directory.Exists(vs))
                 foreach (var f in Directory.GetFiles(vs, "*.flvar"))
-                    try { var x = new XmlDocument(); x.Load(f); foreach (XmlElement v in x.GetElementsByTagName("Variable")) variables[Path.GetFileNameWithoutExtension(f) + "." + v.GetAttribute("Name")] = v.InnerText.Trim(); }
+                    try { var x = FlareAI.Core.Editing.SafeXml.Load(f); foreach (XmlElement v in x.GetElementsByTagName("Variable")) variables[Path.GetFileNameWithoutExtension(f) + "." + v.GetAttribute("Name")] = v.InnerText.Trim(); }
                     catch (XmlException) { }
             var outList = new List<Block>();
             foreach (var f in files.Take(limit))
             {
-                var doc = new XmlDocument();
-                try { doc.Load(f); } catch (Exception) { continue; }
+                XmlDocument doc;
+                try { doc = FlareAI.Core.Editing.SafeXml.Load(f); } catch (Exception) { continue; }
                 var body = BlockSelector.FindBody(doc);
                 if (body == null) continue;
                 foreach (XmlElement el in body.SelectNodes(".//*"))
