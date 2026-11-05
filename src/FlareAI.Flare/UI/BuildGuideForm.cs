@@ -162,8 +162,10 @@ namespace FlareAI.Flare.UI
                 if (e.Error != null) { Diagnostics.Log("Build guide: notes", e.Error); ErrorReporter.Background(this, "House Style couldn't read the notes.", e.Error); _head.Text = "Could not read the notes: " + e.Error.Message; return; }
                 var found = (List<RuleCandidate>)e.Result;
                 // A second import can repeat what the first one found: leave out rules already in the list.
-                var have = new HashSet<string>(_list.Items.Cast<ListViewItem>().Select(i => Key((RuleCandidate)i.Tag)));
-                var fresh = found.Where(c => have.Add(Key(c))).ToList();
+                var have = _list.Items.Cast<ListViewItem>().Select(i => (RuleCandidate)i.Tag).ToList();
+                var fresh = new List<RuleCandidate>();
+                foreach (var c in found)
+                    if (!have.Any(h => RuleCandidate.SameRule(h, c))) { fresh.Add(c); have.Add(c); }
                 var repeated = found.Count - fresh.Count;
                 Add(fresh, "notes");
                 _head.Text = Plural.Of(fresh.Count, "rule") + " found in your notes. Each shows the words it came from. Select the ones to keep." +
@@ -182,13 +184,6 @@ namespace FlareAI.Flare.UI
             }
             if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) _list.Items[0].Selected = true;
             UpdateAdd();
-        }
-
-        /// <summary>What makes two suggested rules the same one: the words to avoid and use, or the prose rule's text, ignoring case and spacing.</summary>
-        internal static string Key(RuleCandidate c)
-        {
-            var text = c.IsRow ? (c.Avoid ?? "") + "→" + (c.Use ?? "") : (c.Text ?? c.Title ?? "");
-            return System.Text.RegularExpressions.Regex.Replace(text.ToLowerInvariant(), @"\s+", " ").Trim();
         }
 
         private static IEnumerable<string> Split(string list)

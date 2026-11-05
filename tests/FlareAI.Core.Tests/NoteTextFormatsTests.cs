@@ -87,6 +87,23 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void ARuleWordedDifferentlyOnASecondImport_IsTheSameRule_ButADifferentRuleIsNot()
+        {
+            var row1 = new RuleCandidate { Avoid = "it is recommended that", Use = "(flag only)", Title = "Avoid \"it is recommended that\"" };
+            var row2 = new RuleCandidate { Avoid = "It is recommended that", Use = "", Title = "It is recommended that" };
+            Assert.True(RuleCandidate.SameRule(row1, row2));
+            Assert.False(RuleCandidate.SameRule(row1, new RuleCandidate { Avoid = "please note that", Use = "" }));
+
+            var p1 = new RuleCandidate { Title = "Spell out numbers below ten", Text = "Spell out numbers below ten." };
+            var p2 = new RuleCandidate { Title = "Spell out numbers below ten", Text = "Always spell out a number below ten, and use digits from 10 up." };
+            var p3 = new RuleCandidate { Title = "Write numbers under ten as words", Text = "Spell out any number below ten." };
+            Assert.True(RuleCandidate.SameRule(p1, p2));      // the same title
+            Assert.True(RuleCandidate.SameRule(p1, p3));      // reworded, most of the meaningful words shared
+            Assert.False(RuleCandidate.SameRule(p1, new RuleCandidate { Title = "Keep sentences under 25 words", Text = "Keep every sentence under 25 words." }));
+            Assert.False(RuleCandidate.SameRule(p1, row1));   // a row is never a prose rule
+        }
+
+        [Fact]
         public void AnUnknownPackage_NamesTheKindsHouseStyleReads()
         {
             var ex = Assert.Throws<InvalidDataException>(() => NoteText.FromPackage(Zip(new[] { "other.bin", "x" })));
