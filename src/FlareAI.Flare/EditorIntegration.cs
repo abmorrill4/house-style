@@ -128,7 +128,8 @@ namespace FlareAI.Flare
         private ToolStripMenuItem RewriteItem()
         {
             var parent = new ToolStripMenuItem(Commands.Rewrite.ContextLabel) { ToolTipText = Commands.Rewrite.Tooltip };
-            var plain = new ToolStripMenuItem(Commands.Rewrite.Label) { ToolTipText = Commands.Rewrite.Tooltip };
+            // Named for what it does, so the submenu doesn't open with the same word as the item above it (#372).
+            var plain = new ToolStripMenuItem("Rewrite Selection") { ToolTipText = Commands.Rewrite.Tooltip };
             plain.Click += (s, e) => Safe.Run(Commands.Rewrite.Label, _rewrite);
             parent.DropDownItems.Add(plain);
             foreach (var c in Commands.RewriteMenu)

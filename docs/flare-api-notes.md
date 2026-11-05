@@ -131,3 +131,15 @@ IRibbonComboBox combo = group.AddRibbonCombobox(new RibbonMenuData { ... });
   and re-type the extra characters, or "you" will hit the "you" inside "your". Every edit splits text nodes: re-locate (text + context) before each edit, right-most first.
 - One `StartOperation/EndOperation` around many edits = one Ctrl+Z. Flare assigns one Add/Remove change id
   pair per operation.
+
+## Inserting new blocks (verified Flare 22, tested live 2026-11-05, tests/e2e/tests/insert-spike.ps1)
+- `IDocument.InsertDocumentNode(body, node, index, true)` for new `p` and `ul` blocks, inside one `StartOperation`/`EndOperation`,
+  is one tracked change. Ctrl+Z restores the body exactly (the XML is identical to before), Ctrl+Y restores the inserted version
+  exactly, and a second Undo and Redo does the same. Flare keeps responding and the saved topic is well formed.
+- **The caret.** With nothing selected, `Selection.GetXmlNodeList()` returns the caret's text node (a `#text` whose parent is the
+  `p`), and `GetCursorPosition()` returns its offset. `GetText()` is empty. So the paragraph holding the caret can be found
+  without selecting anything.
+- **Variables, not settled.** A new `p` that contains a `MadCap:variable`, inserted the same way, also undid and redid cleanly
+  once, which is not what the "variables crash on Redo" note above would predict. The earlier crash was seen for a variable
+  inserted or replaced inside an existing element. Until that is probed (bare variable inside an existing `p`, redo after save and
+  reopen, redo from the toolbar), the plugin still refuses any `MadCap:` element in an insert.

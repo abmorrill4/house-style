@@ -363,6 +363,7 @@ namespace FlareAI.Flare
             if (c == Commands.LintFolders) return OnLintFolders;
             if (c == Commands.ShowIssues) return () => { if (!PanelHost.Reopen(_nav.GetParentForm())) OnLintTopic(); };
             if (c == Commands.TopicMetadata) return OnAssist;
+            if (c == Commands.Introduction) return OnIntroduction;
             if (c == Commands.TestRules) return OnValidateGuide;
             if (c == Commands.Rules) return OnStyleRules;
             if (c == Commands.RuleDecisions) return () => OnTuneGuide(null);
@@ -576,10 +577,83 @@ namespace FlareAI.Flare
         private void OnAsk()
         {
             if (!AiReady(Commands.Ask.Label)) return;
-            using (var f = new AskForm())
+            var active = ActiveAdapter();
+            var canInsert = active != null && active.IsEditableTopic && string.IsNullOrEmpty(active.SelectionText);
+            using (var f = new AskForm(canInsert))
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
+                if (f.IsInsert) { RunInsert(Commands.Ask.Label, f.Instruction); return; }
+                if (f.IsConversation) { RunConversation(Commands.Ask.Label, f.Instruction); return; }
                 RunAction(Commands.Ask.Label, f.IsQuestion ? ActionKind.Question : ActionKind.Ask, f.Instruction);   // title of the result window
+            }
+        }
+
+        /// <summary>Ask AI as a conversation: the instruction becomes the first message, and any proposed change can be applied as a tracked change.</summary>
+        private void RunConversation(string title, string firstMessage)
+        {
+            try
+            {
+                var adapter = ActiveAdapter();
+                if (adapter == null || !adapter.IsEditableTopic)
+                {
+                    Notify.Info(Owner, "Open a topic in the XML Editor first.", title);
+                    return;
+                }
+                var runner = NewRunner(adapter, true, false);
+                if (runner == null) return;
+                runner.LogChecks = "rules+ai";
+                var blocks = runner.PickBlocks(adapter);
+                using (var f = new ConversationForm(title, runner, adapter, blocks, firstMessage)) f.ShowDialog();
+                GettingStarted.Mark(ChecklistItem.AiRewrite);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log(title, ex);
+                Notify.Failed(Owner, "finish \"" + title + "\"", ex, title);
+            }
+        }
+
+        /// <summary>Write an Introduction: the same draft-and-insert path, under the heading above the caret, with a fixed instruction.</summary>
+        private void OnIntroduction()
+        {
+            if (!AiReady(Commands.Introduction.Label)) return;
+            var adapter = ActiveAdapter();
+            if (adapter == null || !adapter.IsEditableTopic) { Notify.Info(Owner, "Open a topic in the XML Editor first.", Commands.Introduction.Label); return; }
+            string refusal;
+            var anchor = DraftAnchor.ForIntroduction(adapter, out refusal);
+            if (anchor == null) { Notify.Info(Owner, refusal, Commands.Introduction.Label); return; }
+            RunInsert(Commands.Introduction.Label, null, anchor);
+        }
+
+        /// <summary>Insert at the cursor: drafts new text after the paragraph or heading the caret is in and, once the writer agrees, inserts it as one tracked change.</summary>
+        private void RunInsert(string title, string instruction, System.Xml.XmlNode anchor = null)
+        {
+            try
+            {
+                var adapter = ActiveAdapter();
+                if (adapter == null || !adapter.IsEditableTopic)
+                {
+                    Notify.Info(Owner, "Open a topic in the XML Editor first.", title);
+                    return;
+                }
+                string refusal;
+                if (anchor == null) anchor = DraftAnchor.For(adapter, out refusal);
+                else refusal = null;
+                if (anchor == null) { Notify.Info(Owner, refusal, title); return; }
+                var runner = NewRunner(adapter, true, false);
+                if (runner == null) return;
+                if (instruction == null) instruction = runner.IntroductionInstruction();
+                runner.LogChecks = "rules+ai";
+                using (var f = new InsertForm(title, runner, adapter, anchor, instruction))
+                {
+                    if (f.ShowDialog() != DialogResult.OK) return;
+                }
+                GettingStarted.Mark(ChecklistItem.AiRewrite);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log(title, ex);
+                Notify.Failed(Owner, "finish \"" + title + "\"", ex, title);
             }
         }
 

@@ -18,6 +18,7 @@ namespace FlareAI.Core.Tests
     /// size limits and schema, the client against a local mock of the service (success, 429, 502, no network, then the
     /// zip fallback), and one report per error per session. Nothing here contacts the real service.
     /// </summary>
+    [Collection("Core statics")]
     public class FeedbackTests : IDisposable
     {
         private const string Key = "sk-ant-api03-SECRETSECRETSECRET-abcdefghijklmnop1234567890";
@@ -506,6 +507,7 @@ namespace FlareAI.Core.Tests
 
     /// <summary>The sequential collection: these tests change process-wide logging state (Paths.Root, Diagnostics).</summary>
     [CollectionDefinition("Logging", DisableParallelization = true)]
+    [Collection("Core statics")]
     public class LoggingCollection { }
 
     /// <summary>

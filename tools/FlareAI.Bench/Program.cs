@@ -135,6 +135,10 @@ namespace FlareAI.Bench
             foreach (var n in newNodes) parent.InsertBefore(n, oldNodes[0]);
             foreach (var o in oldNodes) parent.RemoveChild(o);
         }
+        public void InsertBlocks(string op, XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            for (var i = 0; i < newNodes.Count; i++) parent.InsertBefore(newNodes[i], parent.ChildNodes[index + i]);
+        }
         public bool SelectText(XmlText run, int start, int length) { return true; }
         public void Edit(string op, Action body) { body(); }
         public bool ReplaceSpan(XmlText run, int start, int length, string replacement)

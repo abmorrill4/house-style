@@ -147,11 +147,35 @@ namespace FlareAI.Flare.Tests
                     Assert.Contains(ReportProblemForm.Prompt, labels);
                     Assert.DoesNotContain("What did you expect?", labels);
                     Assert.True(All(f).OfType<CheckBox>().Single(c => c.Text == "Include diagnostic details").Checked);
-                    Assert.Equal(new[] { "Send", "Cancel" }, VisibleButtonsLeftToRight(f).ToArray());
+                    Assert.Equal(new[] { "Send", "Cancel" }, VisibleButtonsLeftToRight(f).Where(t => t != "Show Details").ToArray());
                     Assert.False(Button(f, "Send").Enabled);
                     f.WhatHappened.Text = "The pane went blank.";
                     Assert.True(Button(f, "Send").Enabled);
                     CheckFits(f, "report a problem at " + scale);
+                }
+            });
+        }
+
+        [Fact]
+        public void ReportAProblem_ShowDetails_ShowsTheReportAsItWouldBeSent_AndFollowsTheChoices()
+        {
+            Sta(() =>
+            {
+                using (var f = Offscreen(new ReportProblemForm(Context())))
+                {
+                    f.Show();
+                    Pump(null, 100);
+                    f.WhatHappened.Text = "The pane went blank.";
+                    Button(f, "Show Details").PerformClick();
+                    var box = All(f).OfType<TextBox>().Single(t => t.ReadOnly);
+                    Assert.Contains("The pane went blank.", box.Text);
+                    var withDiagnostics = box.Text;
+                    f.WhatHappened.Text = "The pane went blank again.";
+                    Assert.Contains("went blank again.", box.Text);                      // follows what is typed
+                    All(f).OfType<CheckBox>().Single(c => c.Text == "Include diagnostic details").Checked = false;
+                    Assert.True(box.Text.Length < withDiagnostics.Length);               // and the diagnostics choice
+                    Button(f, "Hide Details").PerformClick();
+                    Assert.False(box.Visible);
                 }
             });
         }

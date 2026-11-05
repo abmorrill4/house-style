@@ -62,7 +62,7 @@ namespace FlareAI.Core.Actions
     /// Applying the result to the document is a separate, explicit step so the UI can show a preview.
     /// All methods are synchronous; the caller runs them off the UI thread.
     /// </summary>
-    public sealed class ActionRunner
+    public sealed partial class ActionRunner
     {
         private readonly ILlmClient _llm;
         private readonly PromptBuilder _prompts;
@@ -114,7 +114,7 @@ namespace FlareAI.Core.Actions
         /// </summary>
         /// <param name="scope">The text's content and words: the rules to send besides the always-on ones (null = none).</param>
         /// <param name="guide">False for tasks that apply no style rule (alt text, topic assists): a short system prompt, no guide.</param>
-        private LlmResponse Ask(string task, string user, JObject schema, List<LlmImage> images = null, GuideScope scope = null, bool guide = true)
+        private LlmResponse Ask(string task, string user, JObject schema, List<LlmImage> images = null, GuideScope scope = null, bool guide = true, List<LlmTurn> history = null, List<LlmImage> documents = null)
         {
             var route = Routing.For(task);
             // The cached prefix is (model, output schema, system prompt): the schema sits ahead of the system prompt, and
@@ -128,7 +128,7 @@ namespace FlareAI.Core.Actions
             {
                 Task = task, System = system[0], SystemPacks = system[1], SystemTerms = system[2], User = user, Schema = schema, Model = route.Model, Effort = route.Effort,
                 CacheTtl = Routing.CacheFor(task),
-                Images = images, MaxTokens = Math.Max(_maxTokens, AnthropicClient.DefaultMaxTokens)
+                Images = images, Documents = documents, History = history, MaxTokens = Math.Max(_maxTokens, AnthropicClient.DefaultMaxTokens)
             };
             var sw = Stopwatch.StartNew();
             LlmResponse resp;
@@ -562,6 +562,8 @@ namespace FlareAI.Core.Actions
                 if (f.RunId == null || !unit.Runs.Runs.TryGetValue(f.RunId, out run) || run.ParentNode == null) continue;
                 var at = run.Value.IndexOf(f.Excerpt, StringComparison.Ordinal);
                 if (at < 0) continue;
+                Ground(f, rules);
+                Reconcile(f, rules, unit.Allowed);
                 if (f.Replacement != null)
                 {
                     // A replacement that changes a modal verb or drops a code term needs the author: keep the finding, not the fix.
@@ -583,7 +585,6 @@ namespace FlareAI.Core.Actions
                 var anchor = FindingLocator.ForSpan(run, at, f.Excerpt.Length, f.Replacement, TextRuns.BlockOf(run));
                 f.Before = anchor.Before;
                 f.Block = anchor.Block;
-                Ground(f, rules);
                 PreferOwnLayer(f, unit.Allowed);
                 if (!Duplicates(f, lint ?? new List<StyleFinding>())) kept.Add(f);
                 else Diagnostics.Log("AI finding dropped: it repeats a lint row");   // no document text: diag.log goes with reports
@@ -757,12 +758,16 @@ namespace FlareAI.Core.Actions
                     why = because.TrimEnd('.') + ", so the earlier suggestion stands. " + f.Suggestion;
                 }
             }
-            return new StyleFinding
+            var refinedFinding = new StyleFinding
             {
                 Source = "ai", Layer = "ai", Rule = f.Rule, RuleId = f.RuleId, RuleLayer = f.RuleLayer, RuleSection = f.RuleSection, Link = f.Link,
                 Severity = f.Severity, Excerpt = f.Excerpt, Before = f.Before, Block = f.Block, DocumentPath = f.DocumentPath, RunId = f.RunId,
                 Replacement = replacement, Suggestion = string.IsNullOrEmpty(why) ? f.Suggestion : why, Section = f.Section, Order = f.Order
             };
+            // The new reason may be about a different rule than the one the card still shows.
+            if (refinedFinding.RuleId != null)
+                Reconcile(refinedFinding, GuideRules(), new HashSet<string>(new[] { refinedFinding.RuleId }, StringComparer.OrdinalIgnoreCase));
+            return refinedFinding;
         }
 
         /// <summary>Alt text for an image (vision). Null when the model judges it decorative.</summary>
@@ -829,6 +834,15 @@ namespace FlareAI.Core.Actions
             return GuideBuilder.FromExtracted(all);
         }
 
+        /// <summary>Candidate rules from a PDF of notes or an old style guide. The model reads the PDF itself, so scans and layouts work too.</summary>
+        public List<RuleCandidate> ExtractRulesFromPdf(byte[] pdf, string fileName)
+        {
+            var doc = new LlmImage { MediaType = "application/pdf", Base64 = Convert.ToBase64String(pdf) };
+            var notes = "The notes are in the attached PDF file (" + fileName + "). Read all of it.";
+            var answer = Ask("extract", _prompts.BuildExtract(notes), Contracts.Extract(), documents: new List<LlmImage> { doc });
+            return GuideBuilder.FromExtracted((JArray)(answer.Json["rules"] ?? new JArray()));
+        }
+
         private static readonly Dictionary<string, int> SnippetUses = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>How many topics and snippets in the project include this snippet (by file name). Cached per session.</summary>
@@ -873,11 +887,80 @@ namespace FlareAI.Core.Actions
             return set;
         }
 
+        private static HashSet<string> ReasonStems(StyleFinding f)
+        {
+            return Stems(f.Suggestion);
+        }
+
+        private static HashSet<string> RuleStems(GuideRule r)
+        {
+            return Stems(r.Page + " " + r.Section + " " + r.Text + " " + r.Display);   // not the examples: they repeat everyday words ("Our product") that say nothing about the rule
+        }
+
         /// <summary>
-        /// A finding that cites a Google rule cites the team's rule instead when a later layer (company, team, personal,
-        /// project) has a rule on the same subject that was sent with the unit: that rule overrides Google's, and it is the
-        /// one the team wants named. Measured: 15 of 15 marketing claims cited Google's excessive-claims rule, not the team's
-        /// Claims rule. "Same subject": the two rules' pages or sections share a content word ("Excessive claims" / "Claims").
+        /// True when the reason was written for this rule: at least half of the rule's title words appear in the reason, or
+        /// at least half of the reason's words belong to the rule. One or two shared everyday words do not count: a reason
+        /// that mentions "financial institution" in passing must not agree with the Audience rule about that phrase.
+        /// </summary>
+        private static bool Agrees(StyleFinding f, GuideRule r)
+        {
+            var reason = ReasonStems(f);
+            if (reason.Count == 0) return true;
+            var title = Stems(r.Page + " " + r.Section);
+            int t = 0;
+            foreach (var s in title) if (reason.Contains(s)) t++;
+            if (t > 0 && t * 2 >= title.Count) return true;
+            var body = RuleStems(r);
+            int shared = 0;
+            foreach (var s in reason) if (body.Contains(s)) shared++;
+            return shared > 0 && shared * 2 >= reason.Count;
+        }
+
+        /// <summary>
+        /// When the reason does not agree with the rule the model cited, the card shows the one other rule the reason
+        /// agrees with (not turned off, sent with the unit, no tie), or no rule at all.
+        /// </summary>
+        private void Reconcile(StyleFinding f, Dictionary<string, GuideRule> rules, ICollection<string> allowed)
+        {
+            GuideRule cited;
+            if (f.RuleId == null || !rules.TryGetValue(f.RuleId.Trim(), out cited)) return;
+            var reason = ReasonStems(f);
+            if (reason.Count == 0) return;
+            if (Agrees(f, cited)) return;
+            GuideRule best = null;
+            int bestScore = 0;
+            bool tied = false;
+            foreach (var r in _ruleList)
+            {
+                if (r.IsLint) continue;
+                if (allowed != null && !allowed.Contains(r.Id)) continue;
+                if (IsTurnedOff(r.Id)) continue;
+                if (!Agrees(f, r)) continue;
+                var stems = RuleStems(r);
+                int score = 0;
+                foreach (var s in reason) if (stems.Contains(s)) score++;
+                if (score > bestScore) { best = r; bestScore = score; tied = false; }
+                else if (score == bestScore && score > 0) tied = true;
+            }
+            var from = f.RuleId;
+            if (best != null && !tied)
+            {
+                f.RuleId = best.Id; f.RuleLayer = best.Layer; f.RuleSection = best.Section; f.Link = best.Link;
+                Diagnostics.Log("Review: reason disagrees with " + from + ", shows " + best.Id);
+            }
+            else
+            {
+                f.RuleId = null; f.RuleLayer = null; f.RuleSection = null; f.Link = null;
+                Diagnostics.Log("Review: reason disagrees with " + from + ", no rule shown");
+            }
+        }
+
+        /// <summary>
+        /// A finding that cites a Google rule cites the team's rule instead only when a later layer (company, team, personal,
+        /// project) has a rule on the same subject that was sent with the unit and the reason is about that team rule.
+        /// Measured: 15 of 15 marketing claims cited Google's excessive-claims rule, not the team's Claims rule.
+        /// "Same subject": the two rules' pages or sections share a content word ("Excessive claims" / "Claims").
+        /// Otherwise the cited rule stays and nothing is said about an override.
         /// </summary>
         private void PreferOwnLayer(StyleFinding f, ICollection<string> allowed)
         {
@@ -893,6 +976,7 @@ namespace FlareAI.Core.Actions
                 if (r.IsLint || string.Equals(r.Layer, GoogleLayer, StringComparison.OrdinalIgnoreCase)) continue;
                 if (allowed != null && !allowed.Contains(r.Id)) continue;
                 if (!Stems(r.Page + " " + r.Section).Overlaps(subject)) continue;
+                if (!Agrees(f, r)) continue;
                 if (IsTurnedOff(r.Id)) continue;
                 if (best == null || rank[r.Layer] > rank[best.Layer]) best = r;
             }

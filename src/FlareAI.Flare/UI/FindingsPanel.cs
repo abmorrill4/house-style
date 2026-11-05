@@ -1318,7 +1318,7 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>
-        /// The walk as the scenario reads it: the rule's key (never its title or text), the place, whether the walk went past its
+        /// The walk as the test reads it: the rule's key (never its title or text), the place, whether the walk went past its
         /// last place, and whether the list has the focus. Null when no rule is walked.
         /// </summary>
         private object E2EWalk()
@@ -2288,7 +2288,7 @@ namespace FlareAI.Flare.UI
             return rows;
         }
 
-        /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A scenario's saveAs path skips the dialog.</summary>
+        /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A test's saveAs path skips the dialog.</summary>
         private void ExportIssues()
         {
             var rows = RowsFrom(new List<StyleFinding>(_session.Findings));   // a snapshot before any dialog

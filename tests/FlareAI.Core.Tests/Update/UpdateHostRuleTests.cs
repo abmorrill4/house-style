@@ -5,6 +5,7 @@ using Xunit;
 
 namespace FlareAI.Core.Tests.Update
 {
+    [Collection("Core statics")]
     public class UpdateHostRuleTests
     {
         [Theory]

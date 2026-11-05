@@ -297,6 +297,33 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void RecheckAfterTheAuthorEditedOneSection_ReviewsOnlyThatSection_AndKeepsTheOthersIssues()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var body = doc.Document.SelectSingleNode("//body");
+            while (body.FirstChild != null) body.RemoveChild(body.FirstChild);
+            // A topic under 3,000 characters is one review unit; two sections of about 1,700 split into one unit each.
+            var filler = string.Concat(Enumerable.Repeat(" The fee applies to every account.", 50));
+            foreach (var n in FlareAI.Core.Editing.XhtmlFragment.ParseInto(
+                "<h1>Fees</h1><p>We utilize the app. Please note that the fee is waived." + filler + "</p><h2>Limits</h2><p>We utilize the cap. Please note that the limit is waived." + filler + "</p>", doc.Document))
+                body.AppendChild(n);
+            var blocks = body.ChildNodes.Cast<System.Xml.XmlNode>().Where(n => n.NodeType == System.Xml.XmlNodeType.Element).ToList();
+            var llm = new FakeLlmClient(r => TwoFindings);
+            var runner = new ActionRunner(llm, new PromptBuilder(null), 1024);
+            var cache = new ReviewCache();
+
+            List<ReviewUnit> Units() { return runner.PrepareReview(blocks, runner.Lint(blocks)); }
+            foreach (var u in Units()) { var raw = cache.Get(u); if (raw == null) cache.Put(u, runner.CallReview(u)); }
+            Assert.Equal(2, llm.Requests.Count);                                   // one call per section
+
+            // The author rewrites the second section by hand.
+            var limits = blocks[3];
+            ((System.Xml.XmlText)limits.FirstChild).Value = "We utilize the cap. The limit is waived for new members only." + filler;
+            foreach (var u in Units()) { var raw = cache.Get(u); if (raw == null) cache.Put(u, runner.CallReview(u)); }
+            Assert.Equal(3, llm.Requests.Count);                                   // only the edited section went back to the model
+        }
+
+        [Fact]
         public void RecheckAfterTheAuthorRewroteText_ReviewsAgain()
         {
             var doc = new FakeDocumentAdapter("sample-topic.htm");
@@ -419,6 +446,105 @@ namespace FlareAI.Core.Tests
             Assert.Equal("company:claims/1", claim.RuleId);
             Assert.Equal("company", claim.RuleLayer);
             Assert.Equal(second, found.Single(f => f.Rule == "audience").RuleId);   // no team rule on that subject
+        }
+
+        [Fact]
+        public void Review_GooglesRuleStays_WhenTheReasonIsNotAboutTheTeamRule()
+        {
+            var engine = Bundled();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var p = Paragraph(doc, "<p>Our best-in-class transfer experience delights members, and you can choose the members who see your transfers.</p>");
+            // The reason still names Google's rule ("excessive"), but nothing in the team's Claims rule.
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""best-in-class"",""replacement"":null,""why"":""This wording is excessive.""}]");
+            var runner = new ActionRunner(llm, PromptBuilder.For(engine, null), 1024, engine);
+            var found = runner.Review(new List<System.Xml.XmlNode> { p }, new List<StyleFinding>());
+            var claim = found.Single(f => f.Rule == "marketing claim");
+            Assert.Equal("google:excessive-claims/5", claim.RuleId);
+            Assert.Equal("google", claim.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_ATeamRuleTheWriterTurnedOff_IsNotChosenOverGooglesRule()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<FlareAI.Core.Style.GuideRule>
+            {
+                new FlareAI.Core.Style.GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Avoid unverifiable claims." },
+                new FlareAI.Core.Style.GuideRule { Id = "company:claims/1", Layer = "company", Page = "Claims", Section = "Promises", Text = "Do not make claims you can't verify." }
+            };
+            style.Off.Add("company:claims/1");
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Unverifiable claim.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Equal("google:excessive-claims/5", f.RuleId);
+            Assert.Equal("google", f.RuleLayer);
+        }
+
+        private static FakeStyleService ClaimsAndColonsGuide()
+        {
+            var style = new FakeStyleService();
+            style.GuideRules = new List<FlareAI.Core.Style.GuideRule>
+            {
+                new FlareAI.Core.Style.GuideRule { Id = "google:excessive-claims/5", Layer = "google", Page = "Excessive claims", Section = "Excessive claims", Text = "Avoid unverifiable claims." },
+                new FlareAI.Core.Style.GuideRule { Id = "google:punctuation/1", Layer = "google", Page = "Colons", Section = "Colons", Text = "Capitalize the first word after a colon only when it begins a full sentence." }
+            };
+            return style;
+        }
+
+        [Fact]
+        public void Review_AReasonAboutADifferentRule_ShowsNoRuleOrOneThatMatches()
+        {
+            var style = ClaimsAndColonsGuide();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Capitalize the word after the colon.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.NotEqual("google:excessive-claims/5", f.RuleId);
+            Assert.True(f.RuleId == null || f.RuleId == "google:punctuation/1");
+            if (f.RuleId == null) Assert.Null(f.RuleLayer);
+        }
+
+        [Fact]
+        public void Review_AMadeUpRuleId_ShowsTheReasonWithNoRule()
+        {
+            var style = ClaimsAndColonsGuide();
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:no-such-rule/99"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Unverifiable claim.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal("Unverifiable claim.", f.Suggestion);
+        }
+
+        [Fact]
+        public void Review_AReasonForARuleTheWriterTurnedOff_ShowsNoRule()
+        {
+            var style = ClaimsAndColonsGuide();
+            style.Off.Add("google:punctuation/1");
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            var llm = new FakeLlmClient(r => @"[{""rule_id"":""google:excessive-claims/5"",""rule"":""marketing claim"",""severity"":""warning"",""excerpt"":""appropriate permissions"",""replacement"":null,""why"":""Capitalize the word after the colon.""}]");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var f = runner.CheckStyle(doc).Single(x => x.Source == "ai");
+            Assert.Null(f.RuleId);
+            Assert.Null(f.RuleLayer);
+            Assert.Equal("Capitalize the word after the colon.", f.Suggestion);
+        }
+
+        [Theory]
+        [InlineData("Capitalize the word after the colon.", null)]
+        [InlineData("This claim is excessive and can't be verified.", "google:excessive-claims/5")]
+        public void Refine_AReasonThatNoLongerMatchesTheRule_DropsTheRule(string why, string expectedRuleId)
+        {
+            var style = ClaimsAndColonsGuide();
+            var llm = new FakeLlmClient(r => "{\"applies\":true,\"replacement\":null,\"why\":\"" + why + "\"}");
+            var runner = new ActionRunner(llm, new PromptBuilder(() => style.Guide(null)), 1024, style);
+            var earlier = new StyleFinding { RuleId = "google:excessive-claims/5", RuleLayer = "google", Excerpt = "appropriate permissions", Replacement = null, Suggestion = "Unverifiable claim." };
+            var refined = runner.Refine(earlier, "Grant appropriate permissions.", "Explain it again");
+            Assert.Equal(expectedRuleId, refined.RuleId);
+            if (expectedRuleId == null) Assert.Null(refined.RuleLayer);
+            Assert.Equal(why, refined.Suggestion);
         }
 
         [Fact]
@@ -545,6 +671,24 @@ namespace FlareAI.Core.Tests
                 var routing = new FlareAI.Core.Llm.Routing().WithTeamFile(dir);
                 Assert.Equal("5m", routing.CacheFor("restructure"));
                 Assert.Equal("none", routing.CacheFor("alt"));   // unknown values are ignored
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void TeamFile_IgnoresValuesTheApiDoesNotExpect()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-routing-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(dir, "FlareAI"));
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, @"FlareAI\models.json"),
+                    "{\"tiers\":{\"fast\":{\"model\":\"claude-haiku-5-5\",\"effort\":\"low\"},\"standard\":{\"model\":\"x y; drop\",\"effort\":\"ludicrous\"}},\"review_unit\":\"everything\"}");
+                var routing = new FlareAI.Core.Llm.Routing().WithTeamFile(dir);
+                Assert.Equal("low", routing.For("refine").Effort);                       // a good value is applied
+                Assert.Equal("claude-sonnet-5-5", routing.For("review").Model);         // a bad model name keeps the default
+                Assert.Equal("medium", routing.For("review").Effort);                   // an unknown effort keeps the default
+                Assert.Equal("section", routing.ReviewUnit);                            // an unknown review unit keeps the default
             }
             finally { Directory.Delete(dir, true); }
         }

@@ -27,7 +27,7 @@ namespace FlareAI.Flare
         /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
         internal static readonly string[] Verbs =
         {
-            "state", "command", "open", "click", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
             "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
         };
 
@@ -143,7 +143,7 @@ namespace FlareAI.Flare
                     return null;
                 case "dialogType": Type(Dialog((string)c["title"]), (string)c["name"], arg); return null;   // a text box or list by its accessible name
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
-                // The scenario sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
+                // The test sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
                 case "paneRow": return new { text = Pane().E2EClickHeading(arg) };   // a file heading (collapses or expands the file) or an issue row (selects it) by part of its text
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
@@ -151,12 +151,49 @@ namespace FlareAI.Flare
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
                 case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
+                case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
+                case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
+                case "bodyXml": return new { xml = FlareAI.Core.Editing.BlockSelector.FindBody(Active().Document).InnerXml };   // the live body, to compare before and after undo and redo
+                case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false);   // new blocks after the body block holding "after"; one tracked operation
+                case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true);       // the same without the refusal: only for the control that proves a crash is seen
                 case "replace": Replace(Active(), arg, (string)c["text"]); return null;
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
                 case "saveAs": SetSavePath(arg); return null;
                 default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
+        }
+
+        private static string AcceptedText(FlareDocumentAdapter a, string contains)
+        {
+            var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
+            foreach (System.Xml.XmlNode n in body.ChildNodes)
+            {
+                if (n.NodeType != System.Xml.XmlNodeType.Element || (n.LocalName.Length == 2 && n.LocalName[0] == 'h')) continue;   // headings are not the paragraph
+                var view = FlareAI.Core.Editing.AcceptedView.Of(new List<System.Xml.XmlNode> { n });
+                var text = System.Text.RegularExpressions.Regex.Replace(view[0].InnerText, @"\s+", " ").Trim();
+                if (text.Contains(contains)) return text;
+            }
+            throw new InvalidOperationException("No body block with the text " + contains);
+        }
+
+        private static object InsertBlocks(FlareDocumentAdapter a, string xml, string after, bool raw)
+        {
+            var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
+            if (body == null) throw new InvalidOperationException("No body in the topic.");
+            System.Xml.XmlNode anchor = null;
+            foreach (System.Xml.XmlNode n in body.ChildNodes)
+                if (n.NodeType == System.Xml.XmlNodeType.Element && n.InnerText.Contains(after)) { anchor = n; break; }
+            if (anchor == null) throw new InvalidOperationException("No body block with the text " + after);
+            var index = 0;
+            for (var n = body.FirstChild; n != anchor; n = n.NextSibling) index++;
+            index++;
+            var frag = a.Document.CreateDocumentFragment();
+            frag.InnerXml = xml;
+            var nodes = new List<System.Xml.XmlNode>();
+            foreach (System.Xml.XmlNode n in frag.ChildNodes) nodes.Add(n);
+            if (raw) a.E2EInsertRaw(body, index, nodes); else a.InsertBlocks("E2E insert", body, index, nodes);
+            return new { inserted = nodes.Count, index };
         }
 
         private FlareDocumentAdapter Active()
@@ -211,7 +248,7 @@ namespace FlareAI.Flare
         }
 
         /// <summary>
-        /// For pane code that shows a Save dialog: the path a scenario set with saveAs, which the caller writes to instead of
+        /// For pane code that shows a Save dialog: the path a test set with saveAs, which the caller writes to instead of
         /// showing the dialog. Null (show the dialog) when the hook is off or no path was set. Clears it, so it's one-shot.
         /// </summary>
         internal static string TakeSavePath()
@@ -271,7 +308,7 @@ namespace FlareAI.Flare
                 try { SizePane(pane, width, height); }
                 catch (InvalidOperationException) { }   // the floating window took UndockedSize instead
             }
-            var hosts = new List<string>();   // what holds the pane, for a scenario's failure message
+            var hosts = new List<string>();   // what holds the pane, for a test's failure message
             for (Control p = pane.Parent; p != null && hosts.Count < 8; p = p.Parent) hosts.Add(p.GetType().Name);
             return new { floating, width = pane.ClientSize.Width, height = pane.ClientSize.Height, hosts };
         }
@@ -341,7 +378,7 @@ namespace FlareAI.Flare
                 Valid(All(root).Where(x => x.Visible && (x is TextBox || x is ComboBox) && !string.IsNullOrEmpty(x.AccessibleName) && !(x is TextBox && ((TextBox)x).UseSystemPasswordChar))
                     .Select(x => x.AccessibleName)));
             var combo = box as ComboBox;
-            if (combo != null && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.SelectedItem = combo.Items.Cast<object>().First(i => i.ToString() == text);
+            if (combo != null && combo.DropDownStyle == ComboBoxStyle.DropDownList) combo.SelectedItem = combo.Items.Cast<object>().FirstOrDefault(i => i.ToString() == text) ?? combo.Items.Cast<object>().First(i => i.ToString().StartsWith(text, StringComparison.Ordinal));   // a prefix works too: text a script sends loses non-ASCII characters
             else box.Text = text;
         }
 
@@ -373,7 +410,7 @@ namespace FlareAI.Flare
                     // Never a password box: an API key must not reach the results.
                     boxes = All(f).Where(x => x.Visible && (x is TextBox || x is ComboBox) && !string.IsNullOrEmpty(x.AccessibleName) &&
                                               !(x is TextBox && (((TextBox)x).UseSystemPasswordChar || ((TextBox)x).PasswordChar != '\0')))
-                                  .Select(x => new { name = x.AccessibleName, text = x.Text }).ToList()
+                                  .Select(x => new { name = x.AccessibleName, text = x.Text, items = x is ComboBox ? ((ComboBox)x).Items.Cast<object>().Select(i => i.ToString()).ToList() : null }).ToList()
                 }).ToList()
             };
         }

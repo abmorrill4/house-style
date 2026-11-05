@@ -33,10 +33,10 @@ folders whole, and never read `corpus/` wholesale (it is generated test data).
 | Area | Where |
 |---|---|
 | Unit | `tests/FlareAI.Core.Tests` |
-| Writer flows over the fake editor | `tests/FlareAI.Scenarios/<Area>/` over `tests/FlareAI.TestKit` (`Editor/FlareSimDocument`, `Llm/ScriptedLlmClient`, `Workspace/FakeWorkspace`) |
+| Writer flows over the fake editor | `tests/FlareAI.Integration.Tests/<Area>/` over `tests/FlareAI.TestKit` (`Editor/FlareSimDocument`, `Llm/ScriptedLlmClient`, `Workspace/FakeWorkspace`) |
 | One fixture per lint rule | `tests/FlareAI.RuleFixtures.Tests`, data in `tests/fixtures/rules` |
 | Real WinForms, hidden | `tests/FlareAI.Flare.Tests` |
-| Real Flare, no clicking | `tests/e2e` (`Run-FlareE2E.ps1`, `scenarios/*.ps1`) |
+| Real Flare, no clicking | `tests/e2e` (`Run-FlareE2E.ps1`, `tests/*.ps1`) |
 | Scripts (Pester 3) | `tests/factory`, `tests/release`, `tests/publish-guide` |
 | Feedback Worker (vitest) | `tools/feedback-worker/test` |
 

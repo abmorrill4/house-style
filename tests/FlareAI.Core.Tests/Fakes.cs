@@ -57,6 +57,14 @@ namespace FlareAI.Core.Tests
             foreach (var o in oldNodes) parent.RemoveChild(o);
         }
 
+        public readonly List<Tuple<string, XmlNode, int, IList<XmlNode>>> Insertions = new List<Tuple<string, XmlNode, int, IList<XmlNode>>>();
+
+        public void InsertBlocks(string operationName, XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            Insertions.Add(Tuple.Create(operationName, parent, index, newNodes));
+            for (var i = 0; i < newNodes.Count; i++) parent.InsertBefore(newNodes[i], parent.ChildNodes[index + i]);
+        }
+
         public List<string> TextOperations = new List<string>();
         public string LastSelected;
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -50,7 +51,7 @@ namespace FlareAI.Core.Llm
             {
                 ["model"] = model,
                 ["max_tokens"] = req.MaxTokens > 0 ? req.MaxTokens : DefaultMaxTokens,
-                ["messages"] = new JArray(new JObject { ["role"] = "user", ["content"] = UserContent(req) })
+                ["messages"] = Messages(req)
             };
             // The system prompt (instructions + the always-on rules) is identical across calls: cache it, so per-section
             // reviews and repeat checks pay for it once. The rule packs for the unit's content are a second cached block.
@@ -83,12 +84,35 @@ namespace FlareAI.Core.Llm
             return body.ToString(Formatting.None);
         }
 
+        /// <summary>
+        /// The history, then the new user message. The last history message carries a cache breakpoint (a 5-minute one, like the rule
+        /// packs), so the next turn reads the conversation so far instead of paying for it again.
+        /// </summary>
+        private static JArray Messages(LlmRequest req)
+        {
+            var messages = new JArray();
+            var history = req.History ?? new List<LlmTurn>();
+            for (var i = 0; i < history.Count; i++)
+            {
+                var last = i == history.Count - 1 && (req.CacheTtl ?? "1h") != "none";
+                JToken content = history[i].Text ?? "";
+                if (last)
+                    content = new JArray(new JObject { ["type"] = "text", ["text"] = history[i].Text ?? "", ["cache_control"] = new JObject { ["type"] = "ephemeral" } });
+                messages.Add(new JObject { ["role"] = history[i].Role, ["content"] = content });
+            }
+            messages.Add(new JObject { ["role"] = "user", ["content"] = UserContent(req) });
+            return messages;
+        }
+
         /// <summary>Plain text, or image blocks followed by the text when the request carries images.</summary>
         private static JToken UserContent(LlmRequest req)
         {
-            if (req.Images == null || req.Images.Count == 0) return req.User ?? "";
+            if ((req.Images == null || req.Images.Count == 0) && (req.Documents == null || req.Documents.Count == 0)) return req.User ?? "";
             var parts = new JArray();
-            foreach (var img in req.Images)
+            if (req.Documents != null)
+                foreach (var doc in req.Documents)
+                    parts.Add(new JObject { ["type"] = "document", ["source"] = new JObject { ["type"] = "base64", ["media_type"] = doc.MediaType, ["data"] = doc.Base64 } });
+            foreach (var img in req.Images ?? new List<LlmImage>())
                 parts.Add(new JObject { ["type"] = "image", ["source"] = new JObject { ["type"] = "base64", ["media_type"] = img.MediaType, ["data"] = img.Base64 } });
             parts.Add(new JObject { ["type"] = "text", ["text"] = req.User ?? "" });
             return parts;
@@ -107,6 +131,7 @@ namespace FlareAI.Core.Llm
             http.ReadWriteTimeout = _timeoutMs;
             http.AllowAutoRedirect = false;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
+            FlareAI.Core.Update.LoopbackProxy.Apply(http);
             http.Headers["x-api-key"] = _apiKey;
             http.Headers["anthropic-version"] = ApiVersion;
             if (UsesFallback(model)) http.Headers["anthropic-beta"] = FallbackBeta;

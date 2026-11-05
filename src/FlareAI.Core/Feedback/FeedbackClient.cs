@@ -90,13 +90,16 @@ namespace FlareAI.Core.Feedback
                 req.Timeout = TimeoutMs;
                 req.ReadWriteTimeout = TimeoutMs;
                 req.AllowAutoRedirect = false;   // a POST must not be replayed to another address
-                try
+                if (!FlareAI.Core.Update.LoopbackProxy.Apply(req))   // a test server on this computer: no proxy
                 {
-                    var proxy = WebRequest.GetSystemWebProxy();
-                    proxy.Credentials = CredentialCache.DefaultCredentials;
-                    req.Proxy = proxy;
+                    try
+                    {
+                        var proxy = WebRequest.GetSystemWebProxy();
+                        proxy.Credentials = CredentialCache.DefaultCredentials;
+                        req.Proxy = proxy;
+                    }
+                    catch (Exception) { }
                 }
-                catch (Exception) { }
                 if (Gzip && body.Length > GzipThreshold)
                 {
                     body = Compress(body);
