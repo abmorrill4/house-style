@@ -12,7 +12,7 @@
     <!-- Deliberately independent of FlareAI.Core: contexts and labels must not share the engine's extractor. -->
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <EmbeddedResource Include="Inject\defects.default.yaml" LogicalName="defects.default.yaml" />
     <InternalsVisibleTo Include="FlareAI.CorpusKit.Tests" />
   </ItemGroup>
