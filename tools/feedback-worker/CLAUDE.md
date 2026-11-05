@@ -6,9 +6,6 @@
   - Keep the body caps, strict validation and redaction.
   - Run text that goes into GitHub issues through `noMentions` and the fencing helpers.
 - **Open hardening:**
-  - #133: global issue cap, IPv6 /64 rate limit
-  - #146: mentions in `os` and `flare_version`
-  - #147: hashing and retention
   - #148: false-positive summary job
 - **Test:** `npm ci; npm run typecheck; npm test` (vitest with the Workers pool). CI runs this as the
   `feedback-worker` check.

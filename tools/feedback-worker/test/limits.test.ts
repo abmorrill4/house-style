@@ -45,7 +45,7 @@ describe("abuse limits", () => {
 
 	it("stops all reports once the global cap is spent", async () => {
 		await stayInWindow(86400, 60);
-		for (let i = 0; i < LIMITS.reportGlobal.max; i++) await hit(env.DB, LIMITS.reportGlobal, "all");
+		for (let i = 0; i < LIMITS.reportGlobal.max; i++) await hit(env, LIMITS.reportGlobal, "all");
 		const res = await post("/v1/report", problemReport());
 		expect(res.status).toBe(503);
 		expect(gh.issues.size).toBe(0);

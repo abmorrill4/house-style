@@ -1,4 +1,4 @@
-import { HttpError, sha256Hex } from "./http";
+import { HttpError, identityHash } from "./http";
 
 // Fixed-window counters in D1. The Workers rate limiting binding only supports 10 s and 60 s periods, and the
 // per-IP limit here is hourly, so a D1 counter is used for every limit. IPs and client ids are stored only as
@@ -41,11 +41,12 @@ export function networkKey(ip: string): string {
 }
 
 /** Counts one hit against `limit` for `identity`; throws 429 once the window's budget is spent. */
-export async function hit(db: D1Database, limit: Limit, identity: string, now = Date.now(), status = 429): Promise<void> {
+export async function hit(env: Env, limit: Limit, identity: string, now = Date.now(), status = 429): Promise<void> {
+	const db = env.DB;
 	const nowS = Math.floor(now / 1000);
 	const window = Math.floor(nowS / limit.windowSeconds);
 	const expiresAt = (window + 1) * limit.windowSeconds;
-	const bucket = `${limit.scope}:${(await sha256Hex(identity)).slice(0, 32)}:${window}`;
+	const bucket = `${limit.scope}:${(await identityHash(env, identity)).slice(0, 32)}:${window}`;
 	const row = await db
 		.prepare(
 			`INSERT INTO rate_limits (bucket, count, expires_at) VALUES (?1, 1, ?2)
@@ -58,6 +59,23 @@ export async function hit(db: D1Database, limit: Limit, identity: string, now = 
 		const message = status === 429 ? "Too many reports from this computer. Try again later." : "The report server is busy right now. Try again later.";
 		throw new HttpError(status, message, Math.max(1, expiresAt - nowS));
 	}
+}
+
+/** How long report rows and summarised false positives are kept. */
+export const RETENTION_DAYS = 90;
+
+/**
+ * Deletes rows older than the retention limit: reports, summarised false positives, and signatures not seen since
+ * (with their install hashes). Unsummarised false positives stay until the weekly summary has used them.
+ */
+export async function pruneRetention(db: D1Database, now = Date.now()): Promise<void> {
+	const cutoff = Math.floor(now / 1000) - RETENTION_DAYS * 86400;
+	await db.batch([
+		db.prepare("DELETE FROM reports WHERE created_at < ?1").bind(cutoff),
+		db.prepare("DELETE FROM false_positives WHERE summarised_at IS NOT NULL AND created_at < ?1").bind(cutoff),
+		db.prepare("DELETE FROM signature_clients WHERE signature IN (SELECT signature FROM error_signatures WHERE last_seen < ?1)").bind(cutoff),
+		db.prepare("DELETE FROM error_signatures WHERE last_seen < ?1").bind(cutoff),
+	]);
 }
 
 export async function pruneExpired(db: D1Database, now = Date.now()): Promise<void> {

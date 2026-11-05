@@ -1,5 +1,5 @@
 import { defang, fenced, GitHub, noMentions } from "./github";
-import { log, sha256Hex } from "./http";
+import { identityHash, log } from "./http";
 import { redactText } from "./redact";
 import { FP_REASONS, type FalsePositive, type FpReason } from "./validate";
 
@@ -15,7 +15,7 @@ export const REASON_LABELS: Record<FpReason, string> = {
 
 export async function storeFalsePositive(fp: FalsePositive, env: Env, now = Date.now()): Promise<{ ok: true; reference: string }> {
 	const id = crypto.randomUUID();
-	const clientHash = (await sha256Hex(fp.client_id)).slice(0, 16);
+	const clientHash = (await identityHash(env, fp.client_id)).slice(0, 16);
 	await env.DB.prepare(
 		`INSERT INTO false_positives (id, created_at, client_hash, plugin_version, rule_id, rule_name, reason, flagged_text, context, note)
 		 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,

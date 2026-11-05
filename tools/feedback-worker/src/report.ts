@@ -1,5 +1,5 @@
 import { defang, fenced, GITHUB_BODY_LIMIT, GitHub, noMentions } from "./github";
-import { log, sha256Hex } from "./http";
+import { identityHash, log, sha256Hex } from "./http";
 import { redactSettings, redactText } from "./redact";
 import type { ExceptionInfo, Report } from "./validate";
 
@@ -163,7 +163,7 @@ function commentBody(r: Report, clientHash: string, newInstall: boolean, count: 
 export async function handleReport(r: Report, env: Env, now = Date.now()): Promise<ReportResult> {
 	const gh = new GitHub(env.GITHUB_TOKEN, env.GITHUB_REPO);
 	const db = env.DB;
-	const clientHash = (await sha256Hex(r.client_id)).slice(0, 16);
+	const clientHash = (await identityHash(env, r.client_id)).slice(0, 16);
 	const nowS = Math.floor(now / 1000);
 	const id = crypto.randomUUID();
 
