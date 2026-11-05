@@ -19,6 +19,9 @@ When it finishes, it tells you how many topics it read and how many suggested ru
 
 ## Add notes or an old guide
 
+![The notes box with a PDF listed as a source, a Remove button, and pasted text.](../../../assets/screenshots/import-rules-notes.png)
+
+
 Select **Add notes or an old guide…** to open the notes box. Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. You can also add files.
 
 1. Select **Add Files…**, and pick as many files as you like. You can add more at any time, all at once or one at a time.
@@ -47,6 +50,9 @@ An older Word file (.doc) or a protected file can't be read. Save it as .docx or
 Extracting rules uses AI and your key. Long notes cost more, because House Style sends them in pieces. With AI off, it tells you how to turn it on. See [Models and cost](/docs/settings-and-privacy/models-and-cost/).
 
 ## Review the suggested rules
+
+![The suggested rules, each with the words it came from and the source file it was found in.](../../../assets/screenshots/import-rules-results.png)
+
 
 Suggested rules are listed in two groups: **From your content** and **From your notes**. The columns are:
 

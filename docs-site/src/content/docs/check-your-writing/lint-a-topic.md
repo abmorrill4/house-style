@@ -13,6 +13,8 @@ To lint without AI, select the arrow on **Lint Topic** and then **Rules Only**. 
 
 ## Read an issue
 
+![The House Style Issues pane beside a topic, listing three issues with the selected issue shown below the list.](../../../assets/screenshots/lint-topic.png)
+
 Issues are listed in reading order, under the topic's headings. The line at the top counts them, such as *5 issues in 2 sections. 2 Auto-fix, 3 Needs you.* Select an issue to see:
 
 - **The heading**: its level (Error, Warning or Suggestion), where the rule comes from (Google, Starter rules, Our rules, This project, Built-in checks, or AI), and its type.
@@ -61,6 +63,10 @@ For a missing alt text, **Add Alt Text…** asks the AI to draft it. The AI does
 Use the level list (All Levels, Errors, Warnings or Suggestions) and the source list (Rules and AI, Rules Only or AI Only) above the issues to narrow them. **Clear Filters** starts over. The **This Topic** and **Project** tabs switch between the topic you linted and the last Lint Project. In the walk through the issues, press I to ignore and N for the next one.
 
 ## Use a variable instead of typed text
+
+![A use-variable issue selected, with the typed product name highlighted in the topic.](../../../assets/screenshots/use-variable-before.png)
+
+![After Change, the typed text is struck through and the variable is added as a tracked change.](../../../assets/screenshots/use-variable-after.png)
 
 When a project variable holds the text you typed, the issue reads *Use variable* and the variable's name, and it is a **Needs you** issue. Select **Change** (or press Enter). House Style selects the text and puts the variable in its place with Flare's own Insert Variable command. It is one tracked change, and Undo, Redo, Accept All and Reject All work on it as they do on any other. Then it goes to the next issue. If House Style can't reach Flare's command, the text stays selected and the pane tells you to select **Insert > Variable** and choose the variable yourself.
 
