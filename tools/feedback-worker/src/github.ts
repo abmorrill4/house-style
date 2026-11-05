@@ -112,6 +112,14 @@ export function noMentions(text: string): string {
 	return text.replace(/@(?=[A-Za-z0-9])/g, "@​");
 }
 
+/**
+ * Stops free text from rendering links, images or HTML in the issue. `[` and `<` start every Markdown link,
+ * image, reference definition and autolink, so escaping them (and the backslash that could undo the escape) is enough.
+ */
+export function defang(text: string): string {
+	return text.replace(/[\\[<]/g, (c) => `\\${c}`);
+}
+
 /** A Markdown code fence that the content can't close early. */
 export function fenced(content: string, lang = ""): string {
 	const longest = Math.max(0, ...[...content.matchAll(/`+/g)].map((m) => m[0].length));

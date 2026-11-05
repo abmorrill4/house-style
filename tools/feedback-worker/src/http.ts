@@ -91,6 +91,22 @@ export async function sha256Hex(value: string): Promise<string> {
 	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** HMAC-SHA-256 as hex. */
+export async function hmacHex(secret: string, value: string): Promise<string> {
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+	const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+	return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Hash for an IP address or install id before it is stored. With the HASH_SECRET Worker secret set it is an HMAC, which
+ * can't be reversed by trying every IPv4 address. Without the secret it falls back to plain SHA-256.
+ */
+export function identityHash(env: Env, value: string): Promise<string> {
+	const secret = (env as { HASH_SECRET?: string }).HASH_SECRET;
+	return secret ? hmacHex(secret, value) : sha256Hex(value);
+}
+
 /** Structured log line. Callers pass only non-sensitive fields: no IPs, client ids, report text or tokens. */
 export function log(event: string, fields: Record<string, string | number | boolean | undefined> = {}): void {
 	console.log(JSON.stringify({ event, ...fields }));

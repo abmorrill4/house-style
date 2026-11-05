@@ -39,8 +39,13 @@ install.
    ```
    npx wrangler d1 migrations apply house-style-feedback --remote
    npx wrangler secret put GITHUB_TOKEN
+   npx wrangler secret put HASH_SECRET
    npx wrangler deploy
    ```
+   `HASH_SECRET` is any long random string. With it set, IP addresses and install ids are stored as HMACs instead of
+   plain SHA-256 hashes. Without it the Worker still runs, with the weaker hash. Changing it later starts new hashes,
+   so installs count as new once. The weekly job deletes reports and summarised false positives after 90 days.
+   To stop taking reports quickly, set `FEEDBACK_DISABLED` to `"1"` (Worker settings or `wrangler.jsonc`).
    If you used a different repo name, change `GITHUB_REPO` in `wrangler.jsonc` first.
 
 `wrangler deploy` prints the URL, normally `https://house-style-feedback.<your-subdomain>.workers.dev`. Configure
