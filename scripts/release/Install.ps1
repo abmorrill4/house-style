@@ -42,21 +42,34 @@ if ($Elevated -or $LinkTarget) {
     }
 }
 # The only folder the elevated step may link Flare to is a per-user install: ...\HouseStyle\current holding the plugin.
-if ($LinkTarget) {
-    $okTarget = $false
+function Test-AllowedLinkTarget([string]$t) {
     try {
-        $full = [IO.Path]::GetFullPath($LinkTarget).TrimEnd('\')
+        $full = [IO.Path]::GetFullPath($t).TrimEnd('\')
         $parent = Split-Path $full -Parent
-        $okTarget = ($full -eq $LinkTarget.TrimEnd('\')) -and ((Split-Path $full -Leaf) -eq "current") -and `
-                    $parent -and ((Split-Path $parent -Leaf) -eq "HouseStyle") -and `
-                    (Test-Path -LiteralPath (Join-Path $full "FlareAI.Flare.dll")) -and `
-                    -not ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
-    } catch { $okTarget = $false }
-    if (-not $okTarget) {
-        Write-Host ""
-        Write-Host "ERROR: Refusing to link Flare to '$LinkTarget'. It is not a House Style install folder." -ForegroundColor Red
-        exit 1
-    }
+        return (($full -eq $t.TrimEnd('\')) -and ((Split-Path $full -Leaf) -eq "current") -and `
+                $parent -and ((Split-Path $parent -Leaf) -eq "HouseStyle") -and `
+                (Test-Path -LiteralPath (Join-Path $full "FlareAI.Flare.dll")) -and `
+                -not ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint))
+    } catch { return $false }
+}
+# The link itself may only sit at Plugins\FlareAI inside a Flare under Program Files. The Program Files folders come from
+# Windows, not from environment variables.
+function Test-AllowedLinkDest([string]$d) {
+    try {
+        $full = [IO.Path]::GetFullPath($d).TrimEnd('\')
+        if ($full -ne $d.TrimEnd('\')) { return $false }
+        foreach ($pf in @([Environment]::GetFolderPath("ProgramFiles"), [Environment]::GetFolderPath("ProgramFilesX86"))) {
+            if (-not $pf) { continue }
+            $pat = "^" + [regex]::Escape($pf.TrimEnd('\')) + "\\MadCap Software\\MadCap Flare[^\\]*\\Flare\.app\\Plugins\\FlareAI$"
+            if ($full -match $pat) { return $true }
+        }
+    } catch { }
+    return $false
+}
+if ($LinkTarget -and -not (Test-AllowedLinkTarget $LinkTarget)) {
+    Write-Host ""
+    Write-Host "ERROR: Refusing to link Flare to '$LinkTarget'. It is not a House Style install folder." -ForegroundColor Red
+    exit 1
 }
 
 function Wait-Exit([int]$code) {
@@ -138,6 +151,19 @@ function Set-PluginsLink([string]$dest, [string]$target) {
         Remove-RealFolder $dest
     }
     New-Junction $dest $target
+}
+
+# The text of the one command the elevated process runs: the link helpers, the two checks, then the link.
+function New-LinkCommand([string]$dest, [string]$target) {
+    $text = "`$ErrorActionPreference = 'Stop'`n"
+    foreach ($name in @("Test-Link", "Remove-Link", "New-Junction", "Remove-RealFolder", "Set-PluginsLink", "Test-AllowedLinkTarget", "Test-AllowedLinkDest")) {
+        $text += "function $name {`n" + (Get-Command $name -CommandType Function).Definition + "`n}`n"
+    }
+    $text += "`$dest = '" + ($dest -replace "'", "''") + "'`n`$target = '" + ($target -replace "'", "''") + "'`n"
+    $text += "if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Host 'Administrator rights were not granted.'; exit 1 }`n"
+    $text += "if (-not (Test-AllowedLinkTarget `$target) -or -not (Test-AllowedLinkDest `$dest)) { Write-Host 'Refusing to link Flare to that folder.'; exit 1 }`n"
+    $text += "try { Set-PluginsLink `$dest `$target; exit 0 } catch { Write-Host `$_.Exception.Message; exit 1 }`n"
+    return $text
 }
 
 function Find-Flare {
@@ -305,9 +331,11 @@ try {
             Write-Host "Flare already loads House Style from $current."
         } elseif ($underPF -and -not $isAdmin) {
             Write-Host "Administrator rights are needed once, to link Flare's Plugins folder to your install. Asking Windows for permission..."
-            $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Flare $($target.Number) -Elevated -NoPause -LinkTarget `"$current`""
+            # The elevated process runs a fixed command built here, not the Install.ps1 on disk, so a script swapped in the
+            # unzipped folder after this point is never run with administrator rights.
             $psExe = Join-Path ([Environment]::SystemDirectory) "WindowsPowerShell\v1.0\powershell.exe"
-            try { $p = Start-Process -FilePath $psExe -ArgumentList $argList -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes((New-LinkCommand $dest $current)))
+            try { $p = Start-Process -FilePath $psExe -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded" -Verb RunAs -Wait -PassThru } catch { Fail "Elevation was cancelled or failed: $($_.Exception.Message)" }
             if ($p.ExitCode -ne 0) { Fail "Linking Flare's Plugins folder failed (exit code $($p.ExitCode))." }
         } else {
             Set-PluginsLink $dest $current

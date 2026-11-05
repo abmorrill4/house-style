@@ -90,6 +90,42 @@ namespace FlareAI.Core.Tests.Update
         }
 
         [Fact]
+        public void ElevatedLinkCommand_IsSelfContained_ParsesAndRefusesOtherFolders()
+        {
+            if (PowerShell51 == null) return;
+            using (var t = new TempDir())
+            {
+                var harness = Path.Combine(t["harness"], "check.ps1");
+                Directory.CreateDirectory(Path.GetDirectoryName(harness));
+                File.WriteAllText(harness, @"
+param([string]$Script)
+$tok = $null; $err = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($Script, [ref]$tok, [ref]$err)
+foreach ($f in $ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$pf = [Environment]::GetFolderPath('ProgramFiles')
+$good = Join-Path $pf 'MadCap Software\MadCap Flare 2026\Flare.app\Plugins\FlareAI'
+'good=' + (Test-AllowedLinkDest $good)
+'other=' + (Test-AllowedLinkDest 'C:\Windows\System32')
+'traversal=' + (Test-AllowedLinkDest ($pf + '\MadCap Software\MadCap Flare 2026\Flare.app\Plugins\..\..\..\..\x\Plugins\FlareAI'))
+$cmd = New-LinkCommand $good ""C:\Users\o'neil\AppData\Local\HouseStyle\current""
+$e = $null
+[void][Management.Automation.Language.Parser]::ParseInput($cmd, [ref]$tok, [ref]$e)
+'parseErrors=' + $e.Count
+$bad = New-LinkCommand 'C:\Windows\System32' 'C:\x\HouseStyle\current'
+$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
+& (Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe') -NoProfile -NonInteractive -EncodedCommand $enc
+'childExit=' + $LASTEXITCODE
+");
+                var r = Run("-NoProfile -ExecutionPolicy Bypass -File \"" + harness + "\" -Script \"" + Script + "\"", null);
+                Assert.Contains("good=True", r.Output);
+                Assert.Contains("other=False", r.Output);
+                Assert.Contains("traversal=False", r.Output);
+                Assert.Contains("parseErrors=0", r.Output);
+                Assert.Contains("childExit=1", r.Output);
+            }
+        }
+
+        [Fact]
         public void LauncherCallsWindowsPowerShellByItsFullPath()
         {
             var cmd = File.ReadAllText(Path.Combine(WhatsNewTests.RepoRoot(), "scripts", "release", "Install.cmd"));
