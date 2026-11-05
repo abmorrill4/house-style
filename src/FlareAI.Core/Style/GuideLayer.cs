@@ -201,7 +201,7 @@ namespace FlareAI.Core.Style
         private void LoadTopic(string path)
         {
             var doc = new XmlDocument { PreserveWhitespace = true, XmlResolver = null };   // shared folder: no external entities
-            try { doc.Load(path); }
+            try { FlareAI.Core.Editing.SafeXml.Load(doc, path); }
             catch (XmlException e) { Problems.Add(new GuideIssue { Level = "error", Layer = Name, File = path, Location = "", Message = "Not well-formed XML: " + e.Message }); return; }
             catch (Exception e) when (e is UnauthorizedAccessException || e is IOException)
             {
@@ -378,7 +378,7 @@ namespace FlareAI.Core.Style
             if (Has(products))
                 try
                 {
-                    var x = new XmlDocument(); x.Load(products);
+                    var x = FlareAI.Core.Editing.SafeXml.Load(products);
                     foreach (XmlElement t in x.GetElementsByTagName("ConditionTag"))
                         if (t.GetAttribute("Name").Length > 0) ProductTags.Add(t.GetAttribute("Name"));
                 }
@@ -387,7 +387,7 @@ namespace FlareAI.Core.Style
             {
                 try
                 {
-                    var x = new XmlDocument(); x.Load(f);
+                    var x = FlareAI.Core.Editing.SafeXml.Load(f);
                     foreach (XmlElement v in x.GetElementsByTagName("Variable"))
                     {
                         var value = v.InnerText.Trim();
@@ -401,7 +401,7 @@ namespace FlareAI.Core.Style
             {
                 try
                 {
-                    var x = new XmlDocument(); x.Load(f);
+                    var x = FlareAI.Core.Editing.SafeXml.Load(f);
                     foreach (XmlElement e in x.GetElementsByTagName("GlossaryEntry"))
                     {
                         var d = e.GetElementsByTagName("Definition");

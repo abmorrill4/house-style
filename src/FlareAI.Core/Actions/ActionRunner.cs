@@ -274,7 +274,7 @@ namespace FlareAI.Core.Actions
             {
                 if (!seen.Add(path) || !System.IO.File.Exists(path)) continue;
                 XmlDocument snippet;
-                try { snippet = new XmlDocument { PreserveWhitespace = true }; snippet.Load(path); }
+                try { snippet = FlareAI.Core.Editing.SafeXml.Load(path, true); }
                 catch (Exception ex) { Diagnostics.Log("snippet " + path, ex); continue; }
                 var body = BlockSelector.FindBody(snippet);
                 if (body == null) continue;
@@ -421,8 +421,7 @@ namespace FlareAI.Core.Actions
                 done++;
                 try
                 {
-                    var xml = new XmlDocument { PreserveWhitespace = true };
-                    xml.Load(path);
+                    var xml = FlareAI.Core.Editing.SafeXml.Load(path, true);
                     var body = BlockSelector.FindBody(xml);
                     if (body == null) continue;
                     texts[path] = HandFixes.ScopeText(body);

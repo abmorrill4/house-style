@@ -477,8 +477,7 @@ namespace FlareAI.Core.Actions
         {
             if (string.IsNullOrEmpty(file) || !File.Exists(file)) throw new InvalidOperationException("House Style doesn't know which guide topic holds this rule. Open the rule in the guide and change its wording there.");
             if (string.IsNullOrEmpty(wording)) throw new ArgumentException("The new wording is empty.");
-            var doc = new XmlDocument { PreserveWhitespace = true };
-            doc.Load(file);
+            var doc = FlareAI.Core.Editing.SafeXml.Load(file, true);
             var block = GuideEdits.Locate(doc, ruleText);
             if (block == null) throw new InvalidOperationException("House Style couldn't find this rule in " + file + ". It may have changed since the request; change its wording there.");
             if (block.LocalName == "tr") throw new InvalidOperationException("This rule is a table row in " + file + ": change its cells there (Open rule in the guide).");
