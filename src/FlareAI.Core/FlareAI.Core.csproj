@@ -17,7 +17,8 @@
 
   <ItemGroup>
     <!-- 13.x still supports net40 -->
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- Flare loads its own Newtonsoft.Json 13.0.3 and wins over this copy: never move past that version (13.0.4 broke every call to JToken.ToString(Formatting)). -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>

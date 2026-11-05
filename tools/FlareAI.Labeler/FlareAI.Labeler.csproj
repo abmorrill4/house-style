@@ -14,7 +14,7 @@
     <ProjectReference Include="..\FlareAI.Scoring\FlareAI.Scoring.csproj" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <InternalsVisibleTo Include="FlareAI.Labeler.Tests" />
   </ItemGroup>
 

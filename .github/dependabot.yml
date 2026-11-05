@@ -24,6 +24,10 @@ updates:
     groups:
       nuget:
         patterns: ['*']
+    ignore:
+      # Flare loads its own Newtonsoft.Json 13.0.3, so the plugin must be built against exactly that version.
+      # 13.0.4 adds JToken.ToString(Formatting), which Flare's copy lacks ("Method not found" at runtime).
+      - dependency-name: Newtonsoft.Json
 
   - package-ecosystem: npm
     directory: /tools/feedback-worker
