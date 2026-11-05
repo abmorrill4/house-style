@@ -36,6 +36,7 @@ namespace FlareAI.Core.Llm
             { "alt", Standard },           // vision: UI labels must be exact
             { "assist", Fast },            // description, keywords, synonyms, micro content, glossary
             { "extract", Standard },       // rules from notes
+            { "answer", Standard },        // a question about the text, answered in words
             { "draft", Deep },             // owner-only edits to the shared style guide
         };
 
@@ -50,7 +51,7 @@ namespace FlareAI.Core.Llm
         {
             { "review", "1h" }, { "rewrite", "1h" }, { "restructure", "1h" },
             { "draft", "5m" }, { "extract", "5m" }, { "refine", "5m" },
-            { "alt", "none" }, { "assist", "none" },
+            { "alt", "none" }, { "assist", "none" }, { "answer", "5m" },
         };
 
         private readonly Dictionary<string, string> _cache = new Dictionary<string, string>(DefaultCache, StringComparer.OrdinalIgnoreCase);
@@ -92,6 +93,12 @@ namespace FlareAI.Core.Llm
             return _tiers[tier];
         }
 
+        /// <summary>The effort values a team file may set. Anything else is ignored, so a shared file can't send a value the API doesn't expect.</summary>
+        public static readonly string[] Efforts = { "low", "medium", "high", "xhigh", "max" };
+
+        /// <summary>A model name as the API spells it: letters, digits and . _ : - only, up to 100 characters.</summary>
+        public static bool IsModelName(string m) { return !string.IsNullOrEmpty(m) && m.Length <= 100 && System.Text.RegularExpressions.Regex.IsMatch(m, @"^[A-Za-z0-9][A-Za-z0-9._:\-]*$"); }
+
         /// <summary>Applies the team's FlareAI\models.json from the style guide, if present (team settings win).</summary>
         public Routing WithTeamFile(string guideRoot)
         {
@@ -105,12 +112,16 @@ namespace FlareAI.Core.Llm
                 {
                     Route r;
                     if (!_tiers.TryGetValue(t.Name, out r)) continue;
-                    if (t.Value["model"] != null) r.Model = (string)t.Value["model"];
-                    if (t.Value["effort"] != null) r.Effort = (string)t.Value["effort"];
+                    if (t.Value["model"] != null) { var m = (string)t.Value["model"]; if (IsModelName(m)) r.Model = m; else Diagnostics.Log("models.json: ignored model for tier " + t.Name); }
+                    if (t.Value["effort"] != null) { var e = (string)t.Value["effort"]; if (Efforts.Contains(e)) r.Effort = e; else Diagnostics.Log("models.json: ignored effort for tier " + t.Name); }
                 }
                 foreach (var t in (o["tasks"] as JObject ?? new JObject()).Properties())
                     if (_tiers.ContainsKey((string)t.Value)) _tasks[t.Name] = (string)t.Value;
-                if (o["review_unit"] != null) ReviewUnit = (string)o["review_unit"];
+                if (o["review_unit"] != null)
+                {
+                    var unit = (string)o["review_unit"];
+                    if (unit == "section" || unit == "block") ReviewUnit = unit; else Diagnostics.Log("models.json: ignored review_unit");
+                }
                 foreach (var t in (o["cache"] as JObject ?? new JObject()).Properties())
                     if (new[] { "1h", "5m", "none" }.Contains((string)t.Value)) _cache[t.Name] = (string)t.Value;
                 if (o["always_packs"] is JArray ap) AlwaysPacks = ap.Select(x => (string)x).ToList();

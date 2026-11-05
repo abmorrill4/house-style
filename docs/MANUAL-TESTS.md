@@ -5,7 +5,7 @@ external linter command. For current testing, use `docs/testing/TEST-PLAN.md`.
 
 Record result per row: ✅ / ❌ + note.
 
-| # | Scenario | Steps | Expected |
+| # | Test | Steps | Expected |
 |---|---|---|---|
 | 1 | Plugin loads | Enable in Options > Plugins, restart | **AI** tab visible with Check style / Rewrite / Ask… / Settings / Diagnostics |
 | 2 | Settings round-trip | Settings → paste key, pick model, Save; reopen | Key shows as ••••, model persisted, `%APPDATA%\FlareAI\settings.json` has no plaintext key |

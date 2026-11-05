@@ -1,7 +1,7 @@
-# Pester 3. The scenario preflight catches each mistake that cost a Flare launch in the #248 pilot, and passes every
-# scenario in the repo.
+# Pester 3. The test preflight catches each mistake that cost a Flare launch in the #248 pilot, and passes every
+# test in the repo.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$check = Join-Path $here "Test-E2EScenario.ps1"
+$check = Join-Path $here "Test-E2E.ps1"
 
 function Preflight([string]$Body) {
     $f = Join-Path $env:TEMP ("preflight-" + [guid]::NewGuid().ToString("n") + ".ps1")
@@ -9,9 +9,9 @@ function Preflight([string]$Body) {
     try { @(& $check -Path $f) } finally { Remove-Item $f }
 }
 
-Describe "Test-E2EScenario" {
-    It "passes every scenario in the repo" {
-        foreach ($s in Get-ChildItem (Join-Path $here "scenarios") -Filter *.ps1) {
+Describe "Test-E2E" {
+    It "passes every test in the repo" {
+        foreach ($s in Get-ChildItem (Join-Path $here "tests") -Filter *.ps1) {
             $out = @(& $check -Path $s.FullName)
             ($out -join "`n") | Should Be ""
         }

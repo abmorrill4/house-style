@@ -252,6 +252,7 @@ namespace FlareAI.Flare.UI
             GuideRule rule;
             if (r.RuleId != null && _rules.TryGetValue(r.RuleId, out rule)) lines.Add("Rule " + rule.Id + " (" + SourceOf(rule) + " · " + rule.Section + "): " + rule.Display);
             else if (!string.IsNullOrEmpty(r.RuleText)) lines.Add("Rule: " + r.RuleText);
+            if (r.Kind == RequestKinds.Wording && r.RuleId != null && _rules.TryGetValue(r.RuleId, out rule) && !string.IsNullOrEmpty(rule.Page)) lines.Add("Topic: " + rule.Page);
             if (r.Kind == RequestKinds.Wording) lines.Add("New wording asked for: " + r.Wording);
             if (r.Kind == RequestKinds.ProjectException)
                 lines.Add("For project " + (r.Project ?? "(unnamed)") + " only. The team rule stays enabled. When you approve it, the exception is written into that project the next time the writer lints.");
@@ -330,7 +331,7 @@ namespace FlareAI.Flare.UI
                                      "Ask whoever manages that folder to give you write access, then approve again. The request stays open.", null, "Approve request");
                         return;
                     }
-                    earlier = GuideRequests.Approve(_team, r, edits, (req, d) => GuideRequests.ApplyToGuide(_team, req, d));
+                    earlier = GuideRequests.Approve(_team, r, edits, (req, d) => GuideRequests.ApplyToGuide(_team, req, d, id => { GuideRule found; return _rules.TryGetValue(id ?? "", out found) ? found : null; }));
                 }
                 if (earlier != null)
                     Notify.Info(this, "This request was already " + earlier.Status + " by " + earlier.By + " on " + earlier.At.ToLocalTime().ToString("yyyy-MM-dd HH:mm") +

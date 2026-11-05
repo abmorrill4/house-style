@@ -48,6 +48,7 @@ namespace FlareAI.Flare
 
         public void Initialize(IHost host)
         {
+            FlareAI.Core.Style.RegexLimit.Apply();
             _host = host; // docs: do nothing else here
         }
 
@@ -76,7 +77,7 @@ namespace FlareAI.Flare
                 CreateToolStrip();
                 try { _host.GetEditorContext().DocumentSwitched += OnDocumentSwitched; } catch (Exception ex) { Diagnostics.Log("subscribe", ex); }
                 try { _host.GetCompilerContext().CompileComplete += OnCompileComplete; } catch (Exception ex) { Diagnostics.Log("subscribe compile", ex); }
-                _editor = new EditorIntegration(_host, LintRunner, () => _nav.GetParentForm(), WithSetup(OnLintTopic), WithSetup(OnRewrite), WithSetup(OnAsk), WithSetup(OnLintProject));
+                _editor = new EditorIntegration(_host, LintRunner, () => _nav.GetParentForm(), WithSetup(OnLintTopic), WithSetup(OnRewrite), WithSetup(OnAsk), WithSetup(OnLintProject), RawPreset);
                 try { _host.GetCompilerContext().CompileStart += OnCompileStart; } catch (Exception ex) { Diagnostics.Log("subscribe compile start", ex); }
                 _editor.AttachAll();
                 _activated = true;
@@ -253,8 +254,11 @@ namespace FlareAI.Flare
                     var button = group.AddRibbonButton(Button(c));
                     try { if (button != null) button.ToolTip = c.Tooltip; } catch (Exception ex) { Diagnostics.Log("ribbon tooltip " + c.Id, ex); }
                     control = button;
-                    // No split button: Lint Topic's checks become buttons of their own, so the choice stays on the ribbon.
-                    if (c == Commands.LintTopic && items != null)
+                    if (c == Commands.AiToggle) _aiButton = button as System.Windows.Controls.Button;
+                    else if (c == Commands.Ask) _askButton = button as System.Windows.Controls.Button;
+                    else if (c == Commands.Rewrite) _rewriteButton = button as System.Windows.Controls.Button;
+                    // No split button: Lint Topic's checks and Lint Folders become buttons of their own, so they stay on the ribbon.
+                    if ((c == Commands.LintTopic || c == Commands.LintProject) && items != null)
                         foreach (var m in items)
                         {
                             var b = group.AddRibbonButton(Button(m));
@@ -263,6 +267,7 @@ namespace FlareAI.Flare
                 }
                 if (c == Commands.LintTopic) _lintTopicControl = control;
             }
+            ShowAiState();
             try { ShowLintChoice(LintChecksChoice.IsRulesOnly(PluginSettings.Load().LintChecks)); }
             catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
@@ -350,8 +355,12 @@ namespace FlareAI.Flare
             if (c == Commands.LintRulesOnly) return () => OnChooseChecks(true);
             if (c == Commands.LintRulesAndAi) return () => OnChooseChecks(false);
             if (c == Commands.Rewrite) return OnRewrite;
+            if (c == Commands.Simplify) return () => OnPreset(Commands.Simplify, RewritePresets.Simplify);
+            if (c == Commands.Shorten) return () => OnPreset(Commands.Shorten, RewritePresets.Shorten);
             if (c == Commands.Ask) return OnAsk;
+            if (c == Commands.AiToggle) return OnToggleAi;
             if (c == Commands.LintProject) return OnLintProject;
+            if (c == Commands.LintFolders) return OnLintFolders;
             if (c == Commands.ShowIssues) return () => { if (!PanelHost.Reopen(_nav.GetParentForm())) OnLintTopic(); };
             if (c == Commands.TopicMetadata) return OnAssist;
             if (c == Commands.TestRules) return OnValidateGuide;
@@ -447,19 +456,140 @@ namespace FlareAI.Flare
             catch (Exception ex) { Diagnostics.Log("lint choice tooltip", ex); }
         }
 
-        private void OnRewrite() { RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null); }
+        private void OnRewrite()
+        {
+            if (!AiReady(Commands.Rewrite.Label)) return;
+            RunAction(Commands.Rewrite.Label, ActionKind.Rewrite, null);
+        }
+
+        /// <summary>True when AI is on. When it is off, asks the writer whether to turn it on and returns false.</summary>
+        private bool AiReady(string title)
+        {
+            if (!PluginSettings.Load().AiOff) return true;
+            OfferAiOn(title);
+            return false;
+        }
+
+        private void OfferAiOn(string title)
+        {
+            if (Notify.AskYesNo(Owner, AiSwitch.OffQuestion, title)) OnToggleAi();
+        }
+
+        /// <summary>
+        /// The AI toggle. Turning AI off keeps the key. Turning it on with no key or gateway set opens the AI tab, and
+        /// nothing is sent in any case.
+        /// </summary>
+        private void OnToggleAi()
+        {
+            var s = PluginSettings.Load();
+            if (!s.AiOff) { AiSwitch.TurnOff(s); s.Save(); }
+            else if (AiSwitch.TryTurnOn(s)) s.Save();
+            else
+            {
+                Notify.Info(Owner, AiSwitch.NeedKeyNote, Commands.AiToggle.Label);
+                OnSettings();
+                return;
+            }
+            AiChanged();
+        }
+
+        /// <summary>Brings the ribbon and any running review in step with the saved AI setting.</summary>
+        private void AiChanged()
+        {
+            try { ShowAiState(); } catch (Exception ex) { Diagnostics.Log("AI state", ex); }
+            try
+            {
+                var p = PanelHost.TopicPanel;
+                if (p != null) p.AiSwitched(PluginSettings.Load().AiOff);
+            }
+            catch (Exception ex) { Diagnostics.Log("AI switched", ex); }
+        }
+
+        private System.Windows.Controls.Button _aiButton, _askButton, _rewriteButton;
+
+        /// <summary>
+        /// Shows the saved AI state on the ribbon: the toggle's label and tooltips. Ask AI and Rewrite are not disabled:
+        /// DelegateCommand.CanExecute is always true, and whether real Flare honors a command's enabled state has not
+        /// been checked. They keep the "AI is off" message and get a tooltip instead.
+        /// </summary>
+        private void ShowAiState()
+        {
+            try
+            {
+                var off = PluginSettings.Load().AiOff;
+                if (_aiButton != null)
+                {
+                    SetRibbonLabel(_aiButton, AiSwitch.Label(off));
+                    _aiButton.ToolTip = AiSwitch.Tooltip;
+                }
+                var note = off ? " " + AiSwitch.OffTip : "";
+                if (_askButton != null) _askButton.ToolTip = Commands.Ask.Tooltip + note;
+                if (_rewriteButton != null) _rewriteButton.ToolTip = Commands.Rewrite.Tooltip + note;
+            }
+            catch (Exception ex) { Diagnostics.Log("show AI state", ex); }
+        }
+
+        /// <summary>Sets a ribbon button's text. Flare's ribbon types differ, so each way is tried in turn and logged.</summary>
+        private static void SetRibbonLabel(System.Windows.Controls.Button button, string text)
+        {
+            try
+            {
+                var prop = button.GetType().GetProperty("Label");
+                if (prop != null && prop.CanWrite && prop.PropertyType == typeof(string))
+                {
+                    prop.SetValue(button, text, null);
+                    Diagnostics.Log("AI label set through Label property: " + text);
+                    return;
+                }
+            }
+            catch (Exception ex) { Diagnostics.Log("AI label property", ex); }
+            try
+            {
+                var data = button.DataContext as RibbonControlData;
+                if (data != null)
+                {
+                    data.Label = text;
+                    Diagnostics.Log("AI label set through DataContext: " + text);
+                    return;
+                }
+            }
+            catch (Exception ex) { Diagnostics.Log("AI label data context", ex); }
+            try
+            {
+                if (button.Content is string)
+                {
+                    button.Content = text;
+                    Diagnostics.Log("AI label set through Content: " + text);
+                    return;
+                }
+            }
+            catch (Exception ex) { Diagnostics.Log("AI label content", ex); }
+            Diagnostics.Log("AI label: no way to set it");
+        }
+
+        /// <summary>A one-click rewrite (Simplify, Shorten): Rewrite's path with the preset's instruction.</summary>
+        private void OnPreset(CommandInfo c, RewritePreset p) { RunAction(c.Label, ActionKind.Rewrite, null, false, p); }
+
+        /// <summary>The right-click preset items: the same handler as the ribbon's, with first-run setup offered once.</summary>
+        private void RawPreset(CommandInfo c) { WithSetup(RawHandlerFor(c))(); }
 
         private void OnAsk()
         {
+            if (!AiReady(Commands.Ask.Label)) return;
             using (var f = new AskForm())
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
-                RunAction(Commands.Ask.Label, ActionKind.Ask, f.Instruction);   // title of the result window
+                RunAction(Commands.Ask.Label, f.IsQuestion ? ActionKind.Question : ActionKind.Ask, f.Instruction);   // title of the result window
             }
         }
 
         /// <summary>Lints every topic and snippet in the active topic's project (no AI cost) into the issues pane.</summary>
-        private void OnLintProject()
+        private void OnLintProject() { LintProjectFiles(Commands.LintProject, false); }
+
+        /// <summary>Lints the topics and snippets in the folders the writer picks (no AI cost), the same report as Lint Project.</summary>
+        private void OnLintFolders() { LintProjectFiles(Commands.LintFolders, true); }
+
+        private void LintProjectFiles(CommandInfo command, bool pickFolders)
         {
             try
             {
@@ -467,22 +597,41 @@ namespace FlareAI.Flare
                 var files = ActionRunner.ProjectFiles(adapter == null ? null : adapter.SourcePath);
                 if (adapter == null || files.Count == 0)
                 {
-                    Notify.Info(Owner, "Open a topic in the project first. Lint Project lints every topic and snippet in that project.", Commands.LintProject.Label);
+                    Notify.Info(Owner, pickFolders ? "Open a topic in the project first. Lint Folders lints the folders you pick in that project."
+                                                   : "Open a topic in the project first. Lint Project lints every topic and snippet in that project.", command.Label);
                     return;
                 }
-                var runner = NewRunner(adapter, true, true);
-                if (runner == null) return;
                 var root = Path.GetDirectoryName(files[0]);
                 while (root != null && Directory.GetFiles(root, "*.flprj").Length == 0) root = Path.GetDirectoryName(root);
                 var name = root == null ? "" : Path.GetFileName(root);
+                var runner = NewRunner(adapter, true, true);   // before the picker, so a missing key or guide error shows first
+                if (runner == null) return;
+                if (pickFolders)
+                {
+                    var content = Path.Combine(root ?? "", "Content");
+                    var folders = FolderScope.Folders(files, content);
+                    if (folders.Count == 0)
+                    {
+                        Notify.Info(Owner, "This project has no folders with topics or snippets in them. Use Lint Project instead.", command.Label);
+                        return;
+                    }
+                    List<string> picked;
+                    using (var f = new FolderPickerForm(folders))
+                    {
+                        if (f.ShowDialog(Owner) != DialogResult.OK || f.Picked.Count == 0) return;
+                        picked = f.Picked;
+                    }
+                    files = FolderScope.Filter(files, content, picked);
+                    name = name + " - " + FolderScope.Describe(picked);
+                }
                 var panel = FindingsPanel.ForProject(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, files, name);
                 panel.FindOpen = FindOpenAdapter;
                 PanelHost.Show(panel, _nav.GetParentForm());
             }
             catch (Exception ex)
             {
-                Diagnostics.Log("Lint project", ex);
-                Notify.Failed(Owner, "lint the project", ex, Commands.LintProject.Label);
+                Diagnostics.Log(pickFolders ? "Lint folders" : "Lint project", ex);
+                Notify.Failed(Owner, pickFolders ? "lint the folders" : "lint the project", ex, command.Label);
             }
         }
 
@@ -496,6 +645,7 @@ namespace FlareAI.Flare
                 runSetup = f.RunSetupRequested;
                 tour = f.TourRequested;
             }
+            AiChanged();
             if (runSetup) RunSetup();
             if (tour) StartTour();
         }
@@ -551,6 +701,7 @@ namespace FlareAI.Flare
             using (var f = new SetupForm()) { f.ShowDialog(Owner); completed = f.Completed; }
             Diagnostics.Enabled = PluginSettings.Load().WriteDiagnostics;
             ReapplyLogLevel();
+            AiChanged();
             RefreshTeam();
             if (!completed) return;
             var o = Onboarding.Load();
@@ -874,7 +1025,7 @@ namespace FlareAI.Flare
             }
         }
 
-        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false)
+        private void RunAction(string title, ActionKind kind, string instruction, bool rulesOnly = false, RewritePreset preset = null)
         {
             try
             {
@@ -886,6 +1037,7 @@ namespace FlareAI.Flare
                 }
                 var runner = NewRunner(adapter, true, kind == ActionKind.CheckStyle);
                 if (runner == null) return;
+                if (preset != null) instruction = runner.PresetInstruction(preset);
                 runner.LogChecks = rulesOnly ? "rules" : "rules+ai";
                 if (kind == ActionKind.CheckStyle)
                 {
@@ -895,7 +1047,9 @@ namespace FlareAI.Flare
                 }
                 using (var f = new ResultForm(title, runner, adapter, kind, instruction))
                 {
-                    if (f.ShowDialog() != DialogResult.OK) return;
+                    var result = f.ShowDialog();
+                    if (kind == ActionKind.Question) return;   // an answer changes nothing, so there is nothing to mark or note
+                    if (result != DialogResult.OK) return;
                 }
                 GettingStarted.Mark(ChecklistItem.AiRewrite);
                 GettingStarted.Note(_nav.GetParentForm(), FirstTimeNote.FirstAiRewrite);
@@ -925,6 +1079,11 @@ namespace FlareAI.Flare
             catch (LlmException lex)
             {
                 if (lintOnly) llm = new UnavailableClient(lex.Message);
+                else if (settings.AiOff)
+                {
+                    OfferAiOn(null);
+                    return null;
+                }
                 else
                 {
                     Notify.Warn(Owner, lex.Message);

@@ -25,8 +25,8 @@ namespace FlareAI.Flare.UI
         /// <param name="offerDontShow">True when the window opened by itself (the check box is shown).</param>
         public WhatsNewForm(IList<WhatsNew.Section> sections, string banner, bool offerDontShow)
         {
-            Text = Notify.Caption("What's new");
-            AccessibleName = "What's new in House Style";
+            Text = Notify.Caption("What's New");
+            AccessibleName = "What's New in House Style";
             Font = SystemFonts.MessageBoxFont;
             AutoScaleMode = AutoScaleMode.Dpi;
             StartPosition = FormStartPosition.CenterParent;
@@ -64,7 +64,8 @@ namespace FlareAI.Flare.UI
             Controls.Add(bar);
             AcceptButton = close; CancelButton = close;
             Resize += (s, e) => Rewrap();
-            Shown += (s, e) => { Rewrap(); close.Focus(); };
+            // The release notes link at the end takes focus when the window opens and scrolls it down, so go back to the top.
+            Shown += (s, e) => { Rewrap(); close.Focus(); _scroll.AutoScrollPosition = Point.Empty; };
             A11y.Apply(this);
         }
 

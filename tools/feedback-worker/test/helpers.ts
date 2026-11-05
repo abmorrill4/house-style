@@ -152,3 +152,9 @@ export function problemReport(over: Record<string, unknown> = {}): Record<string
 		...over,
 	};
 }
+
+/** Waits until at least `margin` seconds are left in the current `windowSeconds` window, so a test's requests can't straddle the rollover. */
+export async function stayInWindow(windowSeconds: number, margin = 10): Promise<void> {
+	const left = windowSeconds - (Math.floor(Date.now() / 1000) % windowSeconds);
+	if (left < margin) await new Promise((r) => setTimeout(r, (left + 1) * 1000));
+}

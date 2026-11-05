@@ -1,1 +1,2 @@
+Kind: Fixed
 - Stops the "couldn't lint the topic" error from appearing when you type in or save an empty topic.

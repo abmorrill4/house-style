@@ -5,7 +5,7 @@ namespace FlareAI.Core.Llm
     public static class LlmClientFactory
     {
         /// <summary>Shown when an AI command runs while the writer chose "No AI (style rules only)".</summary>
-        public const string AiOffMessage = "AI is off. To use it, click Settings on the House Style tab and choose your Anthropic API key or your company's AI service on the AI tab.";
+        public const string AiOffMessage = "AI is off. To turn it on, select AI Off on the House Style tab, or change it on the AI tab in Settings.";
 
         public static ILlmClient Create(PluginSettings s)
         {

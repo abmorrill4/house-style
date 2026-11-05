@@ -1,10 +1,10 @@
 # End-to-end checks in real Flare
 
-`Run-FlareE2E.ps1` starts Flare on a fresh copy of `corpus\DigitalBanking` for each scenario in `scenarios\`, drives
+`Run-FlareE2E.ps1` starts Flare on a fresh copy of `corpus\DigitalBanking` for each test in `tests\`, drives
 it, and writes `results.json` (plus Flare's state and a screenshot for each failure) under `E:\HouseStyle\e2e`.
 The exit code is the number of failures.
 
-Before each scenario starts Flare, `Test-E2EScenario.ps1` checks it in seconds:
+Before each test starts Flare, `Test-E2E.ps1` checks it in seconds:
 - it parses
 - it has no control characters
 - its verbs and ribbon labels exist
@@ -12,34 +12,34 @@ Before each scenario starts Flare, `Test-E2EScenario.ps1` checks it in seconds:
 - the buttons, menu items, tabs, box names and dialog titles it names exist in the plugin's source
 - the fixture has its paths and replace text
 
-A scenario with problems fails as a **preflight failure**, with no Flare launch. Each scenario run also adds one line
+A test with problems fails as a **preflight failure**, with no Flare launch. Each test run also adds one line
 to `E:\HouseStyle\e2e\history.log` with its time, result, branch and commit, error and results folder. So
-`Get-Content E:\HouseStyle\e2e\history.log -Tail 20` shows a run of tries and why each one failed. Writing a scenario
-follows "Writing and proving an e2e scenario" in the testing skill.
+`Get-Content E:\HouseStyle\e2e\history.log -Tail 20` shows a run of tries and why each one failed. Writing a test
+follows "Writing and proving an e2e test" in the testing skill.
 
 Each failure is a **VM failure** or a **test failure**:
 - **VM failure:** Flare itself never came up (no main window, or the licensing wizard stuck), or it hung before the
   plugin reported ready. It's retried once. A pass on the retry shows as a warning, and both tries stay in
   `results.json` (`firstTry`).
 - **Test failure:** everything else, and it's never retried. That covers Flare being up while the plugin never
-  reports ready, a scenario failing before it starts Flare, and anything after the plugin is ready, hangs included,
+  reports ready, a test failing before it starts Flare, and anything after the plugin is ready, hangs included,
   since a fix can deadlock Flare.
 
 Each `results.json` row also has `installSeconds` (empty without `-Install`), `flareStartSeconds`, `queueSeconds`
 (empty when unknown), `resolution`, `windowState`, `paneWidth` and `paneHeight`. Flare is maximized at the start of
-every run. The run-level values repeat on every row, and the Flare fields are empty when the scenario failed before
-Flare started. The pane size is empty when the scenario never opened the House Style pane.
+every run. The run-level values repeat on every row, and the Flare fields are empty when the test failed before
+Flare started. The pane size is empty when the test never opened the House Style pane.
 
 The summary line counts both kinds. The factory reports a fix whose only failures are VM failures as a VM problem,
 not as a bad fix. A pass that needed a retry is named in the factory's PR.
 
 ```powershell
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install          # build, install, run everything
-powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario lint-menu
-powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -NoAi             # skip ai-* scenarios (no key, no cost)
+powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Test lint-menu
+powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -NoAi             # skip ai-* tests (no key, no cost)
 ```
 
-The factory runs the same entry point on its VMs (`scripts/vm-e2e.ps1` in the factory repo), one scenario per call. `e2e.yml` runs the full suite only when started by hand.
+The factory runs the same entry point on its VMs (`scripts/vm-e2e.ps1` in the factory repo), one test per call. `e2e.yml` runs the full suite only when started by hand.
 
 It closes any running Flare. Don't run it while you have unsaved work in Flare.
 
@@ -58,11 +58,11 @@ It closes any running Flare. Don't run it while you have unsaved work in Flare.
   writer would, and answers with the pane's and dialogs' state. It also points the plugin's settings at the run
   folder, so a run never touches yours.
 
-## A scenario
+## A test
 
-A `scenarios\*.ps1` file takes `-Fixture` and throws on failure. Use the module's functions: `Start-FlareE2E`,
+A `tests\*.ps1` file takes `-Fixture` and throws on failure. Use the module's functions: `Start-FlareE2E`,
 `Send-E2E <verb>` (`open`, `click`, `rowMenu`, `command`, `dialogClick`, `dialogSelect`, `state`, and the verbs below),
-`Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI scenarios `ai-*` so `-NoAi` skips them and start one with `Start-FlareE2E -Ai`.
+`Invoke-Ribbon`, `Invoke-RibbonMenu`, `Wait-PaneDone`, `Get-E2ESetting`, `Test-PaneOnScreen`, `Assert-E2E`. Name AI tests `ai-*` so `-NoAi` skips them and start one with `Start-FlareE2E -Ai`.
 `e2e.yml` (by hand) runs them through the owner's Bifrost gateway with the Flare VM's own key. The factory's VM runs skip them.
 
 ### More verbs, state fields and helpers
@@ -92,6 +92,8 @@ once. The rest run on Flare's UI thread and answer when they return.
   In Flare 22 the pane sits in Flare's WPF dock (`SidebarView < WinFormsAdapter`), where the B3.AppKit float calls do
   nothing, so it returns `floating = false` there. Check `height` and skip a tall-pane check when it didn't grow.
   `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
+- **paneDrawer** (height, px) sets the height of the details drawer under the list, as if the writer dragged the divider.
+  The drawer opens small so the list keeps its rows, so pull it up before reading a long card. Send-E2E paneDrawer -Extra @{ height = 480 }`r
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
   as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
   it). Both fail "No text {arg} in one text run" or "No topic is open."
@@ -99,7 +101,7 @@ once. The rest run on Flare's UI thread and answer when they return.
 - **`save`** saves the active topic as Ctrl+S does (check-on-save treats it as the writer's save). Returns `saved`.
 - **`saveAs`** (`arg` a full path inside the run's hook folder) makes the next Save dialog in the pane write there
   instead of showing. One-shot. Fails "Save path must be inside the run folder". Pane code calls
-  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`scenarios/project-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
+  `E2EHook.TakeSavePath()` before its `SaveFileDialog`. Export Issues in a project report uses it (`tests/project-issues.ps1`). `Send-E2E saveAs (Join-Path $run.Hook "issues.csv")`
 - **`dialogTab`** (`title`, `arg`) selects a dialog's tab by its text. Fails "No tab {arg}" and lists the valid names.
   `Send-E2E dialogTab "Advanced" -Extra @{ title = "Settings" }`
 - **State.** `editor` is `{ path, selection }` for the active topic (the selection cut to 200 characters), null when no

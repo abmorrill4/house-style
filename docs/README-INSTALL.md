@@ -4,17 +4,21 @@ House Style adds a **House Style** tab to MadCap Flare Desktop. Every edit it ma
 
 ## Quick install (recommended)
 
-1. **Unzip the whole download** to a normal folder such as your Desktop (right-click > Extract All). Do not run
+1. **Check the download (optional).** In PowerShell, in the folder with the zip, run `Get-FileHash .\HouseStyle-*.zip`.
+   The result should match the line for that file in `checksums.txt` on the release page.
+2. **Unzip the whole download** to a normal folder such as your Desktop (right-click > Extract All). Do not run
    anything from inside the zip.
-2. Close Flare.
-3. Double-click **Install.cmd**. Say yes to the administrator prompt.
-4. It unblocks the files, copies the plugin to `%LOCALAPPDATA%\HouseStyle`, links your Flare to it, turns the plugin
+3. Close Flare.
+4. Double-click **Install.cmd**. Say yes to the administrator prompt.
+5. It unblocks the files, copies the plugin to `%LOCALAPPDATA%\HouseStyle`, links your Flare to it, turns the plugin
    on in Flare for you and prints what to do next. The administrator prompt is needed only this first time: updates
    install by themselves when you close Flare (House Style checks GitHub once a day; see the privacy page).
-5. Start Flare. The **House Style** tab appears and a short setup opens. It asks how you'll use House Style, how to
+6. Start Flare. The **House Style** tab appears and a short setup opens. It asks how you'll use House Style, how to
    use AI (none, your Anthropic API key, or your company's gateway key and address) and which style guide to follow.
-6. Practice your first lint on the sample project or on a topic of your own, or click **Skip**. Upgrading from an
+7. Practice your first lint on the sample project or on a topic of your own, or click **Skip**. Upgrading from an
    earlier version? Open **House Style > Settings > Run setup again** to see the new setup.
+
+House Style installs for your own Windows account. Shared computers aren't supported.
 
 If the **House Style** tab doesn't appear, choose **File > Options > Plugins**, select **House Style**, click
 **Enable**, and restart Flare.

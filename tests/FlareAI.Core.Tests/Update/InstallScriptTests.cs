@@ -63,6 +63,40 @@ namespace FlareAI.Core.Tests.Update
         }
 
         [Fact]
+        public void ElevatedStep_IgnoresTheTestEnvironment_AndRefusesAForeignLinkTarget()
+        {
+            if (PowerShell51 == null) return;
+            using (var t = new TempDir())
+            {
+                var flare = FakeFlare(t);
+                var local = t["local"];
+                var kit = t["unzipped"];
+                FakePlugin.Write(Path.Combine(kit, "FlareAI"), "0.8.0");
+                File.Copy(Script, Path.Combine(kit, "Install.ps1"));
+                // Elevated: the fake Flare from FLARE_ROOT must not be used, so nothing is installed.
+                var r = Install(kit, flare, local, "-Elevated");
+                Assert.NotEqual(0, r.Code);
+                Assert.False(Directory.Exists(Path.Combine(local, "HouseStyle", "current")), r.Output);
+                Assert.False(Directory.Exists(Path.Combine(flare, @"Flare.app\Plugins\FlareAI")), r.Output);
+
+                // A link target that is not a per-user install folder is refused before anything else happens.
+                var elsewhere = Path.Combine(t["elsewhere"], "current");
+                Directory.CreateDirectory(elsewhere);
+                File.WriteAllText(Path.Combine(elsewhere, "FlareAI.Flare.dll"), "");
+                r = Install(kit, flare, local, "-LinkTarget \"" + elsewhere + "\"");
+                Assert.NotEqual(0, r.Code);
+                Assert.Contains("Refusing to link", r.Output);
+            }
+        }
+
+        [Fact]
+        public void LauncherCallsWindowsPowerShellByItsFullPath()
+        {
+            var cmd = File.ReadAllText(Path.Combine(WhatsNewTests.RepoRoot(), "scripts", "release", "Install.cmd"));
+            Assert.Contains(@"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe", cmd);
+        }
+
+        [Fact]
         public void PerUserInstall_LinksFlare_ReinstallKeepsData_AndMigratesACopyInstall()
         {
             if (PowerShell51 == null) return;

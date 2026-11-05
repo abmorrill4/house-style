@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLIENT_A, clearDb, errorReport, FakeGitHub, freshIp, post, problemReport } from "./helpers";
+import { CLIENT_A, clearDb, errorReport, FakeGitHub, freshIp, post, problemReport, stayInWindow } from "./helpers";
 
 let gh: FakeGitHub;
 beforeEach(async () => {
@@ -79,7 +79,8 @@ describe("size limits", () => {
 });
 
 describe("rate limits", () => {
-	it("allows 5 reports a minute per client", async () => {
+	it("allows 5 reports a minute per client", { timeout: 30_000 }, async () => {
+		await stayInWindow(60);
 		for (let i = 0; i < 5; i++) expect((await post("/v1/report", problemReport())).status).toBe(200);
 		const res = await post("/v1/report", problemReport());
 		expect(res.status).toBe(429);
@@ -88,7 +89,8 @@ describe("rate limits", () => {
 		expect(gh.issues.size).toBe(5);
 	});
 
-	it("allows 20 reports an hour per IP, across clients", async () => {
+	it("allows 20 reports an hour per IP, across clients", { timeout: 30_000 }, async () => {
+		await stayInWindow(3600);
 		const ip = freshIp();
 		for (let i = 0; i < 20; i++) {
 			const client = `${CLIENT_A.slice(0, -2)}${String(i).padStart(2, "0")}`;

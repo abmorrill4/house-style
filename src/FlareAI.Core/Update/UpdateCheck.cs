@@ -104,8 +104,25 @@ namespace FlareAI.Core.Update
         public UpdateCheck(string currentVersion, string url = null)
         {
             CurrentVersion = currentVersion;
-            Url = url ?? Environment.GetEnvironmentVariable(UrlEnvVar) ?? DefaultUrl;
+            Url = url ?? EnvironmentOverride(Environment.GetEnvironmentVariable(UrlEnvVar)) ?? DefaultUrl;
             TimeoutMs = 10000;
+        }
+
+        /// <summary>
+        /// A test-server address from the environment, or null. Shipped builds take it only when it points at this computer;
+        /// anything else is ignored and the built-in address is used.
+        /// </summary>
+        public static string EnvironmentOverride(string value)
+        {
+            return IsLoopbackUrl(value) ? value : null;
+        }
+
+        /// <summary>True for an http or https address on this computer (a local test server).</summary>
+        public static bool IsLoopbackUrl(string url)
+        {
+            Uri u;
+            if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out u)) return false;
+            return (u.Scheme == Uri.UriSchemeHttps || u.Scheme == Uri.UriSchemeHttp) && u.IsLoopback;
         }
 
         public string CurrentVersion { get; private set; }
@@ -160,14 +177,14 @@ namespace FlareAI.Core.Update
                 var name = (string)a["name"] ?? "";
                 var url = (string)a["browser_download_url"];
                 if (name.Equals("checksums.txt", StringComparison.OrdinalIgnoreCase)) r.ChecksumsUrl = url;
-                else if (name.Equals(UpdateSigning.SignatureAssetName, StringComparison.OrdinalIgnoreCase)) r.SignatureUrl = IsAllowedUrl(url) ? url : null;
+                else if (name.Equals(UpdateSigning.SignatureAssetName, StringComparison.OrdinalIgnoreCase)) r.SignatureUrl = IsAllowedUpdateUrl(url) ? url : null;
                 else if (name.StartsWith("HouseStyle-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
                     r.ZipName = name; r.ZipUrl = url; r.ZipSize = (long?)a["size"] ?? 0;
                 }
             }
             if (r.ZipUrl == null || r.ChecksumsUrl == null) return null;
-            if (!IsAllowedUrl(r.ZipUrl) || !IsAllowedUrl(r.ChecksumsUrl)) return null;
+            if (!IsAllowedUpdateUrl(r.ZipUrl) || !IsAllowedUpdateUrl(r.ChecksumsUrl)) return null;
             return r;
         }
 
@@ -180,11 +197,24 @@ namespace FlareAI.Core.Update
             return u.Scheme == Uri.UriSchemeHttp && u.IsLoopback;
         }
 
+        /// <summary>
+        /// Where update files may come from: GitHub's own hosts over HTTPS (github.com, api.github.com and the
+        /// githubusercontent.com download hosts that release assets redirect to), or this computer (a local test server).
+        /// </summary>
+        public static bool IsAllowedUpdateUrl(string url)
+        {
+            Uri u;
+            if (!IsAllowedUrl(url) || !Uri.TryCreate(url, UriKind.Absolute, out u)) return false;
+            if (u.IsLoopback) return true;
+            var h = u.Host.ToLowerInvariant();
+            return h == "github.com" || h == "api.github.com" || h == "githubusercontent.com" || h.EndsWith(".githubusercontent.com");
+        }
+
         // ---- HTTP (shared with the stager) ---------------------------------------------------------------------
 
         internal static HttpWebRequest Request(string url, int timeoutMs)
         {
-            if (!IsAllowedUrl(url)) throw new WebException("Refusing a non-HTTPS update address: " + url);
+            if (!IsAllowedUpdateUrl(url)) throw new WebException("Refusing an update address that is not GitHub's: " + url);
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; } catch (Exception) { }   // TLS 1.2 on net40
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Method = "GET";
@@ -203,11 +233,21 @@ namespace FlareAI.Core.Update
             return req;
         }
 
+        /// <summary>Refuses an answer whose final address, after redirects, is not an allowed update host.</summary>
+        internal static void RequireAllowedFinalUrl(HttpWebResponse resp)
+        {
+            if (resp.ResponseUri != null && !IsAllowedUpdateUrl(resp.ResponseUri.AbsoluteUri))
+                throw new WebException("The update download was redirected away from GitHub.");
+        }
+
         internal static string Get(string url, int timeoutMs)
         {
             using (var resp = (HttpWebResponse)Request(url, timeoutMs).GetResponse())
-            using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
-                return r.ReadToEnd();
+            {
+                RequireAllowedFinalUrl(resp);
+                using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    return r.ReadToEnd();
+            }
         }
     }
 }

@@ -78,9 +78,11 @@ namespace FlareAI.Flare.UI
         private BackgroundWorker _worker;
         private bool _reviewing, _started;
         private string _lintNote;
-        private bool _aiOff;              // the writer chose no AI: no AI review, and cached AI suggestions stay hidden
+        private volatile bool _aiOff;     // the writer chose no AI: no AI review, and cached AI suggestions stay hidden
+        private volatile bool _aiSwitchedOff;   // the writer turned AI off while this review ran
         private volatile bool _aiHidden;  // a cached AI review was hidden this check
         private readonly LinkLabel _aiOffNote;
+        private readonly Label _guideLine;    // which team style guide is in use, and its rule count
         // Narrow pane (Flare docks it at ~150 logical px and ignores the width we ask for): rows wrap, buttons wrap,
         // labels grow to their text; sizing rules in PaneRows.
         private readonly LinkLabel _widthTip;
@@ -482,6 +484,9 @@ namespace FlareAI.Flare.UI
             _aiOffNote.LinkClicked += (s, e) => Safe.Run("Settings", () => { var settings = OpenSettings; if (settings != null) settings(); });
             Controls.Add(_aiOffNote);
             Controls.Add(_status);
+            _guideLine = new Label { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, ForeColor = SystemColors.GrayText, UseMnemonic = false };
+            A11y.Name(_guideLine, "Team style guide");
+            Controls.Add(_guideLine);
             _widthTip = new LinkLabel { Dock = DockStyle.Top, AutoSize = false, Height = 20, Visible = false, Text = WidthTipText + "  Got it", AccessibleRole = AccessibleRole.Link,
                                         AccessibleName = WidthTipText, AccessibleDescription = "Got it hides this tip for good.", Padding = new Padding(0, 0, 0, 4) };
             _widthTip.LinkArea = new LinkArea(WidthTipText.Length + 2, "Got it".Length);
@@ -520,6 +525,8 @@ namespace FlareAI.Flare.UI
             HandleDestroyed += (s, e) => { GuidedTour.Changed -= OnGettingStartedChanged; GettingStarted.Changed -= OnGettingStartedChanged; };
             _status.TextChanged += (s, e) => { FitLabel(_status, 2); _ignoreTip.SetToolTip(_status, _status.Text); };
             _aiOffNote.VisibleChanged += (s, e) => FitLabel(_aiOffNote, 0);
+            _guideLine.TextChanged += (s, e) => FitLabel(_guideLine, 0);
+            _guideLine.VisibleChanged += (s, e) => FitLabel(_guideLine, 0);
             _tourStrip.VisibleChanged += (s, e) => LayoutTourStrip();
             _checklist.VisibleChanged += (s, e) => FitLabel(_checklist, 0);
             _cost.TextChanged += (s, e) => FitLabel(_cost, 0);
@@ -682,6 +689,14 @@ namespace FlareAI.Flare.UI
         private const string IssuesHelp = "Issues in reading order. Each row starts with its severity. A filled circle is an error, a triangle is a warning and an open circle is a suggestion. Enter changes the issue. Delete ignores it.";
         private const string HeadingHelp = "File headings collapse with Left and Right.";
 
+        /// <summary>Shows which team style guide is in use and its rule count, from the guides the lint loaded. Never checks the folder.</summary>
+        private void ShowGuideLine()
+        {
+            var text = _runner.GuideStatus;
+            _guideLine.Text = text ?? "";
+            _guideLine.Visible = text != null;
+        }
+
         private void NameControls()
         {
             A11y.Name(this, PaneTitle, "Issues in the open topic, with a card for the selected one.");
@@ -762,7 +777,7 @@ namespace FlareAI.Flare.UI
         {
             if (Width <= 0) return;
             foreach (var b in _buttons) FitButton(b);
-            FitLabel(_status, 2); FitLabel(_notice, 0); FitLabel(_aiOffNote, 0); FitLabel(_cost, 0); LayoutTourStrip(); FitLabel(_checklist, 0);
+            FitLabel(_status, 2); FitLabel(_notice, 0); FitLabel(_aiOffNote, 0); FitLabel(_guideLine, 0); FitLabel(_cost, 0); LayoutTourStrip(); FitLabel(_checklist, 0);
             UpdateWidthTip();
             LayoutCard();
         }
@@ -1173,7 +1188,7 @@ namespace FlareAI.Flare.UI
             exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
             menu.Opening += (s, e) =>
             {
-                var p = _list.PointToClient(Cursor.Position);
+                var p = _e2eMenuPoint ?? _list.PointToClient(Cursor.Position);
                 var hit = _list.GetItemAt(p.X, p.Y);
                 if (hit != null && !hit.Selected) hit.Selected = true;
                 var f = Current();
@@ -1299,11 +1314,11 @@ namespace FlareAI.Flare.UI
             }
             var tab = Slot == PaneSlot.Topic ? "topic" : "project";
             // id: every lint makes a new panel, so the same id means the same results, not a new lint.
-            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk(), filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
+            return new { id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this), title = Title, status = _status.Text, guideLine = _guideLine.Visible ? _guideLine.Text : null, reviewing = _reviewing, rulesOnly = _rulesOnly, rows, card = E2ECard(), tab, tabs = tabCaptions, walk = E2EWalk(), filter = new { level = _levelBox.Text, source = _sourceBox.Text } };
         }
 
         /// <summary>
-        /// The walk as the scenario reads it: the rule's key (never its title or text), the place, whether the walk went past its
+        /// The walk as the test reads it: the rule's key (never its title or text), the place, whether the walk went past its
         /// last place, and whether the list has the focus. Null when no rule is walked.
         /// </summary>
         private object E2EWalk()
@@ -1361,6 +1376,8 @@ namespace FlareAI.Flare.UI
         /// <summary>For tests and the real-Flare check: the drawer's toggle button.</summary>
         internal void E2EToggleDrawer() { ToggleDrawer(); }
 
+        private Point? _e2eMenuPoint;   // where the row menu's Opening looks for the row, set by E2ERowMenu (null = the mouse)
+
         /// <summary>
         /// Right-clicks row <paramref name="index"/> (the real menu, so its Opening handler runs) and clicks the first item
         /// whose text starts with <paramref name="prefix"/>; returns the items the menu showed.
@@ -1371,9 +1388,12 @@ namespace FlareAI.Flare.UI
             _list.SelectedItems.Clear();
             item.Selected = true;
             var at = new Point(item.Bounds.Left + 8, item.Bounds.Top + item.Bounds.Height / 2);
-            Cursor.Position = _list.PointToScreen(at);   // Opening hit-tests the cursor
+            // Opening hit-tests this point, not the mouse: in an unattended VM the mouse can't be moved, so it stayed over
+            // the row picked last and re-selected it.
+            _e2eMenuPoint = at;
             var menu = _list.ContextMenuStrip;
-            menu.Show(_list, at);
+            try { menu.Show(_list, at); }
+            finally { _e2eMenuPoint = null; }
             var shown = new List<string>();
             ToolStripItem hit = null;
             foreach (ToolStripItem m in menu.Items)
@@ -1543,7 +1563,7 @@ namespace FlareAI.Flare.UI
                 _session.Filter = ReviewFilter.All;   // in memory only: ReviewViewPrefs is not saved
             }
             _session.Clear(); UpdateIgnored(); _list.Items.Clear(); _list.Groups.Clear(); _lintNote = null;
-            _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiHidden = false; _aiOffNote.Visible = false;
+            _aiOff = FlareAI.Core.Settings.PluginSettings.Load().AiOff; _aiSwitchedOff = false; _aiHidden = false; _aiOffNote.Visible = false;
             _reviewing = true; _progress.Visible = true; _progress.Style = ProgressBarStyle.Marquee; _status.Text = "Linting…";
             _result.Visible = false; _stop.Visible = false; _stop.Enabled = true; _stopped = false; _unitCount = 0; _doneUnits = 0;
             ShowCard();
@@ -1625,9 +1645,11 @@ namespace FlareAI.Flare.UI
                 {
                     Diagnostics.Log("Lint topic", e.Error); ErrorReporter.Background(this, "House Style couldn't lint the topic.", e.Error);
                     _status.Text = Summary() + "  " + (e.Error.Message == FlareAI.Core.Llm.LlmClientFactory.AiOffMessage
-                        ? "AI review is off. Turn it on in Settings."   // the writer chose No AI: not a failure
+                        ? "AI review is off. To turn it on, select " + FlareAI.Core.Settings.AiSwitch.OffLabel + " on the House Style tab."   // the writer chose No AI: not a failure
                         : "AI review failed. " + e.Error.Message);
                 }
+                else if (_aiSwitchedOff)
+                    _status.Text = Summary() + "  You switched AI off after " + _doneUnits + " of " + _unitCount + " paragraphs. The issues so far are kept.";
                 else if (_rulesOnly)
                     _status.Text = Open().Count == 0 ? Summary() : Summary() + "  " + LintChecksChoice.StatusEnding;
                 else if (_aiOff)
@@ -1640,6 +1662,7 @@ namespace FlareAI.Flare.UI
                 _aiOffNote.Visible = _aiOff && _aiHidden && !_rulesOnly;
                 var guide = _runner.GuideNotice;
                 if (guide != null) _status.Text += "  " + guide;
+                ShowGuideLine();
                 ShowRequestNote();
                 var team = Team.Current;
                 if (team != null && team.Status != null && team.Status.Behind > 0) _status.Text += "  " + team.Status;
@@ -1691,6 +1714,7 @@ namespace FlareAI.Flare.UI
                     _status.Text = _session.RememberedRule != null ? _session.Status + "  " + lint : lint;   // the rule walked last is named, not started
                     var guide = _runner.GuideNotice;
                     if (guide != null) _status.Text += "  " + guide;
+                    ShowGuideLine();
                     ShowRequestNote();
                     if (RuleRows && _list.Items.Count > 0)
                     {
@@ -2156,6 +2180,17 @@ namespace FlareAI.Flare.UI
         }
 
         /// <summary>A moment after typing stops: undone changes come back, issues the writer fixed by hand show as fixed, then Live check's lint (or null).</summary>
+        /// <summary>
+        /// The writer turned AI off. A review that is running makes no more AI calls from the next paragraph on and keeps the
+        /// issues it already has. Does nothing when no review is running, or the review doesn't use AI.
+        /// </summary>
+        internal void AiSwitched(bool off)
+        {
+            if (!off || !_reviewing || !_aiOnStart || _rulesOnly || _aiOff) return;
+            _aiOff = true;
+            _aiSwitchedOff = true;
+        }
+
         public void AfterEdit(List<StyleFinding> lint) { if (_reviewing) return; _session.AfterEdit(lint); }
         /// <summary>A file in this report was saved: issues the writer fixed in it show as fixed.</summary>
         public void RecheckSaved(string path, System.Xml.XmlDocument dom) { if (_reviewing) return; _session.RecheckSaved(path, dom); }
@@ -2253,7 +2288,7 @@ namespace FlareAI.Flare.UI
             return rows;
         }
 
-        /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A scenario's saveAs path skips the dialog.</summary>
+        /// <summary>Export Issues…: every non-AI issue in this report to a CSV file (#238). A test's saveAs path skips the dialog.</summary>
         private void ExportIssues()
         {
             var rows = RowsFrom(new List<StyleFinding>(_session.Findings));   // a snapshot before any dialog

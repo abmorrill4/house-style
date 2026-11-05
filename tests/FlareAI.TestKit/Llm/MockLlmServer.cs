@@ -86,7 +86,7 @@ namespace FlareAI.TestKit.Llm
             for (var attempt = 0; ; attempt++)
             {
                 Port = FreePort();
-                BaseUrl = "http://localhost:" + Port;
+                BaseUrl = "http://127.0.0.1:" + Port;
                 _listener = new HttpListener();   // a failed Start() disposes the listener: use a fresh one per attempt
                 _listener.Prefixes.Add(BaseUrl + "/");
                 try { _listener.Start(); break; }

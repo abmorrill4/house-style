@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml;
+using FlareAI.Core.Settings;
 
 namespace FlareAI.Core.Style
 {
@@ -48,7 +49,7 @@ namespace FlareAI.Core.Style
         /// The guide projects that exist now, in order. A guide that can't be read is left out, named in
         /// <paramref name="unreadable"/> with the reason, and the <see cref="Fallback"/> guides stand in for it.
         /// </summary>
-        private List<string> Guides(List<string> unreadable, List<string> copied = null, List<string> read = null, Dictionary<string, string> originals = null)
+        private List<string> Guides(List<string> unreadable, List<string> copied = null, List<string> read = null, Dictionary<string, string> originals = null, List<GuideInUseInfo> states = null)
         {
             var list = new List<string>();
             foreach (var g in (_roots() ?? new string[0]).Where(g => !string.IsNullOrEmpty(g)))
@@ -58,8 +59,9 @@ namespace FlareAI.Core.Style
                     // A configured folder that isn't there (offline sync, VPN down, drive unplugged, folder renamed): its last
                     // copy stands in, in the same place (#246). With no copy and a fallback (the plugin sets one) it is
                     // unreachable, not silently dropped. Without either (MCP, tools) it's skipped.
-                    if (UseCopy(g, list, copied, originals)) continue;
+                    if (UseCopy(g, list, copied, originals, states)) continue;
                     if (Fallback == null) continue;
+                    if (states != null && IsTeamGuide(g)) states.Add(new GuideInUseInfo { Name = GuideInUse.NameOf(g), Folder = g, State = GuideState.Missing });
                     unreadable.Add("Can't reach " + g + ".");
                     lock (_gate) if (_logged.Add(g + "|missing")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with the fallback guide");
                     continue;
@@ -68,7 +70,8 @@ namespace FlareAI.Core.Style
                 var why = WhyUnreadable(g, out permission);
                 if (why == null) { list.Add(g); if (read != null && IsTeamGuide(g)) read.Add(g); continue; }
                 // A share that dropped mid-check can use its copy; a writer whose access was removed never does.
-                if (!permission && UseCopy(g, list, copied, originals)) continue;
+                if (!permission && UseCopy(g, list, copied, originals, states)) continue;
+                if (states != null && IsTeamGuide(g)) states.Add(new GuideInUseInfo { Name = GuideInUse.NameOf(g), Folder = g, State = GuideState.Unreadable, Reason = why });
                 unreadable.Add("Can't read " + g + ": " + why + ".");
                 lock (_gate) if (_logged.Add(g + "|" + why)) Diagnostics.Log("Style guide " + g + " can't be read (" + why + "); checking with the fallback guide");
             }
@@ -121,7 +124,7 @@ namespace FlareAI.Core.Style
         }
 
         /// <summary>Puts the team guide's saved copy in its place, and names the folder and date for the notice. False when there is none.</summary>
-        private bool UseCopy(string g, List<string> list, List<string> copied, Dictionary<string, string> originals)
+        private bool UseCopy(string g, List<string> list, List<string> copied, Dictionary<string, string> originals, List<GuideInUseInfo> states = null)
         {
             if (CopyOf == null || !IsTeamGuide(g)) return false;
             GuideCopyInfo copy;
@@ -131,6 +134,7 @@ namespace FlareAI.Core.Style
             list.Add(copy.Path);
             if (originals != null) originals[copy.Path] = g;
             if (copied != null) copied.Add(string.Format(CopyNotice, g, CopyDate(copy.CopiedUtc, DateTime.Now)));
+            if (states != null) states.Add(new GuideInUseInfo { Name = GuideInUse.NameOf(g), Folder = g, State = GuideState.Offline, CopiedUtc = copy.CopiedUtc });
             lock (_gate) if (_logged.Add(g + "|copy-used")) Diagnostics.Log("Style guide folder " + Path.GetFileName(g.TrimEnd('\\', '/')) + " can't be reached; checking with its saved copy");
             return true;
         }
@@ -203,7 +207,8 @@ namespace FlareAI.Core.Style
             var copied = new List<string>();
             var read = new List<string>();
             var originals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var guides = Guides(unreadable, copied, read, originals);
+            var states = new List<GuideInUseInfo>();
+            var guides = Guides(unreadable, copied, read, originals, states);
             var root = FlareProjectRoot(project);
             if (root != null && guides.Any(g => SamePath(g, root))) root = null;   // the guide is already a layer
             // One part per guide that couldn't be read: the guides that used their copy first, then the ones that fell back.
@@ -223,7 +228,20 @@ namespace FlareAI.Core.Style
             if (defaults != null) layers.Add(GuideLayer.LoadOverrides(defaults, DefaultsLayer));
             for (var i = 0; i < guides.Count; i++) layers.Add(LoadTeam(guides[i], NameOfCopy(guides[i], originals), Shadowed(guides[i], guides.Skip(i + 1))));
             if (root != null) layers.Add(GuideLayer.Load(root, "project"));
-            var comp = new Composition(layers, notice != null ? (Func<string, bool>)null : k => { lock (_gate) return _logged.Add(k); }) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers) };
+            // The count comes from the layers just loaded: no extra read, and no folder check on the lint path.
+            foreach (var g in read)
+            {
+                var layer = layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && x.Name != "google" && SamePath(x.Path, g));
+                if (layer == null) continue;
+                states.Add(new GuideInUseInfo { Name = GuideInUse.NameOf(g), Folder = g, Rules = layer.Items.Count, State = IsEmpty(g, layers) ? GuideState.Empty : GuideState.InUse });
+            }
+            foreach (var s in states.Where(x => x.State == GuideState.Offline))
+            {
+                var copyPath = originals.Where(kv => SamePath(kv.Value, s.Folder)).Select(kv => kv.Key).FirstOrDefault();
+                var layer = copyPath == null ? null : layers.FirstOrDefault(x => !x.OverridesOnly && x.Path != null && SamePath(x.Path, copyPath));
+                if (layer != null) s.Rules = layer.Items.Count;
+            }
+            var comp = new Composition(layers, notice != null ? (Func<string, bool>)null : k => { lock (_gate) return _logged.Add(k); }) { ProjectRoot = root, Notice = notice ?? EmptyGuideNotice(guides, layers), TeamGuides = states };
             lock (_gate) _cache[key] = new KeyValuePair<string, Composition>(stamp, comp);
             var onRead = GuideRead;
             if (onRead != null)
@@ -545,6 +563,9 @@ namespace FlareAI.Core.Style
         /// <summary>Every id and rule name here, ignoring case: guide items' ids, rules' ids, checker names and bare names. See <see cref="OverrideIds.IsKnown"/>.</summary>
         internal HashSet<string> KnownNames { get; private set; }
         private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<LintRule> _slow = new List<LintRule>();
+        private void NoteSlow(LintRule r) { lock (_slow) if (!_slow.Contains(r)) _slow.Add(r); }
+        private bool IsSlow(LintRule r) { lock (_slow) return _slow.Contains(r); }
 
         private const int MaxIgnoredLines = 20;
 
@@ -642,6 +663,9 @@ namespace FlareAI.Core.Style
         /// <summary>Why this composition isn't the configured guide (a team guide couldn't be read), or null. See <see cref="StyleEngine.Notice"/>.</summary>
         public string Notice { get; internal set; }
 
+        /// <summary>The team style guides and whether each is in use, with the rule count from the layers this lint loaded.</summary>
+        public IList<GuideInUseInfo> TeamGuides { get; internal set; }
+
         /// <summary>Rule id to "written in the bundled starter topics", built once by <see cref="StyleEngine.SourceName"/>.</summary>
         internal Dictionary<string, bool> StarterIds { get; set; }
 
@@ -702,6 +726,7 @@ namespace FlareAI.Core.Style
             var order = new Dictionary<LintHit, int>();
             var active = Rules.Select((r, n) => new { r, n }).Where(x => ForOurProducts(x.r.Products))
                               .Select(x => new { x.r, o = Override(x.r), scope = LintScope.For(x.r), x.n }).Where(x => x.o != "off").ToList();
+            var skipped = new HashSet<LintRule>();
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i] ?? LintLine.Plain("");
@@ -710,9 +735,14 @@ namespace FlareAI.Core.Style
                 var breaks = raw.IndexOfAny(LineBreaks) >= 0;
                 foreach (var x in active)
                 {
+                    if (skipped.Contains(x.r)) continue;
                     var r = x.r;
                     foreach (var swap in r.Swaps)
-                        foreach (Match m in swap.Key.Matches(text))
+                    {
+                        List<Match> found;
+                        try { found = swap.Key.Matches(text).Cast<Match>().ToList(); }
+                        catch (TimeoutException) { skipped.Add(r); NoteSlow(r); break; }
+                        foreach (var m in found)
                         {
                             if (m.Length == 0) continue;
                             // Spacing made of a line break in the source (a wrapped text node) is formatting, not typed spaces.
@@ -724,6 +754,7 @@ namespace FlareAI.Core.Style
                             hits.Add(hit);
                             order[hit] = x.n;
                         }
+                    }
                 }
             }
             if (all) return hits;
@@ -851,7 +882,7 @@ namespace FlareAI.Core.Style
                     var r = withEx[i];
                     var mine = hits.Where(h => h.Index == i && h.RuleId == r.Id).ToList();
                     // A row for products this guide doesn't cover never lints here, so its Example can't be checked against it.
-                    if (mine.Count == 0) { if (ForOurProducts(r.Products)) issue("error", r, "The Example doesn't trigger this rule: '" + r.Example + "'."); continue; }
+                    if (mine.Count == 0) { if (ForOurProducts(r.Products) && !IsSlow(r)) issue("error", r, "The Example doesn't trigger this rule: '" + r.Example + "'."); continue; }
                     if (mine.All(h => h.Replacement != null))
                     {
                         var t = r.Example;
@@ -894,6 +925,7 @@ namespace FlareAI.Core.Style
                         issue(same ? "error" : "warning", uses[i], "The 'Use' wording '" + uses[i].Use + "' is itself flagged by " + (same ? "this same rule" : h.RuleId ?? h.Rule) + ": " + h.Message);
                     }
             }
+            foreach (var r in rows.Where(IsSlow)) issue("warning", r, "This pattern took more than " + RegexLimit.Timeout.TotalSeconds + " seconds to match, so House Style skipped the rule.");
             // Contradictions: one row's Use is another row's Avoid, and the other way round.
             for (var i = 0; i < rows.Count; i++)
                 for (var j = i + 1; j < rows.Count; j++)

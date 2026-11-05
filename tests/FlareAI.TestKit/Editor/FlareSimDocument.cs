@@ -14,7 +14,7 @@ namespace FlareAI.TestKit.Editor
     /// <summary>
     /// A Flare-faithful fake of the editor behind <see cref="IDocumentAdapter"/>: what <c>FlareDocumentAdapter</c> over
     /// Flare 22 does, including the traps, as verified live and written down in docs/flare-api-notes.md
-    /// ("Verified write behavior", "Variables and redo"). Scenario tests drive real Core flows through it.
+    /// ("Verified write behavior", "Variables and redo"). Test tests drive real Core flows through it.
     /// <list type="bullet">
     /// <item><see cref="Edit"/> is one undo step (StartOperation/EndOperation); <see cref="ReplaceSpan"/> outside it throws.</item>
     /// <item><see cref="ReplaceSpan"/> writes real <c>MadCap:change</c> markup: one Remove/Add id pair per operation; the ids

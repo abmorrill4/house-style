@@ -274,6 +274,26 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        /// <summary>Report 385: the window opened scrolled partway down because the release notes link took focus. It is titled like the menu item.</summary>
+        [Fact]
+        public void WhatsNew_OpensAtTheTop_AndIsTitledLikeItsMenuItem()
+        {
+            Sta(() =>
+            {
+                var md = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "whats-new.md"));
+                var sections = FlareAI.Core.Update.WhatsNew.Parse(md).UpTo(null);
+                using (var f = Offscreen(new WhatsNewForm(sections, null, false)))
+                {
+                    f.Show();
+                    Pump(null, 250);
+                    var view = All(f).OfType<ScrollableControl>().First(p => p.AutoScroll);
+                    Assert.True(view.VerticalScroll.Visible, "the notes should be long enough to scroll for this test to mean anything");
+                    Assert.Equal(0, view.VerticalScroll.Value);
+                    Assert.Contains(FlareAI.Flare.Commands.WhatsNew.Label, f.Text);
+                }
+            });
+        }
+
         // ---- helpers ---------------------------------------------------------------------------------------------
 
         private static T Offscreen<T>(T f) where T : Form

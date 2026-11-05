@@ -1,0 +1,16 @@
+# Known exceptions for zizmor (run by security.yml). Anything else it reports at medium or higher fails that workflow.
+rules:
+  self-hosted-runner:
+    ignore:
+      # e2e.yml drives real Flare on the owner's own Flare VM. It runs only by hand (workflow_dispatch).
+      - e2e.yml
+  secrets-outside-env:
+    ignore:
+      # The e2e gateway key belongs to the owner's Flare VM runner and only that workflow reads it. Moving it into an
+      # environment is an owner decision (see issue 192).
+      - e2e.yml
+  cache-poisoning:
+    ignore:
+      # setup-node 4.x turns caching on only with the cache input, which the feedback-worker job no longer sets.
+      # The audit flags the action anyway because build.yml also runs on release tags.
+      - build.yml

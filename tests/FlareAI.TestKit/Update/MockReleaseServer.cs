@@ -28,7 +28,7 @@ namespace FlareAI.TestKit.Update
             for (var attempt = 0; ; attempt++)
             {
                 Port = FreePort();
-                BaseUrl = "http://localhost:" + Port;
+                BaseUrl = "http://127.0.0.1:" + Port;
                 // A fresh listener per attempt: a failed Start() disposes the listener, so retrying on the same one throws ObjectDisposedException.
                 _listener = new HttpListener();
                 _listener.Prefixes.Add(BaseUrl + "/");

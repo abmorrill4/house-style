@@ -36,7 +36,7 @@ namespace FlareAI.TestKit.Feedback
             for (var attempt = 0; ; attempt++)
             {
                 Port = FreePort();
-                BaseUrl = "http://localhost:" + Port;
+                BaseUrl = "http://127.0.0.1:" + Port;
                 _listener = new HttpListener();
                 _listener.Prefixes.Add(BaseUrl + "/");
                 try { _listener.Start(); break; }
@@ -62,7 +62,7 @@ namespace FlareAI.TestKit.Feedback
         /// <summary>A port nothing listens on: for "the service can't be reached".</summary>
         public static string DeadUrl()
         {
-            return "http://localhost:" + FreePort();
+            return "http://127.0.0.1:" + FreePort();
         }
 
         public void Dispose()

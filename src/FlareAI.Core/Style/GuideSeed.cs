@@ -251,7 +251,7 @@ namespace FlareAI.Core.Style
         private static XmlDocument LoadXml(string path)
         {
             var doc = new XmlDocument { PreserveWhitespace = true, XmlResolver = null };
-            doc.Load(path);
+            FlareAI.Core.Editing.SafeXml.Load(doc, path);
             return doc;
         }
 

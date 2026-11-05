@@ -47,6 +47,42 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void SharedFeedback_HasTheFileNameOnly_PersonalLogKeepsThePath()
+        {
+            Team.Current = Team.Load(_guide, _shared, "pat@example.com");
+            var f = Finding();
+            f.DocumentPath = @"C:\Users\jdoe-sentinel\Documents\Acme Bank\Content\a.htm";
+            FeedbackLog.Record(f, null, "rejected", "fine here");
+            Assert.DoesNotContain("jdoe-sentinel", SharedText());
+            Assert.DoesNotContain("Acme", SharedText());
+            Assert.Contains("\"file\":\"a.htm\"", SharedText());
+            Assert.Contains("jdoe-sentinel", File.ReadAllText(FeedbackLog.PersonalPath));
+        }
+
+        [Fact]
+        public void SharedRequest_HasNoLocalProjectPath_ButThisMachineKeepsIt()
+        {
+            var oldRoot = Paths.Root;
+            Paths.Root = Path.Combine(_dir, "appdata");
+            try
+            {
+                Team.Current = Team.Load(_guide, _shared, "pat@example.com");
+                var r = GuideRequests.New(Team.Current, RequestKinds.ProjectException, "Not for this project");
+                r.RuleId = "company:terminology/1"; r.Setting = "off";
+                r.ProjectPath = @"C:\Users\jdoe-sentinel\Documents\Acme Bank\Project.flprj";
+                string problem;
+                GuideRequests.Send(Team.Current, r, out problem);
+                var shared = string.Concat(Directory.GetFiles(_shared, "*.json", SearchOption.AllDirectories).Select(File.ReadAllText))
+                           + string.Concat(Directory.GetFiles(Paths.Root, "*.json", SearchOption.AllDirectories).Where(p => p.Contains("outbox")).Select(File.ReadAllText));
+                Assert.Contains("company:terminology/1", shared);
+                Assert.DoesNotContain("jdoe-sentinel", shared);
+                Assert.Contains("jdoe-sentinel", File.ReadAllText(Path.Combine(Paths.Root, "requests.json")));
+                Assert.Equal(@"C:\Users\jdoe-sentinel\Documents\Acme Bank\Project.flprj", r.ProjectPath);
+            }
+            finally { Paths.Root = oldRoot; }
+        }
+
+        [Fact]
         public void NamesModeWritesTheEmail()
         {
             File.WriteAllText(Path.Combine(_guide, "FlareAI", "attribution.txt"), "# who is named\nattribution = names  # owner opted in\n");

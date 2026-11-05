@@ -274,7 +274,7 @@ namespace FlareAI.Core.Actions
             {
                 if (!seen.Add(path) || !System.IO.File.Exists(path)) continue;
                 XmlDocument snippet;
-                try { snippet = new XmlDocument { PreserveWhitespace = true }; snippet.Load(path); }
+                try { snippet = FlareAI.Core.Editing.SafeXml.Load(path, true); }
                 catch (Exception ex) { Diagnostics.Log("snippet " + path, ex); continue; }
                 var body = BlockSelector.FindBody(snippet);
                 if (body == null) continue;
@@ -348,6 +348,21 @@ namespace FlareAI.Core.Actions
             }
         }
 
+        /// <summary>
+        /// One line saying which team style guide is in use and its rule count, or why it isn't. Null when the writer has no
+        /// team guide. Read from the guides the lint loaded: it never checks the folder.
+        /// </summary>
+        public string GuideStatus
+        {
+            get
+            {
+                var engine = _style as StyleEngine;
+                if (engine == null) return null;
+                try { return FlareAI.Core.Settings.GuideInUse.Lines(engine.Compose(_project).TeamGuides); }
+                catch (Exception ex) { Diagnostics.Log("guide status", ex); return null; }
+            }
+        }
+
         private Composition _comp;
 
         /// <summary>
@@ -406,8 +421,7 @@ namespace FlareAI.Core.Actions
                 done++;
                 try
                 {
-                    var xml = new XmlDocument { PreserveWhitespace = true };
-                    xml.Load(path);
+                    var xml = FlareAI.Core.Editing.SafeXml.Load(path, true);
                     var body = BlockSelector.FindBody(xml);
                     if (body == null) continue;
                     texts[path] = HandFixes.ScopeText(body);
@@ -1115,6 +1129,9 @@ namespace FlareAI.Core.Actions
 
         // ---- rewrite / ask ---------------------------------------------------------------------
 
+        /// <summary>The instruction a one-click rewrite sends. Pass it to Rewrite, so it is validated, linted and applied like any rewrite.</summary>
+        public string PresetInstruction(RewritePreset p) { return _prompts.BuildPreset(p); }
+
         public RewriteProposal Rewrite(IDocumentAdapter doc, string instruction)
         {
             return Rewrite(doc, PickBlocks(doc), instruction);
@@ -1153,6 +1170,18 @@ namespace FlareAI.Core.Actions
             }
             proposal.RemainingLint = left;
             return WithHeld(proposal);
+        }
+
+        /// <summary>
+        /// Answers a question about the blocks in words. One call; nothing is written to the document and nothing is
+        /// proposed, so an answer can never reach <see cref="Apply"/>.
+        /// </summary>
+        public string Answer(IDocumentAdapter doc, IList<XmlNode> blocks, string question)
+        {
+            var fragment = XhtmlFragment.Serialize(TrackedChanges.WithoutDeletions(blocks));
+            var scope = WordingScope(blocks);
+            var json = Ask("answer", _prompts.BuildQuestion(fragment, question), Contracts.Answer(), null, scope).Json;
+            return Contracts.ReadAnswer(json, _style == null ? null : _style.RuleIdsFor(_project, scope));
         }
 
         /// <summary>The proposal's notes plus why any change was held back for the author.</summary>

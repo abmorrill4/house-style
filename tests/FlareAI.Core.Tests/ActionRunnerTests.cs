@@ -41,6 +41,46 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Preset_SendsItsInstructionAndAppliesInOneUndoStep()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => "<revised><p MadCap:conditions=\"Default.Print\">Print only.</p></revised>");
+            var runner = Runner(llm);
+            var proposal = runner.Rewrite(doc, runner.PresetInstruction(RewritePresets.Shorten));
+
+            Assert.Contains("fewer words", llm.Requests[0].User);
+            Assert.True(proposal.Validation.IsValid, proposal.Validation.ToString());
+            runner.Apply(doc, proposal, "AI rewrite");
+            Assert.Single(doc.TextOperations);       // one undo step
+            Assert.Empty(doc.Replacements);
+        }
+
+        [Fact]
+        public void Preset_CountsAsOneCall()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(FakeLlmClient.EchoRevised);
+            var runner = Runner(llm);
+            runner.Rewrite(doc, runner.PresetInstruction(RewritePresets.Simplify));
+            Assert.Single(llm.Requests);
+        }
+
+        [Fact]
+        public void Preset_Failure_LeavesTopicUnchanged()
+        {
+            var doc = new FakeDocumentAdapter("sample-topic.htm");
+            doc.SelectXPath("//body/p[2]/text()");
+            var llm = new FakeLlmClient(r => "Sure! Here is a better version of your paragraph.");
+            var runner = Runner(llm);
+            var ex = Assert.Throws<LlmException>(() => runner.Rewrite(doc, runner.PresetInstruction(RewritePresets.Shorten)));
+            Assert.Equal(LlmFailure.Contract, ex.Failure);
+            Assert.Empty(doc.TextOperations);
+            Assert.Empty(doc.Replacements);
+        }
+
+        [Fact]
         public void Rewrite_ModelReturnsProse_FailsValidationInsteadOfThrowing()
         {
             var doc = new FakeDocumentAdapter("sample-topic.htm");

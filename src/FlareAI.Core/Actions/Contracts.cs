@@ -255,6 +255,32 @@ namespace FlareAI.Core.Actions
                        P("alt", Str("One sentence of at most " + AltMaxLength + " characters (count them); empty when decorative.")));
         }
 
+        /// <summary>The answer to a question about the text. Its own schema, so its own cache entry (see Routing.DefaultCache).</summary>
+        public static JObject Answer()
+        {
+            return Obj(P("kind", Enum(new[] { "answer", "change_request" }, "\"change_request\" when the author is asking for an edit, not asking a question.")),
+                       P("answer", Str("The answer in plain text, no markup. Empty for a change request.")),
+                       P("rule_ids", Arr(Str("The id of a style-guide rule the answer depends on, from the [brackets] in the guide."))));
+        }
+
+        public const string ChangeRequestReply = "This is a request for a change. Choose Make a change to apply it.";
+
+        /// <summary>The answer as the author reads it: the text, plus the rules it names (only ids that were sent for this text).</summary>
+        public static string ReadAnswer(JObject json, ICollection<string> knownRuleIds)
+        {
+            var kind = json == null ? null : (string)json["kind"];
+            var answer = json == null ? "" : ((string)json["answer"] ?? "").Trim();
+            if (kind == "change_request" || answer.Length == 0) return ChangeRequestReply;
+            var ids = new List<string>();
+            if (knownRuleIds != null && json["rule_ids"] is JArray)
+                foreach (var t in (JArray)json["rule_ids"])
+                {
+                    var id = (string)t;
+                    if (id != null && knownRuleIds.Contains(id) && !ids.Contains(id)) ids.Add(id);
+                }
+            return ids.Count == 0 ? answer : answer + "\n\nRule: " + string.Join(", ", ids.ToArray());
+        }
+
         /// <summary>Alt text cut to <see cref="AltMaxLength"/> at a word boundary, without a dangling comma or "and".</summary>
         public static string FitAlt(string alt)
         {

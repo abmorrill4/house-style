@@ -23,15 +23,31 @@ namespace FlareAI.Core.Actions
         {
             if (f == null) return null;
             var team = Team.Current;
-            var line = JsonConvert.SerializeObject(new
-            {
-                at = DateTime.UtcNow.ToString("o"), writer = team == null ? Team.AnonymousId() : team.FeedbackWriter, decision, reason,
-                kind = f.Kind, source = f.Source, layer = f.Layer, rule = f.Rule, rule_id = f.RuleId, rule_hash = WordingHash(f.RuleText),
-                excerpt = f.Excerpt, replacement = f.Replacement, file = f.DocumentPath ?? topicPath
-            }, Formatting.None);
+            var at = DateTime.UtcNow.ToString("o");
+            var writer = team == null ? Team.AnonymousId() : team.FeedbackWriter;
+            var path = f.DocumentPath ?? topicPath;
+            // The personal log keeps the full path. The shared copy keeps the file name only: a full path usually holds the writer's Windows account.
+            var line = Line(at, writer, decision, reason, f, path);
             var personal = Append(PersonalPath, line);
-            var shared = team == null ? null : Append(team.SharedFeedbackFile, line);
+            var shared = team == null ? null : Append(team.SharedFeedbackFile, Line(at, writer, decision, reason, f, FileNameOnly(path)));
             return shared ?? personal;
+        }
+
+        private static string Line(string at, string writer, string decision, string reason, StyleFinding f, string file)
+        {
+            return JsonConvert.SerializeObject(new
+            {
+                at, writer, decision, reason,
+                kind = f.Kind, source = f.Source, layer = f.Layer, rule = f.Rule, rule_id = f.RuleId, rule_hash = WordingHash(f.RuleText),
+                excerpt = f.Excerpt, replacement = f.Replacement, file
+            }, Formatting.None);
+        }
+
+        /// <summary>The last part of a path (either kind of separator); null stays null.</summary>
+        internal static string FileNameOnly(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            return path.Substring(path.LastIndexOfAny(new[] { '\\', '/' }) + 1);
         }
 
         /// <summary>A short fingerprint of a rule's wording: decisions about an earlier wording can be told apart.</summary>

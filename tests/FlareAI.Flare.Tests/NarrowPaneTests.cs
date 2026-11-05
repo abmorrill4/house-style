@@ -373,7 +373,7 @@ namespace FlareAI.Flare.Tests
                 Assert.True(list.Focused);
                 Assert.Single(list.SelectedItems.Cast<ListViewItem>());
                 Assert.True(list.Items[0].Selected);
-                // A disabled window (a modal dialog over Flare) can't take the focus: the scenario sees false.
+                // A disabled window (a modal dialog over Flare) can't take the focus: the test sees false.
                 other.Focus();
                 form.Enabled = false;
                 Assert.False(panel.E2EFocusList());
@@ -1081,6 +1081,32 @@ namespace FlareAI.Flare.Tests
                 Assert.True(list.Items.Count >= 1, "the rule issue should still be listed");
                 Assert.EndsWith(LintChecksChoice.StatusEnding, Status(panel));
                 Assert.False(All(panel).OfType<LinkLabel>().Any(l => l.Text.StartsWith(ReviewCache.AiOffNote) && l.Visible));
+            });
+        }
+
+        [Fact]
+        public void AiOff_LintMakesNoAiCall_AndKeepsTheRuleIssues()
+        {
+            new FlareAI.Core.Settings.PluginSettings { AiOff = true }.Save();
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                Assert.Equal(0, client.Calls);
+                Assert.True(list.Items.Count >= 1, "the rule issue should still be listed");
+                Assert.Contains("rules only", Status(panel));
+            });
+        }
+
+        [Fact]
+        public void AiSwitched_IsANoOp_WhenNoReviewIsRunning()
+        {
+            var client = RewordClient();
+            WithChecks(false, true, null, client, (panel, form, list) =>
+            {
+                var before = RowTexts(list);
+                panel.AiSwitched(true);
+                Pump(null, 200);
+                Assert.Equal(before, RowTexts(list));
             });
         }
 

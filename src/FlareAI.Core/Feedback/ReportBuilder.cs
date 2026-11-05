@@ -337,13 +337,19 @@ namespace FlareAI.Core.Feedback
 
         private static readonly Regex Email = new Regex(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex WriterValue = new Regex(@"(?i)\b(writer\s*[=:]\s*)[^\s,;)]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex UrlHost = new Regex(@"(?i)\b(https?://)([^/\s""'<>?#:@\\]+)(:\d+)?", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // A drive or UNC path. Folders may hold a few words, the last part stops at white space. Never starts after a letter, so a scheme (https://) is not one.
+        private static readonly Regex AnyPath = new Regex(
+            @"(?<![A-Za-z0-9%\]])(?:[A-Za-z]:[\\/]|\\\\(?=[^\\\s]))(?:[^\\/\s:*?""<>|,;]+(?: [^\\/\s:*?""<>|,;]+){0,3}[\\/])*[^\\/\s:*?""<>|]*",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private static readonly Regex AnyProfile = new Regex(@"(?i)\b[A-Z]:\\Users\\[^\\/\s""]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         /// <summary>
         /// The text without the writer's identity or folder paths: email addresses become [email], writer= values are
         /// removed, the configured team guide and feedback folders become [team guide] and [feedback folder], and the
         /// writer's own folders become %LOCALAPPDATA%, %APPDATA%, %DOCUMENTS% and %USERPROFILE% (any other C:\Users\name
-        /// becomes C:\Users\[user]). Applied to everything House Style adds to a report, not to what the writer types.
+        /// becomes C:\Users\[user]). Any other drive or network path is cut to [project]\ and its last part, and the host of an
+        /// address becomes [host] (the Anthropic address stays). Applied to everything House Style adds to a report, not to what the writer types.
         /// </summary>
         public static string Anonymize(string text, PluginSettings settings)
         {
@@ -363,9 +369,20 @@ namespace FlareAI.Core.Feedback
             foreach (var p in places)
                 text = Regex.Replace(text, Regex.Escape(p.Key), p.Value.Replace("$", "$$"), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             text = AnyProfile.Replace(text, m => m.Value.Substring(0, m.Value.IndexOf("\\Users\\", StringComparison.OrdinalIgnoreCase)) + "\\Users\\[user]");
+            text = UrlHost.Replace(text, m => string.Equals(m.Groups[2].Value, "api.anthropic.com", StringComparison.OrdinalIgnoreCase) ? m.Value : m.Groups[1].Value + "[host]");
+            text = AnyPath.Replace(text, PathTail);
             text = WriterValue.Replace(text, "$1[removed]");
             text = Email.Replace(text, "[email]");
             return text;
+        }
+
+        /// <summary>A drive or network path kept as its last part only, so an error stays readable: [project]\Transfers.htm.</summary>
+        private static string PathTail(Match m)
+        {
+            var path = m.Value;
+            if (Regex.IsMatch(path, @"^[A-Za-z]:[\\/]Users[\\/]\[user\]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) return path;   // already reduced above
+            var last = path.Substring(path.LastIndexOfAny(new[] { '\\', '/' }) + 1);
+            return last.Length == 0 ? "[project]" : "[project]\\" + last;
         }
 
         private static void Place(List<KeyValuePair<string, string>> places, string path, string placeholder)

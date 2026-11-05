@@ -124,6 +124,9 @@ namespace FlareAI.Core.Update
         public static void Create(string link, string target)
         {
             if (Directory.Exists(link) || File.Exists(link)) throw new IOException(link + " already exists.");
+            // The paths go into a cmd command line, so refuse characters cmd would act on inside quotes.
+            if (link.IndexOfAny(new[] { '"', '%', '\r', '\n' }) >= 0 || target.IndexOfAny(new[] { '"', '%', '\r', '\n' }) >= 0)
+                throw new IOException("The junction path has a character that isn't allowed: " + link);
             var psi = new ProcessStartInfo("cmd.exe", "/d /c mklink /J \"" + link + "\" \"" + target + "\"")
             {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true

@@ -1,5 +1,5 @@
-import { fenced, GitHub, noMentions } from "./github";
-import { log, sha256Hex } from "./http";
+import { defang, fenced, GitHub, noMentions } from "./github";
+import { identityHash, log } from "./http";
 import { redactText } from "./redact";
 import { FP_REASONS, type FalsePositive, type FpReason } from "./validate";
 
@@ -15,7 +15,7 @@ export const REASON_LABELS: Record<FpReason, string> = {
 
 export async function storeFalsePositive(fp: FalsePositive, env: Env, now = Date.now()): Promise<{ ok: true; reference: string }> {
 	const id = crypto.randomUUID();
-	const clientHash = (await sha256Hex(fp.client_id)).slice(0, 16);
+	const clientHash = (await identityHash(env, fp.client_id)).slice(0, 16);
 	await env.DB.prepare(
 		`INSERT INTO false_positives (id, created_at, client_hash, plugin_version, rule_id, rule_name, reason, flagged_text, context, note)
 		 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
@@ -95,14 +95,14 @@ function weekSection(rows: FpRow[], fromS: number, toS: number): string {
 		"",
 		...samples.map((r) => `- ${code(r.flagged_text)} (${REASON_LABELS[r.reason].toLowerCase()})`),
 	];
-	if (notes.length > 0) out.push("", "**Notes**", "", ...notes.map((r) => `- ${noMentions(oneLine(r.note ?? "", 500))}`));
+	if (notes.length > 0) out.push("", "**Notes**", "", ...notes.map((r) => `- ${defang(noMentions(oneLine(r.note ?? "", 500)))}`));
 	if (contexts.length > 0) out.push("", "**Context (shared by the writer)**", "", ...contexts.map((r) => fenced(r.context ?? "", "text")));
 	return out.join("\n");
 }
 
 function issueBody(ruleId: string, ruleName: string, totals: Map<FpReason, number>, sinceS: number): string {
 	return [
-		`False-positive reports for rule \`${ruleId.replace(/`/g, "")}\` (${noMentions(oneLine(ruleName))}), counted since ${new Date(sinceS * 1000).toISOString().slice(0, 10)}.`,
+		`False-positive reports for rule \`${ruleId.replace(/`/g, "")}\` (${defang(noMentions(oneLine(ruleName)))}), counted since ${new Date(sinceS * 1000).toISOString().slice(0, 10)}.`,
 		"",
 		countTable(totals),
 		"",

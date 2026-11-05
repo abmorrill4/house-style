@@ -196,6 +196,11 @@ namespace FlareAI.Core.Actions
             var json = JsonConvert.SerializeObject(r, Formatting.Indented);
             // The local copy is what this machine applies later: the shared file can be rewritten by anyone with the folder.
             Remember(l => { l.Mine.Add(r.Id); l.Sent[r.Id] = JsonConvert.DeserializeObject<GuideRequest>(json); });
+            // The shared and outbox copy has no local path (it usually holds the writer's Windows account); the ledger copy above keeps it.
+            var projectPath = r.ProjectPath;
+            r.ProjectPath = null;
+            try { json = JsonConvert.SerializeObject(r, Formatting.Indented); }
+            finally { r.ProjectPath = projectPath; }
             var folder = Folder(team);
             if (folder == null) problem = "no team feedback folder is set in Settings, so the owners can't receive requests";
             else
@@ -430,7 +435,7 @@ namespace FlareAI.Core.Actions
         /// change in the rule's topic, or a new rule. A project exception changes nothing in the guide (the writer's plugin
         /// writes it into their project). Throws <see cref="GuideWriteException"/> naming the file when it can't be written.
         /// </summary>
-        public static void ApplyToGuide(Team team, GuideRequest r, RequestDecision d)
+        public static void ApplyToGuide(Team team, GuideRequest r, RequestDecision d, Func<string, GuideRule> findRule = null)
         {
             var reason = "Request " + r.Id + ": " + r.Reason + (string.IsNullOrEmpty(d.Note) ? "" : " Owner: " + d.Note);
             // Every kind but a project exception writes into the team's guide: never into a folder that isn't there.
@@ -453,11 +458,17 @@ namespace FlareAI.Core.Actions
                     team.EnsureOwner();
                     // Only the team guide's own topics: never the generated Google rules or a guide elsewhere (the plugin folder).
                     var root = Path.GetFullPath(team.WritableGuide()).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
-                    var file = string.IsNullOrEmpty(r.RuleFile) ? null : Path.GetFullPath(r.RuleFile);
+                    // The topic and text come from the rule the owner was shown (found by id in the loaded guide), never from
+                    // the request file, which any writer can edit.
+                    var shown = !string.IsNullOrEmpty(r.RuleId) && findRule != null ? findRule(r.RuleId) : null;
+                    if (shown == null)
+                        throw new InvalidOperationException("This rule isn't in the guide any more. Open the rule in the guide and change its wording there.");
+                    var shownFile = ReviewSession.RuleFile(shown);
+                    var file = string.IsNullOrEmpty(shownFile) ? null : Path.GetFullPath(shownFile);
                     if (file == null || !file.StartsWith(root, StringComparison.OrdinalIgnoreCase) ||
                         file.Substring(root.Length).Split('\\', '/').Any(part => part.Equals("Google", StringComparison.OrdinalIgnoreCase)))
                         throw new InvalidOperationException("This rule isn't written in the team's style guide (Google rules are generated), so its wording can't be changed here. Change its level instead.");
-                    Reword(file, r.RuleText, d.Wording ?? r.Wording);
+                    Reword(file, shown.Text, d.Wording ?? r.Wording);
                     break;
                 case RequestKinds.AddRule:
                     team.EnsureOwner();
@@ -477,8 +488,7 @@ namespace FlareAI.Core.Actions
         {
             if (string.IsNullOrEmpty(file) || !File.Exists(file)) throw new InvalidOperationException("House Style doesn't know which guide topic holds this rule. Open the rule in the guide and change its wording there.");
             if (string.IsNullOrEmpty(wording)) throw new ArgumentException("The new wording is empty.");
-            var doc = new XmlDocument { PreserveWhitespace = true };
-            doc.Load(file);
+            var doc = FlareAI.Core.Editing.SafeXml.Load(file, true);
             var block = GuideEdits.Locate(doc, ruleText);
             if (block == null) throw new InvalidOperationException("House Style couldn't find this rule in " + file + ". It may have changed since the request; change its wording there.");
             if (block.LocalName == "tr") throw new InvalidOperationException("This rule is a table row in " + file + ": change its cells there (Open rule in the guide).");

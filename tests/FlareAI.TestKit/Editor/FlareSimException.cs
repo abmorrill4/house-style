@@ -3,7 +3,7 @@ using System;
 namespace FlareAI.TestKit.Editor
 {
     /// <summary>
-    /// Raised by <see cref="FlareSimDocument"/> where Flare 22 would throw, crash, or corrupt the topic. A scenario that
+    /// Raised by <see cref="FlareSimDocument"/> where Flare 22 would throw, crash, or corrupt the topic. A test that
     /// sees one has taken a path the plugin must never take.
     /// </summary>
     public class FlareSimException : InvalidOperationException

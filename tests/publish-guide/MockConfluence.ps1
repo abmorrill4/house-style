@@ -71,7 +71,7 @@ try {
                 $out = @(); foreach ($k in ($pages.Keys | Sort-Object)) { $p = $pages[$k]; $out += @{ id = $p.id; title = $p.title; parent = $p.parent; version = $p.version; body = $p.body; labels = @($p.labels); props = $p.props } }
                 Send $ctx 200 @{ pages = $out; log = @($log) }; continue
             }
-            if ($raw -eq '/__inject') { [void]$inject.Add(@{ method = $body.method; contains = $body.contains; status = [int]$body.status; count = [int]$body.count; retryAfter = [int]$body.retryAfter }); Send $ctx 200 @{ ok = $true }; continue }
+            if ($raw -eq '/__inject') { [void]$inject.Add(@{ method = $body.method; contains = $body.contains; status = [int]$body.status; count = [int]$body.count; retryAfter = [int]$body.retryAfter; location = [string]$body.location }); Send $ctx 200 @{ ok = $true }; continue }
             if ($raw -match '^/__bump/(\d+)$') { $pages[$Matches[1]].version++; Send $ctx 200 @{ ok = $true }; continue }
 
             if (-not $raw.StartsWith($Context + '/')) { Err $ctx 404 'no such context'; continue }
@@ -83,7 +83,7 @@ try {
             foreach ($i in $inject) { if ($i.count -gt 0 -and $i.method -eq $method -and $path.Contains($i.contains)) { $hit = $i; break } }
             if ($hit) {
                 $hit.count--
-                $h = @{}; if ($hit.status -eq 429) { $h['Retry-After'] = $hit.retryAfter }
+                $h = @{}; if ($hit.status -eq 429) { $h['Retry-After'] = $hit.retryAfter }; if ($hit.location) { $h['Location'] = $hit.location }
                 Send $ctx $hit.status @{ message = "injected $($hit.status)" } $h; continue
             }
 

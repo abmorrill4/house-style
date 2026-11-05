@@ -15,7 +15,8 @@ namespace FlareAI.Flare
     /// The one place command text lives. The ribbon, the Tool Strip menu and toolbar, the editor's right-click menu,
     /// Settings and the Help menu are all built from this table, so a command cannot be named differently in two places.
     /// Adding a command here (and a handler in Plugin.cs) is all it takes. The ribbon shows the commands for the writer's
-    /// role (<see cref="Ribbon"/>); the rest are reached from Settings or the Help menu.
+    /// role (<see cref="Ribbon"/>); the rest are reached from Settings or the Help menu. The AI toggle is on the ribbon
+    /// only, because a Tool Strip menu item cannot change its label.
     /// </summary>
     internal static class Commands
     {
@@ -30,6 +31,11 @@ namespace FlareAI.Flare
         {
             Id = "project", Label = "Lint Project", KeyTip = "P", Icon = "project", Group = GroupLint,
             Tooltip = "Lint every topic and snippet in this project."
+        };
+        public static readonly CommandInfo LintFolders = new CommandInfo
+        {
+            Id = "folders", Label = "Lint Folders…", KeyTip = "F", Icon = "project", Group = GroupLint,
+            Tooltip = "Lint the topics and snippets in the folders you pick."
         };
         public static readonly CommandInfo LintRulesOnly = new CommandInfo
         {
@@ -53,10 +59,27 @@ namespace FlareAI.Flare
             Id = "rewrite", Label = "Rewrite", KeyTip = "R", Icon = "rewrite", Group = GroupAi,
             Tooltip = "Rewrite the selected text with AI."
         };
+        // Not in All, the ribbon or the Tool Strip menu: they are items of Rewrite's menu (<see cref="RewriteMenu"/>).
+        public static readonly CommandInfo Simplify = new CommandInfo
+        {
+            Id = "simplify", Label = "Simplify", Icon = "rewrite", Group = GroupAi,
+            Tooltip = "Rewrite the selected text in plainer words."
+        };
+        public static readonly CommandInfo Shorten = new CommandInfo
+        {
+            Id = "shorten", Label = "Shorten", Icon = "rewrite", Group = GroupAi,
+            Tooltip = "Rewrite the selected text with fewer words."
+        };
         public static readonly CommandInfo Ask = new CommandInfo
         {
             Id = "ask", Label = "Ask AI", KeyTip = "A", Icon = "ask", Group = GroupAi,
-            Tooltip = "Tell the AI what to change in the selected text."
+            Tooltip = "Ask the AI a question about the selected text, or tell it what to change."
+        };
+        /// <summary>The AI on/off toggle. Its label reads the saved state (AI On or AI Off). Ribbon only.</summary>
+        public static readonly CommandInfo AiToggle = new CommandInfo
+        {
+            Id = "ai", Label = AiSwitch.OnLabel, KeyTip = "Z", Icon = "ask", Group = GroupAi,
+            Tooltip = AiSwitch.Tooltip
         };
         public static readonly CommandInfo Rules = new CommandInfo
         {
@@ -131,8 +154,8 @@ namespace FlareAI.Flare
         /// <summary>Every command, in ribbon order.</summary>
         public static readonly IList<CommandInfo> All = new List<CommandInfo>
         {
-            LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules,
-            Rewrite, Ask, TopicMetadata,
+            LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules,
+            Rewrite, Ask, AiToggle, TopicMetadata,
             RuleDecisions, ImportRules, TestRules,
             Settings, Help,
             ExportLlm, Diagnostics, WhatsNew, Tour, ReportProblem, MyRequests
@@ -147,15 +170,21 @@ namespace FlareAI.Flare
         /// <summary>The items of Lint Topic's menu: the checks Lint Topic runs.</summary>
         public static readonly IList<CommandInfo> LintMenu = new List<CommandInfo> { LintRulesOnly, LintRulesAndAi };
 
+        /// <summary>The item of Lint Project's menu: lint part of the project.</summary>
+        public static readonly IList<CommandInfo> ProjectMenu = new List<CommandInfo> { LintFolders };
+
+        /// <summary>The items of Rewrite's menu and of the right-click Rewrite item: the one-click rewrites.</summary>
+        public static readonly IList<CommandInfo> RewriteMenu = new List<CommandInfo> { Simplify, Shorten };
+
         /// <summary>The ribbon's split buttons and their menu items. The button runs its own command.</summary>
         public static readonly IDictionary<CommandInfo, IList<CommandInfo>> SplitMenus = new Dictionary<CommandInfo, IList<CommandInfo>>
         {
-            { LintTopic, LintMenu }, { Help, HelpMenu }
+            { LintTopic, LintMenu }, { LintProject, ProjectMenu }, { Rewrite, RewriteMenu }, { Help, HelpMenu }
         };
 
         /// <summary>
         /// The ribbon for a role, in order; groups appear in the order of their first command. A writer gets Lint Topic,
-        /// Lint Project, Rules, Rewrite, Ask AI, Topic Metadata, Settings and Help, plus My Requests when a team guide is set;
+        /// Lint Project, Rules, Rewrite, Ask AI, the AI On or AI Off toggle, Topic Metadata, Settings and Help, plus My Requests when a team guide is set;
         /// an owner also gets the Style Guide group (whose Rule Decisions has the requests).
         /// </summary>
         /// <param name="teamGuide">A team style guide is configured: writers send it requests, so they get My Requests.</param>
@@ -163,7 +192,7 @@ namespace FlareAI.Flare
         {
             var list = new List<CommandInfo> { LintTopic, LintProject, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
-            list.AddRange(new[] { Rewrite, Ask, TopicMetadata });
+            list.AddRange(new[] { Rewrite, Ask, AiToggle, TopicMetadata });
             if (role == UserRole.Owner) list.AddRange(OwnerOnly);
             list.Add(Settings);
             list.Add(Help);
@@ -176,7 +205,7 @@ namespace FlareAI.Flare
         /// <summary>The Tool Strip menu for a role, in order; null is a separator.</summary>
         public static IList<CommandInfo> Menu(UserRole role, bool teamGuide = false)
         {
-            var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, ShowIssues, Rules };
+            var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
             list.AddRange(new CommandInfo[] { Rewrite, Ask, TopicMetadata, null });
             if (role == UserRole.Owner) { list.AddRange(OwnerOnly); list.Add(null); }

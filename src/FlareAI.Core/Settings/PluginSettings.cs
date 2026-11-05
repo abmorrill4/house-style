@@ -109,7 +109,8 @@ namespace FlareAI.Core.Settings
         {
             get
             {
-                var env = Environment.GetEnvironmentVariable(FeedbackUrlEnvVar);
+                // Only an address on this computer is honoured; a remote one from the environment is ignored.
+                var env = FlareAI.Core.Update.UpdateCheck.EnvironmentOverride(Environment.GetEnvironmentVariable(FeedbackUrlEnvVar));
                 if (!string.IsNullOrEmpty(env)) return env.TrimEnd('/');
                 return (string.IsNullOrEmpty(FeedbackUrl) ? DefaultFeedbackUrl : FeedbackUrl).TrimEnd('/');
             }

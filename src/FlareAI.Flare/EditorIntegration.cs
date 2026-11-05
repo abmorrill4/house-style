@@ -28,6 +28,7 @@ namespace FlareAI.Flare
         private readonly IHost _host;
         private readonly Func<FlareDocumentAdapter, ActionRunner> _lintRunner;
         private readonly Action _lintTopic, _rewrite, _ask, _lintProject;
+        private readonly Action<CommandInfo> _rewritePreset;
         private readonly Func<Form> _owner;
         // Keyed by file path: Flare hands out a new IDocument wrapper for the same document on each call.
         private readonly Dictionary<string, DocState> _docs = new Dictionary<string, DocState>(StringComparer.OrdinalIgnoreCase);
@@ -43,9 +44,9 @@ namespace FlareAI.Flare
         }
 
         public EditorIntegration(IHost host, Func<FlareDocumentAdapter, ActionRunner> lintRunner, Func<Form> owner,
-                                 Action lintTopic, Action rewrite, Action ask, Action lintProject)
+                                 Action lintTopic, Action rewrite, Action ask, Action lintProject, Action<CommandInfo> rewritePreset = null)
         {
-            _host = host; _lintRunner = lintRunner; _owner = owner;
+            _host = host; _lintRunner = lintRunner; _owner = owner; _rewritePreset = rewritePreset;
             _lintTopic = lintTopic; _rewrite = rewrite; _ask = ask; _lintProject = lintProject;
             FindingsPanel.Changed += panel => { var d = DocFor(panel.TopicPath); if (d != null) UpdateMarkers(d); };
             try { Directory.CreateDirectory(MarkerDir); foreach (var f in Directory.GetFiles(MarkerDir, "*.css")) File.Delete(f); } catch (Exception) { }
@@ -79,7 +80,8 @@ namespace FlareAI.Flare
                 if (items != null && !items.Any(i => i.Text == Commands.Context[0].ContextLabel))
                 {
                     items.Add(new ToolStripSeparator());
-                    foreach (var c in Commands.Context) items.Add(Item(c, c == Commands.LintTopic ? _lintTopic : c == Commands.Rewrite ? _rewrite : _ask));
+                    foreach (var c in Commands.Context)
+                        items.Add(c == Commands.Rewrite ? RewriteItem() : Item(c, c == Commands.LintTopic ? _lintTopic : _ask));
                 }
             }
             catch (Exception ex) { Diagnostics.Log("context menu", ex); }
@@ -120,6 +122,23 @@ namespace FlareAI.Flare
             doc.Closing += (s, e) => { ClearTopicWhenGone(path); Detach(path); };
             // First markers for a topic the plugin already knows about (pane open on it).
             UpdateMarkers(doc);
+        }
+
+        /// <summary>The right-click Rewrite item: it opens a submenu with Rewrite itself, then the one-click rewrites.</summary>
+        private ToolStripMenuItem RewriteItem()
+        {
+            var parent = new ToolStripMenuItem(Commands.Rewrite.ContextLabel) { ToolTipText = Commands.Rewrite.Tooltip };
+            var plain = new ToolStripMenuItem(Commands.Rewrite.Label) { ToolTipText = Commands.Rewrite.Tooltip };
+            plain.Click += (s, e) => Safe.Run(Commands.Rewrite.Label, _rewrite);
+            parent.DropDownItems.Add(plain);
+            foreach (var c in Commands.RewriteMenu)
+            {
+                var preset = c;
+                var mi = new ToolStripMenuItem(preset.Label) { ToolTipText = preset.Tooltip };
+                mi.Click += (s, e) => Safe.Run(preset.Label, () => { if (_rewritePreset != null) _rewritePreset(preset); });
+                parent.DropDownItems.Add(mi);
+            }
+            return parent;
         }
 
         private static ToolStripMenuItem Item(CommandInfo command, Action action)

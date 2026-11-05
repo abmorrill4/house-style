@@ -16,6 +16,14 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
 3. **Ending or switching chats**, or when context is getting long, run `/handoff` to write a note. The next chat
    then starts from that note and doesn't re-read the repo.
 
+## Flare questions: look them up
+Before you write or change anything that touches Flare itself (the plugin API, ribbon, menus, panes, the editor, topic
+XML, tracked changes, or how a Flare feature behaves), use the `flare-dev` skill (`.claude/skills/flare-dev`; from a
+chat started in `E:\HouseStyle`, read its `SKILL.md` directly). It sends
+you to `docs/api-dump.txt`, `docs/flare-api-notes.md` and the local copy of MadCap's Flare 2026 documentation, in that
+order, then to a real-Flare test. Don't answer from memory or a fresh web search. Add what you learn to
+`docs/flare-api-notes.md`.
+
 ## Map
 | Path | What it is |
 |---|---|
@@ -23,8 +31,8 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
 | `src/FlareAI.Flare` (net48) | The plugin: ribbon (`Plugin.cs`, `Commands.cs`), the editor bridge (`FlareDocumentAdapter`), WinForms UI (`UI/`), `whats-new.md`. |
 | `styleguide/` | The bundled guide project. `Google/` is generated, so never edit it by hand. `Company/` holds the starter team rules. |
 | `tools/` | `FlareAI.Mcp` (the engine over MCP), `FlareAI.Updater` (swaps installs), `feedback-worker` (Cloudflare Worker), and dev tools that don't ship: `Bench`, `GuideCompiler`, `Labeler`, `CorpusKit`, `Scoring`, `RefStubs`, `FixtureGen`, `google-style`. |
-| `tests/` | `FlareAI.Core.Tests` (unit), `FlareAI.Scenarios` (end to end over `TestKit`'s fake editor, recorded LLM and workspace), `RuleFixtures` (one fixture per lint rule, a ratchet), plus GuideCompiler, Labeler, Scoring and Flare tests. |
-| `corpus/` | About 1,740 generated test topics for Bench and Scenarios. This is data. Don't read it wholesale. |
+| `tests/` | `FlareAI.Core.Tests` (unit), `FlareAI.Integration.Tests` (end to end over `TestKit`'s fake editor, recorded LLM and workspace), `RuleFixtures` (one fixture per lint rule, a ratchet), plus GuideCompiler, Labeler, Scoring and Flare tests. |
+| `corpus/` | About 1,740 generated test topics for Bench and the integration tests. This is data. Don't read it wholesale. |
 | `scripts/` | Bootstrap, install, run Flare, package, release `Install.ps1`/`.cmd`, Confluence publisher. |
 | `site/` | gethousestyle.com: static GitHub Pages, deployed by `pages.yml` on pushes to `main`. |
 | `docs/` | `PLAN.md` (architecture), `flare-api-notes.md` (verified Flare behavior), `api-dump.txt` (the real API, authoritative), `testing/`, `release-notes/`, `user-guide/`. |
@@ -74,14 +82,20 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
 ```powershell
 dotnet build FlareAI.sln -c Debug
 dotnet test tests/FlareAI.Core.Tests --filter "FullyQualifiedName~<Area>"   # fast, about 20 s for the whole project
-dotnet test tests/FlareAI.Scenarios --filter "FullyQualifiedName~Governance" # end to end, about 2 min for the whole project
+dotnet test tests/FlareAI.Integration.Tests --filter "FullyQualifiedName~Governance" # end to end, about 2 min for the whole project
 dotnet test FlareAI.sln -c Release                                           # what CI runs: about 1,480 tests, about 4 min
 .\tools\FlareAI.Bench\bin\Debug\net48\FlareAI.Bench.exe --no-ai              # lint the corpus against ground truth (CI bench gate)
 powershell.exe -File .\scripts\bootstrap.ps1   # first run on a machine (Windows PowerShell 5.1)
 .\scripts\install-plugin.ps1                   # no admin needed if the Plugins folder is writable. Then .\scripts\run-flare.ps1 starts Flare with the dev key
 powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and check in real Flare, no clicking (tests/e2e/README.md)
 ```
-- **Prove a UI change in real Flare with `tests/e2e`,** not by hand. Add a scenario for the behavior you changed.
+- **Security scanners** run in `.github/workflows/security.yml` (not a required check). Locally:
+  `gitleaks git . --redact` (history) or `gitleaks dir . --redact` (working tree),
+  `zizmor --persona auditor --min-severity medium .github`, `actionlint`,
+  `osv-scanner scan source --lockfile tools/feedback-worker/package-lock.json`, and
+  `dotnet restore FlareAI.sln` then `dotnet list FlareAI.sln package --vulnerable --include-transitive` for NuGet.
+  Settings are in `.gitleaks.toml`, `.github/zizmor.yml` and `.github/actionlint.yaml`.
+- **Prove a UI change in real Flare with `tests/e2e`,** not by hand. Add an E2E test for the behavior you changed.
 - **Which tests to run.** Run the narrowest project and filter that covers your change while you iterate. Run the
   full Release suite before you push.
 - **Rule and guide changes** also need `RuleFixtures` and the bench gate. If a change is meant to move bench
