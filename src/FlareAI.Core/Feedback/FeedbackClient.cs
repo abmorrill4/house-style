@@ -25,7 +25,7 @@ namespace FlareAI.Core.Feedback
     public sealed class FeedbackResult
     {
         public bool Ok { get; set; }
-        /// <summary>The service's reference for it ("#12"), when it gives one.</summary>
+        /// <summary>The service's reference for it ("r-1a2b3c4d"), when it gives one.</summary>
         public string Reference { get; set; }
         /// <summary>The same error was already reported (the service added to the existing report).</summary>
         public bool Duplicate { get; set; }

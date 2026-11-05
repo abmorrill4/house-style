@@ -88,7 +88,7 @@ function quote(text: string): string {
 }
 
 /** Renders the issue body, keeping it under GitHub's 65,536-character limit by trimming the log from the top. */
-export function renderReportBody(r: Report, signature: string | undefined, clientHash: string): string {
+export function renderReportBody(r: Report, signature: string | undefined, clientHash: string, reference?: string): string {
 	const parts: string[] = [];
 	const row = (k: string, v: string | undefined, trusted = false) => (v ? `| ${k} | ${trusted ? v : tableCell(v)} |` : "");
 	parts.push(
@@ -99,6 +99,7 @@ export function renderReportBody(r: Report, signature: string | undefined, clien
 			row("House Style", r.plugin_version),
 			row("Flare", r.flare_version),
 			row("OS", r.os),
+			row("Reference", reference ? `\`${reference}\`` : undefined, true),
 			row("Install", clientHash.slice(0, 8)),
 			row("Signature", signature ? `\`${signature}\`` : undefined, true),
 		]
@@ -149,11 +150,11 @@ export function renderReportBody(r: Report, signature: string | undefined, clien
 	return body;
 }
 
-function commentBody(r: Report, clientHash: string, newInstall: boolean, count: number): string {
+function commentBody(r: Report, clientHash: string, newInstall: boolean, count: number, reference: string): string {
 	const lines = [
 		`**+1 from ${newInstall ? "another install" : "an install that reported this before"}** (House Style ${r.plugin_version}` +
 			`${r.flare_version ? `, Flare ${tableCell(r.flare_version)}` : ""}, install ${clientHash.slice(0, 8)}` +
-			`${r.automatic ? ", sent automatically" : ""}). Reports so far: ${count}.`,
+			`${r.automatic ? ", sent automatically" : ""}). Reference \`${reference}\`. Reports so far: ${count}.`,
 	];
 	if (r.user_note) lines.push(`\n${quote(r.user_note)}`);
 	if (r.exception?.message) lines.push(`\n${fenced(redactText(r.exception.message), "text")}`);
@@ -166,6 +167,8 @@ export async function handleReport(r: Report, env: Env, now = Date.now()): Promi
 	const clientHash = (await identityHash(env, r.client_id)).slice(0, 16);
 	const nowS = Math.floor(now / 1000);
 	const id = crypto.randomUUID();
+	// What the writer sees and quotes. Not the issue number, which would tell any sender how many reports exist.
+	const reference = `r-${id.slice(0, 8)}`;
 
 	let signature: string | undefined;
 	if (r.kind === "error" && r.exception) {
@@ -183,7 +186,7 @@ export async function handleReport(r: Report, env: Env, now = Date.now()): Promi
 					.bind(signature, clientHash)
 					.first();
 				const count = existing.report_count + 1;
-				await gh.addComment(issue.number, commentBody(r, clientHash, seen === null, count));
+				await gh.addComment(issue.number, commentBody(r, clientHash, seen === null, count, reference));
 				await db.batch([
 					db
 						.prepare("INSERT OR IGNORE INTO signature_clients (signature, client_hash) VALUES (?1, ?2)")
@@ -198,14 +201,14 @@ export async function handleReport(r: Report, env: Env, now = Date.now()): Promi
 						.bind(id, r.kind, clientHash, r.plugin_version, signature, issue.number, nowS),
 				]);
 				log("report_duplicate", { kind: r.kind, signature, issue: issue.number });
-				return { ok: true, reference: `#${issue.number}`, duplicate: true };
+				return { ok: true, reference, duplicate: true };
 			}
 			// The tracking issue was closed or removed: this is a regression or a new occurrence, so file it again.
 		}
 	}
 
 	const title = reportTitle(r);
-	const issue = await gh.createIssue(title, renderReportBody(r, signature, clientHash), reportLabels(r));
+	const issue = await gh.createIssue(title, renderReportBody(r, signature, clientHash, reference), reportLabels(r));
 	const statements = [
 		db
 			.prepare(
@@ -228,5 +231,5 @@ export async function handleReport(r: Report, env: Env, now = Date.now()): Promi
 	}
 	await db.batch(statements);
 	log("report_created", { kind: r.kind, signature, issue: issue.number });
-	return { ok: true, reference: `#${issue.number}`, duplicate: false };
+	return { ok: true, reference, duplicate: false };
 }
