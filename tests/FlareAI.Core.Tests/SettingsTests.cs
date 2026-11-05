@@ -17,19 +17,22 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void ResolveApiKey_UsesTheEnvironmentKeyForAnthropicDirectOnly()
+        public void ResolveApiKey_NeverUsesAVariable_OnlyTheKeySavedInSettings()
         {
             var old = System.Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
             var oldGateway = System.Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
-            System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-env");
-            System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, "gw-env");
+            System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-ant-from-a-variable-1234");
+            System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, "gw-from-a-variable-1234");
             try
             {
                 var s = new PluginSettings();
                 s.Provider = LlmProvider.AnthropicDirect;
-                Assert.Equal("sk-env", s.ResolveApiKey());
+                Assert.Null(s.ResolveApiKey());
+                Assert.False(s.HasStoredKey);
                 s.Provider = LlmProvider.Bifrost;
-                Assert.Equal("gw-env", s.ResolveApiKey());
+                Assert.Null(s.ResolveApiKey());
+                s.SetApiKey("sk-ant-saved-in-settings-5678");
+                Assert.Equal("sk-ant-saved-in-settings-5678", s.ResolveApiKey());
             }
             finally
             {
@@ -39,27 +42,32 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void ResolveApiKey_IgnoresTheOtherProvidersVariable()
+        public void SavedKey_IsNotInThePlainTextOfTheSettingsFile_AndIsUselessWithoutTheUsersDpapi()
         {
-            var old = System.Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
-            var oldGateway = System.Environment.GetEnvironmentVariable(PluginSettings.GatewayEnvKeyName);
+            var old = FlareAI.Core.Paths.Root;
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "flareai-keyfile-" + System.Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            FlareAI.Core.Paths.Root = dir;
             try
             {
-                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, "sk-env");
-                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, null);
+                const string key = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
                 var s = new PluginSettings();
-                s.Provider = LlmProvider.Bifrost;
-                Assert.Null(s.ResolveApiKey());
-
-                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, null);
-                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, "gw-env");
-                s.Provider = LlmProvider.AnthropicDirect;
-                Assert.Null(s.ResolveApiKey());
+                s.SetApiKey(key);
+                s.Save();
+                var file = System.IO.File.ReadAllText(PluginSettings.SettingsPath, System.Text.Encoding.UTF8);
+                Assert.DoesNotContain(key, file);
+                Assert.DoesNotContain("ABCDEFGHIJKLMNOPQRSTUVWXYZ", file);
+                Assert.Contains("ProtectedApiKey", file);
+                // The stored form is DPAPI output, not the key's own bytes in any encoding.
+                var bytes = System.Convert.FromBase64String(PluginSettings.Load().ProtectedApiKey);
+                Assert.DoesNotContain("ABCDEFGHIJKLMNOP", System.Text.Encoding.UTF8.GetString(bytes));
+                Assert.DoesNotContain("ABCDEFGHIJKLMNOP", System.Text.Encoding.Unicode.GetString(bytes));
+                Assert.Equal(key, PluginSettings.Load().ResolveApiKey());
             }
             finally
             {
-                System.Environment.SetEnvironmentVariable(PluginSettings.EnvKeyName, old);
-                System.Environment.SetEnvironmentVariable(PluginSettings.GatewayEnvKeyName, oldGateway);
+                FlareAI.Core.Paths.Root = old;
+                try { System.IO.Directory.Delete(dir, true); } catch (System.Exception) { }
             }
         }
 

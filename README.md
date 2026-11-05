@@ -97,8 +97,8 @@ is the report. These are maintainer tools; writers never need them.
 
 ## Develop
 
-Prerequisites: Windows, MadCap Flare Desktop 2026, .NET SDK 8 or later, Git, and a `.env` at the repository root (git-ignored)
-with `ANTHROPIC_API_KEY=...`. Architecture: `PLAN.md`. Flare API notes: `docs/flare-api-notes.md`.
+Prerequisites: Windows, MadCap Flare Desktop 2026, .NET SDK 8 or later, Git, and, for AI test runs, a `.env` at the repository root (git-ignored)
+with `ANTHROPIC_API_KEY=...`. The plugin itself takes its key only from Settings. Architecture: `PLAN.md`. Flare API notes: `docs/flare-api-notes.md`.
 
 ```powershell
 powershell.exe -File .\scripts\bootstrap.ps1   # find Flare, copy the API DLL, dump the API, build

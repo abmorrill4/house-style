@@ -100,8 +100,34 @@ function Start-FlareE2E {
     Copy-Item $Fixture (Join-Path $dir "project") -Recurse
     $flprj = Get-ChildItem (Join-Path $dir "project") -Filter *.flprj | Select-Object -First 1
 
+    # The AI key the run needs. It goes into the settings file below, protected the way Settings protects it:
+    # the plugin reads no key from anywhere else.
+    $aiKey = $null
+    if ($Bifrost) { $aiKey = $env:HOUSESTYLE_TEST_BIFROST_KEY }
+    elseif ($Ai) {
+        $aiKey = $env:ANTHROPIC_API_KEY
+        if (-not $aiKey) {
+            # The repo's .env: this checkout's, else the main checkout's (worktrees don't have one).
+            $repo = Split-Path (Split-Path $PSScriptRoot)
+            $main = Split-Path (git -C $repo rev-parse --path-format=absolute --git-common-dir)
+            foreach ($f in (Join-Path $repo ".env"), (Join-Path $main ".env")) {
+                if (-not (Test-Path $f)) { continue }
+                foreach ($line in Get-Content $f) { if ($line -match '^\s*ANTHROPIC_API_KEY\s*=\s*"?(.*?)"?\s*$') { $aiKey = $Matches[1] } }
+                if ($aiKey) { break }
+            }
+        }
+        if (-not $aiKey) { throw "-Ai needs ANTHROPIC_API_KEY (in the shell or in .env)." }
+    }
+    $protectedKey = $null
+    if ($aiKey) {
+        Add-Type -AssemblyName System.Security
+        $protectedKey = [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($aiKey), [Text.Encoding]::UTF8.GetBytes("FlareAI.v1"), [Security.Cryptography.DataProtectionScope]::CurrentUser))
+    }
+
     # Setup already done and the tour already offered, so no first-run dialogs; AI per -Ai.
-    (@{ AiOff = (-not $Ai); WriteDiagnostics = $true; LiveCheck = $false } + $Settings) | ConvertTo-Json | Set-Content (Join-Path $appdata "settings.json")
+    $base = @{ AiOff = (-not $Ai); WriteDiagnostics = $true; LiveCheck = $false }
+    if ($protectedKey) { $base.ProtectedApiKey = $protectedKey }
+    ($base + $Settings) | ConvertTo-Json | Set-Content (Join-Path $appdata "settings.json")
     @{ FirstStart = (Get-Date).ToUniversalTime().ToString("o"); TourOffered = $true; ChecklistHidden = $true; ProjectLinted = $true } | ConvertTo-Json | Set-Content (Join-Path $appdata "onboarding.json")
     # Flare loads a plugin only when it is turned on for this user.
     $key = "HKCU:\Software\MadCap Software\Flare\Plugins\House Style"
@@ -110,26 +136,11 @@ function Start-FlareE2E {
     # A fresh install asks for its UI language at start until this is set (its OK button can't be automated).
     New-ItemProperty "HKCU:\Software\MadCap Software\Flare" -Name RunSelectLanguageUIOnStartup -Value False -PropertyType String -Force | Out-Null
 
-    # A Bifrost run hands Flare the gateway key in HOUSESTYLE_GATEWAY_KEY and leaves ANTHROPIC_API_KEY alone.
-    $savedGateway = $env:HOUSESTYLE_GATEWAY_KEY
-    if ($Bifrost) { $env:HOUSESTYLE_GATEWAY_KEY = $env:HOUSESTYLE_TEST_BIFROST_KEY }
-    if ($Ai -and -not $Bifrost -and -not $env:ANTHROPIC_API_KEY) {
-        # The repo's .env: this checkout's, else the main checkout's (worktrees don't have one).
-        $repo = Split-Path (Split-Path $PSScriptRoot)
-        $main = Split-Path (git -C $repo rev-parse --path-format=absolute --git-common-dir)
-        foreach ($f in (Join-Path $repo ".env"), (Join-Path $main ".env")) {
-            if (-not (Test-Path $f)) { continue }
-            foreach ($line in Get-Content $f) { if ($line -match '^\s*ANTHROPIC_API_KEY\s*=\s*"?(.*?)"?\s*$') { $env:ANTHROPIC_API_KEY = $Matches[1] } }
-            if ($env:ANTHROPIC_API_KEY) { break }
-        }
-        if (-not $env:ANTHROPIC_API_KEY) { throw "-Ai needs ANTHROPIC_API_KEY (environment or .env)." }
-    }
     $env:HOUSESTYLE_E2E_DIR = $hook
     $launched = Get-Date
     try { $proc = Start-Process $flare -ArgumentList "`"$($flprj.FullName)`"" -PassThru }
     finally {
         Remove-Item Env:HOUSESTYLE_E2E_DIR
-        if ($Bifrost) { if ($savedGateway) { $env:HOUSESTYLE_GATEWAY_KEY = $savedGateway } else { Remove-Item Env:HOUSESTYLE_GATEWAY_KEY -ErrorAction SilentlyContinue } }
     }
     $script:Run = [pscustomobject]@{ Ai = [bool]$Ai; Dir = $dir; Hook = $hook; AppData = $appdata; Project = (Join-Path $dir "project"); Process = $proc; Next = 1 }
 
