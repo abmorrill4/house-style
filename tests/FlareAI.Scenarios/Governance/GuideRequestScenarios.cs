@@ -452,6 +452,43 @@ namespace FlareAI.Scenarios.Governance
         }
 
         [Fact]
+        public void Wording_ApprovalUsesTheRuleTheOwnerSaw_NotTheTopicTheRequestNames()
+        {
+            using (var fx = new Fixture())
+            {
+                var style = fx.Style();
+                var prose = fx.ProseRule(style);
+                var loaded = new Dictionary<string, GuideRule>(StringComparer.OrdinalIgnoreCase);
+                foreach (var gr in style.Rules(null)) loaded[gr.Id] = gr;
+                var other = style.Rules(null).First(x => x.Layer != "google" && x.Id != prose.Id && ReviewSession.RuleFile(x) != null && ReviewSession.RuleFile(x) != ReviewSession.RuleFile(prose) && !x.IsLint);
+                var otherFile = ReviewSession.RuleFile(other);
+                var otherBefore = File.ReadAllText(otherFile);
+
+                var writer = fx.As(Pat);
+                var spoof = GuideRequests.New(writer, RequestKinds.Wording, "Shorter.");
+                spoof.RuleId = prose.Id; spoof.RuleText = other.Text; spoof.RuleFile = otherFile; spoof.Wording = "Changed wording.";
+                var gone = GuideRequests.New(writer, RequestKinds.Wording, "Gone.");
+                gone.RuleId = "company:no-such-rule/9"; gone.RuleText = other.Text; gone.RuleFile = otherFile; gone.Wording = "Changed wording.";
+                string problem;
+                GuideRequests.Send(writer, spoof, out problem);
+                GuideRequests.Send(writer, gone, out problem);
+
+                var owner = fx.As(Lead);
+                Func<string, GuideRule> find = id => loaded.ContainsKey(id) ? loaded[id] : null;
+                foreach (var r in GuideRequests.Load(owner).Where(x => x.RuleId.StartsWith("company:no-such")))
+                {
+                    Assert.Throws<InvalidOperationException>(() => GuideRequests.ApplyToGuide(owner, r, new RequestDecision(), find));
+                    Assert.Throws<InvalidOperationException>(() => GuideRequests.ApplyToGuide(owner, r, new RequestDecision()));
+                }
+                var request = GuideRequests.Load(owner).Single(x => x.RuleId == prose.Id);
+                GuideRequests.ApplyToGuide(owner, request, new RequestDecision(), find);
+
+                Assert.Equal(otherBefore, File.ReadAllText(otherFile));
+                Assert.Contains(fx.Style().Rules(null), x => x.Id == prose.Id && x.Text == "Changed wording.");
+            }
+        }
+
+        [Fact]
         public void OwnerApproves_Wording_And_AddRule_ChangeTheGuideTopics()
         {
             using (var fx = new Fixture())
@@ -469,8 +506,10 @@ namespace FlareAI.Scenarios.Governance
                 GuideRequests.Send(writer, add, out problem);
 
                 var owner = fx.As(Lead);
+                var loaded = new Dictionary<string, GuideRule>(StringComparer.OrdinalIgnoreCase);
+                foreach (var gr in style.Rules(null)) loaded[gr.Id] = gr;
                 foreach (var r in GuideRequests.Load(owner))
-                    Assert.Null(GuideRequests.Approve(owner, r, null, (x, d) => GuideRequests.ApplyToGuide(owner, x, d)));
+                    Assert.Null(GuideRequests.Approve(owner, r, null, (x, d) => GuideRequests.ApplyToGuide(owner, x, d, id => loaded.ContainsKey(id) ? loaded[id] : null)));
 
                 var claims = File.ReadAllText(Path.Combine(fx.Guide, @"Company\Claims.htm"));
                 Assert.Contains("<li id=\"rule-1\">Don't promise dates, prices or availability.<ul><li>Bad:", claims);   // its Bad/Good examples stay
