@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = path.join(SITE, 'src', 'content', 'docs');
 
-// old topic file name (as built by scripts/build-guide.py, overview.htm is index.html) -> new page
+// old topic file name (from the retired Flare guide, where overview.htm was index.html) -> new page
 export const MAP = {
   'index.html': 'get-started/what-house-style-does',
   'overview.html': 'get-started/what-house-style-does',

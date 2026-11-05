@@ -34,7 +34,7 @@ The window lists what needs your eye.
 ## What goes in
 
 - The new text is paragraphs and lists, up to eight blocks and 400 words. If the draft is longer, nothing changes and you can try again.
-- House Style doesn't insert links, tables, images, variables or snippets. Where the text names the product, it uses the plain name, and House Style Issues then offers to make it a variable.
+- House Style doesn't insert links, tables, images, variables or snippets, and it refuses a draft that contains a variable. Where the text names the product, it uses the plain name, and House Style Issues then offers to make it a variable.
 - New text goes after a paragraph or heading, not inside a list, table or drop-down. If your cursor is in one, House Style asks you to click in a paragraph or heading instead.
 
 If the paragraph you clicked in is gone by the time you select **Insert**, House Style tells you and asks you to click in the topic and try again.

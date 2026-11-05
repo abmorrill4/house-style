@@ -57,4 +57,4 @@ If your team uses Git, keep the guide in a repository. Each writer clones it and
 ## Limits
 
 - Changes made to the guide outside House Style aren't recorded.
-- If a writer can't reach the guide folder, for example offline, House Style lints with the copy it saved the last time it could, and says the date of that copy. With no copy yet, or if the writer no longer has permission to read the folder, it lints with Google's guide, the starter rules and the writer's own changes, and says why.
+- If a writer can't reach the guide folder, such as when offline, House Style lints with the copy it saved the last time it could, and says the date of that copy. With no copy yet, or if the writer no longer has permission to read the folder, it lints with Google's guide, the starter rules and the writer's own changes, and says why.
