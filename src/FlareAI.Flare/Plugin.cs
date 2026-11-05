@@ -576,10 +576,43 @@ namespace FlareAI.Flare
         private void OnAsk()
         {
             if (!AiReady(Commands.Ask.Label)) return;
-            using (var f = new AskForm())
+            var active = ActiveAdapter();
+            var canInsert = active != null && active.IsEditableTopic && string.IsNullOrEmpty(active.SelectionText);
+            using (var f = new AskForm(canInsert))
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
+                if (f.IsInsert) { RunInsert(Commands.Ask.Label, f.Instruction); return; }
                 RunAction(Commands.Ask.Label, f.IsQuestion ? ActionKind.Question : ActionKind.Ask, f.Instruction);   // title of the result window
+            }
+        }
+
+        /// <summary>Insert at the cursor: drafts new text after the paragraph or heading the caret is in and, once the writer agrees, inserts it as one tracked change.</summary>
+        private void RunInsert(string title, string instruction)
+        {
+            try
+            {
+                var adapter = ActiveAdapter();
+                if (adapter == null || !adapter.IsEditableTopic)
+                {
+                    Notify.Info(Owner, "Open a topic in the XML Editor first.", title);
+                    return;
+                }
+                string refusal;
+                var anchor = DraftAnchor.For(adapter, out refusal);
+                if (anchor == null) { Notify.Info(Owner, refusal, title); return; }
+                var runner = NewRunner(adapter, true, false);
+                if (runner == null) return;
+                runner.LogChecks = "rules+ai";
+                using (var f = new InsertForm(title, runner, adapter, anchor, instruction))
+                {
+                    if (f.ShowDialog() != DialogResult.OK) return;
+                }
+                GettingStarted.Mark(ChecklistItem.AiRewrite);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log(title, ex);
+                Notify.Failed(Owner, "finish \"" + title + "\"", ex, title);
             }
         }
 

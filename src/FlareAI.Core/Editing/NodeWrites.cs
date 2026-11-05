@@ -22,6 +22,56 @@ namespace FlareAI.Core.Editing
             return VariableRefusal(oldNodes, newNodes) ?? ElementChangeRefusal(oldNodes, newNodes);
         }
 
+        /// <summary>The elements a drafted insert may use: paragraphs, lists and plain inline emphasis.</summary>
+        private static readonly string[] InsertAllowed = { "p", "ul", "ol", "li", "strong", "em", "code" };
+        private const int InsertMaxBlocks = 8, InsertMaxWords = 400;
+
+        /// <summary>
+        /// Why <paramref name="newNodes"/> can't be inserted as new blocks; null when they can. Only paragraphs and lists (nested at
+        /// most two deep) with strong, em and code inside, no attributes, no MadCap element (a variable crashes Flare on Redo, and
+        /// links and conditions would be invented), no bare text at the top, and a size limit.
+        /// </summary>
+        public static string InsertRefusal(IList<XmlNode> newNodes)
+        {
+            const string tail = " Try again and ask for paragraphs and lists.";
+            if (newNodes == null || newNodes.Count == 0) return "There is nothing to insert.";
+            if (newNodes.Count > InsertMaxBlocks) return "The draft has more than " + InsertMaxBlocks + " blocks, so nothing was changed." + tail;
+            var words = 0;
+            foreach (var n in newNodes)
+            {
+                if (n.NodeType == XmlNodeType.Whitespace || n.NodeType == XmlNodeType.SignificantWhitespace) continue;
+                if (n.NodeType != XmlNodeType.Element || (n.LocalName != "p" && n.LocalName != "ul" && n.LocalName != "ol"))
+                    return "The draft used markup House Style can't insert, so nothing was changed." + tail;
+                var bad = InsertProblem(n, 0);
+                if (bad != null) return bad + tail;
+                words += CountWords(n.InnerText);
+            }
+            if (words > InsertMaxWords) return "The draft is longer than " + InsertMaxWords + " words, so nothing was changed.";
+            return null;
+        }
+
+        private static string InsertProblem(XmlNode n, int listDepth)
+        {
+            const string markup = "The draft used markup House Style can't insert, so nothing was changed.";
+            if (n.NodeType == XmlNodeType.Text || n.NodeType == XmlNodeType.Whitespace || n.NodeType == XmlNodeType.SignificantWhitespace) return null;
+            if (n.NodeType != XmlNodeType.Element) return markup;
+            if (!string.IsNullOrEmpty(n.NamespaceURI) || System.Array.IndexOf(InsertAllowed, n.LocalName) < 0) return markup;
+            if (n.Attributes != null && n.Attributes.Count > 0) return markup;
+            var depth = listDepth + (n.LocalName == "ul" || n.LocalName == "ol" ? 1 : 0);
+            if (depth > 2) return markup;
+            foreach (XmlNode c in n.ChildNodes)
+            {
+                var bad = InsertProblem(c, depth);
+                if (bad != null) return bad;
+            }
+            return null;
+        }
+
+        private static int CountWords(string text)
+        {
+            return string.IsNullOrEmpty(text) ? 0 : text.Split((char[])null, System.StringSplitOptions.RemoveEmptyEntries).Length;
+        }
+
         /// <summary>The refusal when any old or new block holds a variable; null otherwise.</summary>
         public static string VariableRefusal(IList<XmlNode> oldNodes, IList<XmlNode> newNodes)
         {

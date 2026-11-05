@@ -30,6 +30,13 @@ namespace FlareAI.Core.Editing
         /// </summary>
         void ReplaceBlocks(string operationName, IList<XmlNode> oldNodes, IList<XmlNode> newNodes);
 
+        /// <summary>
+        /// Insert <paramref name="newNodes"/> (already imported into <see cref="Document"/>) as new children of <paramref name="parent"/>
+        /// starting at child index <paramref name="index"/>, as one undoable, track-changed operation. Callers check
+        /// <see cref="NodeWrites.InsertRefusal"/> first and the Flare adapter refuses again.
+        /// </summary>
+        void InsertBlocks(string operationName, XmlNode parent, int index, IList<XmlNode> newNodes);
+
         /// <summary>Select a span of one text node in the editor so the author sees it. False if the editor could not.</summary>
         bool SelectText(XmlText run, int start, int length);
 

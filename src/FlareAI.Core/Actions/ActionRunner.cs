@@ -62,7 +62,7 @@ namespace FlareAI.Core.Actions
     /// Applying the result to the document is a separate, explicit step so the UI can show a preview.
     /// All methods are synchronous; the caller runs them off the UI thread.
     /// </summary>
-    public sealed class ActionRunner
+    public sealed partial class ActionRunner
     {
         private readonly ILlmClient _llm;
         private readonly PromptBuilder _prompts;

@@ -123,6 +123,14 @@ namespace FlareAI.Core.Actions
             return Embedded("action-question.md").Replace("{{QUESTION}}", (question ?? "").Trim()).Replace("{{FRAGMENT}}", fragment);
         }
 
+        /// <summary>The user message for drafting new text into a topic (the cached prefix is the same as restructure's).</summary>
+        public string BuildCompose(string instruction, string title, string headings, string section, string after)
+        {
+            return Contracts.ComposeFields + "\n\n" + Embedded("action-compose.md").Replace("{{INSTRUCTION}}", (instruction ?? "").Trim())
+                .Replace("{{TITLE}}", string.IsNullOrEmpty(title) ? "(none)" : title).Replace("{{HEADINGS}}", string.IsNullOrEmpty(headings) ? "(none)" : headings)
+                .Replace("{{SECTION}}", string.IsNullOrEmpty(section) ? "(empty)" : section).Replace("{{AFTER}}", after ?? "");
+        }
+
         public string BuildAlt(string context) { return Embedded("action-alt.md").Replace("{{CONTEXT}}", context ?? ""); }
 
         /// <summary>One part of Topic assists (description + keywords, synonyms, or micro content + glossary).</summary>
@@ -171,7 +179,7 @@ namespace FlareAI.Core.Actions
         public string OverrideFolder { get; set; }
 
         /// <summary>Names of the templates a team can override.</summary>
-        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-question.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
+        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-question.md", "action-compose.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
 
         private string Embedded(string name)
         {

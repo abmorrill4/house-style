@@ -9,6 +9,16 @@
 <p>The arrow next to <b>Rewrite</b>, and the right-click <b>Rewrite</b> item, list <b>Simplify</b> and <b>Shorten</b>. Each one runs without an instruction. A team can change their wording in the FlareAI/prompts folder of the team style guide, in preset-simplify.md and preset-shorten.md.</p>
 <p>The AI changes only the wording. It can't change variables, cross-references, snippets, conditions, or formatting, because the AI never gets or writes markup: it gets the text pieces of each paragraph and returns new text for the pieces it changes. The result arrives as word-level tracked changes in one undo step.</p>
 <p>Before it applies anything, the plugin checks the AI's result against the style rules. If the rewrite still breaks a rule, the AI gets one more try, with the remaining problems listed.</p>
+<h2>Write new text</h2>
+<p>To have the AI write new text, click in a paragraph or heading without selecting anything, and then select <b>House Style &gt; Ask AI</b>. Choose <b>Insert at the cursor</b>, type what the new text should say, and then select <b>Run</b>.</p>
+<p>The window shows where the new text goes, the text itself, and what to check. Select <b>Insert</b> to add it to the topic as one tracked change. One Ctrl+Z takes all of it out.</p>
+<ul>
+<li>The AI uses only facts from the topic, your instruction, and any notes you paste into it. Where it needs a fact it doesn't have, it writes <b>Add details here.</b> so you can fill it in.</li>
+<li>The new text follows your style guide, and the plugin checks it against the rules before showing it.</li>
+<li>The plugin lists numbers and names in the new text that aren't in the topic or your instruction, so you can check them.</li>
+<li>The new text is paragraphs and lists. House Style doesn't insert links, tables, images, variables or snippets. Where the text names the product, it uses the plain name, and House Style Issues then offers to make it a variable.</li>
+<li>New text goes after a paragraph or heading, not inside a list, table or drop-down.</li>
+</ul>
 <h2>When the structure must change</h2>
 <p>Some edits need new structure, such as splitting one step into two or turning a paragraph into a list. When the AI says the instruction needs that, the result window offers <b>Restructure instead…</b>. A restructure returns new markup, which the plugin validates: the plugin rejects anything that drops or changes a variable, cross-reference, snippet, or condition, and nothing changes.</p>
 <p>The plugin can reword a paragraph with pending tracked changes, but it can't restructure it. Accept or reject those changes first.</p>

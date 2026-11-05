@@ -564,6 +564,7 @@ namespace FlareAI.Flare.Tests
             public string SelectionText { get { return _inner.SelectionText; } }
             public IList<System.Xml.XmlNode> SelectionNodes { get { return _inner.SelectionNodes; } }
             public void ReplaceBlocks(string operationName, IList<System.Xml.XmlNode> oldNodes, IList<System.Xml.XmlNode> newNodes) { _inner.ReplaceBlocks(operationName, oldNodes, newNodes); }
+            public void InsertBlocks(string operationName, System.Xml.XmlNode parent, int index, IList<System.Xml.XmlNode> newNodes) { _inner.InsertBlocks(operationName, parent, index, newNodes); }
             public bool SelectText(System.Xml.XmlText run, int start, int length)
             {
                 var ok = _inner.SelectText(run, start, length);

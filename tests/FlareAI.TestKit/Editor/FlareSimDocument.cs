@@ -181,6 +181,26 @@ namespace FlareAI.TestKit.Editor
             finally { if (!joined) End(); }
         }
 
+        public void InsertBlocks(string operationName, XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            var refusal = NodeWrites.InsertRefusal(newNodes);
+            if (refusal != null) throw new InvalidOperationException(refusal);
+            foreach (var n in newNodes)
+                if (n.OwnerDocument != Document) throw new ArgumentException("The node to be inserted is from a different document context.");
+            var joined = _current != null;
+            if (!joined) Begin(operationName);
+            try
+            {
+                XmlNode after = index <= 0 ? null : parent.ChildNodes[index - 1];
+                foreach (var n in newNodes)
+                {
+                    InsertDocumentNode(parent, n, after);
+                    after = n;
+                }
+            }
+            finally { if (!joined) End(); }
+        }
+
         // ---- editor controls (IConformanceDocument) -------------------------------------------
 
         /// <summary>Widen spans until unique before selecting, as FlareDocumentAdapter does. False = raw Select(string).</summary>
