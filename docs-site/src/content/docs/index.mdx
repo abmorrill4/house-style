@@ -1,0 +1,60 @@
+---
+title: House Style documentation
+description: Guides for writers and style guide owners who use House Style in MadCap Flare.
+template: splash
+editUrl: false
+hero:
+  tagline: House Style lints your Flare topics against a style guide and lists the issues it finds. You change or ignore each one, and every change is a Flare tracked change.
+  actions:
+    - text: Quick start
+      link: /docs/get-started/quick-start/
+      icon: right-arrow
+    - text: Download
+      link: https://github.com/abmorrill4/house-style/releases/latest
+      variant: minimal
+      icon: external
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## Find your way
+
+<CardGrid>
+  <Card title="Get started" icon="rocket">
+    Install House Style, go through setup, and fix your first issue.
+
+    [What House Style does](/docs/get-started/what-house-style-does/) · [Install](/docs/get-started/install/) · [Set up](/docs/get-started/set-up/)
+  </Card>
+  <Card title="Check your writing" icon="approve-check">
+    Lint a topic or a whole project, and browse every rule.
+
+    [Lint a topic](/docs/check-your-writing/lint-a-topic/) · [Lint a project](/docs/check-your-writing/lint-a-project/) · [Browse rules](/docs/check-your-writing/browse-and-change-rules/)
+  </Card>
+  <Card title="AI assists" icon="star">
+    Rewrite, ask, write new text, and draft metadata and alt text. Every change is tracked and can be undone.
+
+    [Rewrite text](/docs/ai-assists/rewrite-text/) · [Ask AI as a conversation](/docs/ai-assists/ask-ai-conversation/)
+  </Card>
+  <Card title="Team style guide" icon="open-book">
+    For style guide owners. Share one guide, import rules, and decide requests.
+
+    [Set up a team guide](/docs/team-style-guide/set-up-a-team-style-guide/) · [Import rules](/docs/team-style-guide/import-rules/)
+  </Card>
+  <Card title="Settings and privacy" icon="setting">
+    Models, cost, and what is sent when you use AI.
+
+    [Change a setting](/docs/settings-and-privacy/change-a-setting/) · [Models and cost](/docs/settings-and-privacy/models-and-cost/) · [Privacy](/docs/settings-and-privacy/privacy/)
+  </Card>
+  <Card title="Troubleshooting" icon="information">
+    A missing tab, AI that does not work, a team guide that cannot be read.
+
+    [Troubleshoot](/docs/troubleshooting/)
+  </Card>
+</CardGrid>
+
+## Look something up
+
+<CardGrid>
+  <LinkCard title="Rule reference" description="Every rule in the bundled style guide, with its level and examples." href="/docs/reference/rules/" />
+  <LinkCard title="Release notes" description="What changed in each version of House Style." href="/docs/release-notes/" />
+</CardGrid>

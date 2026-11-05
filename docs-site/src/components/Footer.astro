@@ -1,0 +1,12 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<Default {...Astro.props}><slot /></Default>
+<p class="hs-foot">
+  <a href="https://gethousestyle.com/">gethousestyle.com</a> ·
+  <a href="https://github.com/abmorrill4/house-style/releases">Releases</a> ·
+  <a href="https://gethousestyle.com/privacy.html">Privacy</a> ·
+  <a href={`${base}/dev/`}>For contributors</a>
+</p>

@@ -35,6 +35,7 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
 | `corpus/` | About 1,740 generated test topics for Bench and the integration tests. This is data. Don't read it wholesale. |
 | `scripts/` | Bootstrap, install, run Flare, package, release `Install.ps1`/`.cmd`, Confluence publisher. |
 | `site/` | gethousestyle.com: static GitHub Pages, deployed by `pages.yml` on pushes to `main`. |
+| `docs-site/` | The documentation site (Astro Starlight), published at gethousestyle.com/docs/ by `pages.yml`. See "Docs site" below. |
 | `docs/` | `PLAN.md` (architecture), `flare-api-notes.md` (verified Flare behavior), `api-dump.txt` (the real API, authoritative), `testing/`, `release-notes/`, `user-guide/`. |
 | `../../planning/` | Outside the repo and not git tracked: the roadmap, plans, research and handoff notes. The main checkout lives at `<project>/repos/house-style`. |
 
@@ -77,6 +78,19 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
   `gh api repos/abmorrill4/house-style/security-advisories`. Publish the advisory with the release that fixes it.
   Hardening items with no exploit path can be public issues labeled `security`.
 - **Model output is data.** It reaches the document only through the validators in `Editing/`.
+
+## Docs site (`docs-site/`)
+The writers' user guide is Markdown in `docs-site/src/content/docs/<section>/` (Get started, Check your writing, AI assists,
+Team style guide, Settings and privacy, Troubleshoot). `pages.yml` builds it into `site/docs/` and writes a redirect for
+each old `/guide/` page (`docs-site/scripts/guide-redirects.mjs`). `docs/user-guide` (the Flare project) stays until the owner retires it.
+- **Run it.** `cd docs-site; npm ci; npm run dev`. `npm run build` also fails on a broken internal link. Node is pinned in the workflows.
+- **Add a page.** Add a `.md` file in a section folder with `title`, `description` and `sidebar.order`. User pages follow
+  "Writing copy" below and contain no repo paths, test talk or developer terms. Check a feature page against the source before you write it.
+- **Generated, never edit.** `docs-site/scripts/sync.mjs` builds `reference/` (every rule, from `styleguide/`), `release-notes.md`
+  (GitHub releases, `docs/release-notes`, `whats-new.md`) and `dev/quality` and `dev/developers` (copied from `docs/testing`,
+  `PLAN.md`, `docs/flare-api-notes.md`, `docs/dev` and `CLAUDE.md`). Change the source file. The contributor area `/docs/dev/`
+  is kept out of the navigation, the search and llms.txt, and is linked only from the footer.
+- **Check the copy.** `docs.yml` runs House Style's own checker on the user pages (`docs-site/scripts/lint-docs.mjs`), as a non-blocking job.
 
 ## Build and test
 ```powershell

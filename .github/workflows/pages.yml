@@ -1,13 +1,26 @@
-# Publishes site/ (plain static HTML and CSS) to GitHub Pages, with the user guide built into site/guide/.
+# Publishes site/ (plain static HTML and CSS) to GitHub Pages, with the documentation (docs-site, Astro Starlight) built
+# into site/docs and a redirect page for each page of the old user guide in site/guide.
 # Repo Settings > Pages > Source must be "GitHub Actions".
 # Two jobs: the build runs repo code with read-only access and no stored credentials; only the deploy job, which runs
 # no repo code, holds the Pages and OIDC permissions.
+# It also runs every morning, after the nightly release, so the release notes page lists the newest version.
 name: pages
 
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'docs/user-guide/**', 'scripts/build-guide.py']
+    paths:
+      - 'site/**'
+      - 'docs-site/**'
+      - 'docs/**'
+      - 'styleguide/**'
+      - 'changes/**'
+      - 'PLAN.md'
+      - 'CLAUDE.md'
+      - 'src/FlareAI.Flare/whats-new.md'
+      - '.github/workflows/pages.yml'
+  schedule:
+    - cron: '37 9 * * *'
   workflow_dispatch:
 
 permissions:
@@ -25,8 +38,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build the user guide into site/guide
-        run: python3 scripts/build-guide.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.14.0'
+
+      - name: Install the docs dependencies
+        working-directory: docs-site
+        run: npm ci --ignore-scripts
+
+      - name: Build the docs
+        working-directory: docs-site
+        env:
+          # The job's own read-only token, only so the GitHub API lets the build read the releases list. No stored secret.
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASES_REQUIRED: '1'
+        run: npm run build
+
+      - name: Put the docs next to the site and redirect the old guide
+        run: |
+          mkdir -p site/docs
+          cp -R docs-site/dist/. site/docs/
+          node docs-site/scripts/guide-redirects.mjs site/guide
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

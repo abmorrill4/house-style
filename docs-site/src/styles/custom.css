@@ -1,0 +1,50 @@
+/* House Style brand for Starlight. Tokens match site/style.css; see site/brand/README.md.
+   Switzer (Indian Type Foundry, ITF Free Font License) is copied from site/fonts at build time, so no visitor data goes to a font CDN. */
+@font-face { font-family: "Switzer"; src: url("../assets/fonts/switzer-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Switzer"; src: url("../assets/fonts/switzer-500.woff2") format("woff2"); font-weight: 500 700; font-style: normal; font-display: swap; }
+
+:root {
+  --sl-font: "Switzer", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --sl-font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", Consolas, monospace;
+
+  /* dark theme (Starlight's default) */
+  --sl-color-white: #e4ebee;
+  --sl-color-gray-1: #cfdade;
+  --sl-color-gray-2: #a5b5bc;
+  --sl-color-gray-3: #7d8f97;
+  --sl-color-gray-4: #4c5e66;
+  --sl-color-gray-5: #34474f;
+  --sl-color-gray-6: #203039;
+  --sl-color-gray-7: #17242b;
+  --sl-color-black: #10191e;
+  --sl-color-accent-low: #0e4f57;
+  --sl-color-accent: #0d7480;
+  --sl-color-accent-high: #5cc3ce;
+  --sl-color-text-accent: #5cc3ce;
+}
+
+:root[data-theme='light'] {
+  --sl-color-white: #1f3038;
+  --sl-color-gray-1: #2c4048;
+  --sl-color-gray-2: #3f545c;
+  --sl-color-gray-3: #55646b;
+  --sl-color-gray-4: #8a999f;
+  --sl-color-gray-5: #c3ced3;
+  --sl-color-gray-6: #e1e8eb;
+  --sl-color-gray-7: #ecf0f2;
+  --sl-color-black: #f7f9fa;
+  --sl-color-accent-low: #d4ebee;
+  --sl-color-accent: #0d7480;
+  --sl-color-accent-high: #0a5f69;
+  --sl-color-text-accent: #0a5f69;
+}
+
+h1, h2, h3, h4 { font-weight: 500; }
+.site-title { font-weight: 500; }
+
+/* The rule reference is long tables: keep each rule ID on one line and let the table scroll on a narrow screen. */
+.sl-markdown-content td, .sl-markdown-content th { vertical-align: top; }
+.sl-markdown-content td:first-child code { white-space: nowrap; }
+
+.hs-foot { margin-top: 1rem; font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); }
+.hs-foot a { color: inherit; }

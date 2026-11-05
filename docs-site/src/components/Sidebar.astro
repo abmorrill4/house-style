@@ -1,0 +1,41 @@
+---
+// The writers' sidebar everywhere except the contributor area at /docs/dev/, which gets its own short sidebar so
+// developer pages never show up in the writers' navigation.
+import { getCollection } from 'astro:content';
+import Default from '@astrojs/starlight/components/Sidebar.astro';
+
+const route = Astro.locals.starlightRoute;
+if (route.id === 'dev' || route.id.startsWith('dev/')) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const pages = (await getCollection('docs')).filter((p) => p.id.startsWith('dev/') && p.id !== 'dev');
+  const groups = new Map<string, typeof pages>();
+  for (const p of pages) {
+    const key = p.id.split('/')[1] ?? '';
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  const labels: Record<string, string> = { quality: 'Quality', developers: 'Developers' };
+  const link = (p: (typeof pages)[number]) => ({
+    type: 'link' as const,
+    label: p.data.title,
+    href: `${base}/${p.id}/`,
+    isCurrent: p.id === route.id,
+    badge: undefined,
+    attrs: {},
+  });
+  const sort = (a: (typeof pages)[number], b: (typeof pages)[number]) =>
+    (a.data.sidebar.order ?? 999) - (b.data.sidebar.order ?? 999) || a.data.title.localeCompare(b.data.title);
+  route.sidebar = [
+    { type: 'link', label: 'Contributor home', href: `${base}/dev/`, isCurrent: route.id === 'dev', badge: undefined, attrs: {} },
+    ...[...groups.entries()].map(([key, items]) => ({
+      type: 'group' as const,
+      label: labels[key] ?? key,
+      collapsed: false,
+      badge: undefined,
+      entries: items.sort(sort).map(link),
+    })),
+    { type: 'link', label: 'Back to the user guide', href: `${base}/`, isCurrent: false, badge: undefined, attrs: {} },
+  ];
+}
+---
+
+<Default {...Astro.props}><slot /></Default>
