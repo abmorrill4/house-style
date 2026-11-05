@@ -1,0 +1,20 @@
+# gitleaks settings. Starts from the built-in rules and skips only the known fake values below.
+title = "House Style gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated test topics. The Zulip API examples hold placeholder credentials such as EMAIL_ADDRESS:API_KEY."
+paths = ['''^corpus/v2/api-docs/''']
+
+[[allowlists]]
+description = "Redaction tests that need a key-shaped constant to prove it is removed."
+paths = [
+  '''^tests/FlareAI\.Core\.Tests/FeedbackTests\.cs$''',
+  '''^tools/feedback-worker/test/false-positive\.test\.ts$''',
+  '''^tools/feedback-worker/test/report\.test\.ts$''',
+  # Deleted files, still in the history. Both held made-up key shapes to test redaction.
+  '''^tests/FlareAI\.Core\.Tests/LogTests\.cs$''',
+  '''^tests/factory/Hardening\.Tests\.ps1$''',
+]

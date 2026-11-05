@@ -1,0 +1,129 @@
+# Scans for leaked secrets, unsafe workflows and known-vulnerable packages on every push to main and every pull request,
+# and once a week over the full history. This is not a required check, so a finding or an outage of a scanner never
+# blocks a merge; read the result in the Checks tab. The jobs hold no secrets and only read the repository.
+# Local commands for each scanner are in the root CLAUDE.md. Each downloaded tool is checked against a fixed SHA-256.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 6 * * 1'   # Mondays, 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('security-pr-{0}', github.event.pull_request.number) || format('security-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gitleaks:
+    # Pull requests scan their own commits. Everything else (pushes to main, the weekly run) scans the full history.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks 8.30.1
+        run: |
+          curl -fsSL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            ./gitleaks git . --redact --no-banner --verbose --log-opts="$BASE..$HEAD"
+          else
+            ./gitleaks git . --redact --no-banner --verbose
+          fi
+
+  zizmor:
+    # Workflow security. Medium and higher findings fail the job. Known exceptions are in .github/zizmor.yml.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --require-hashes -r .github/zizmor-requirements.txt
+      - name: Scan
+        env:
+          # zizmor only reads the public API for a few online checks; the token is read-only and has no secrets behind it.
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --persona auditor --min-severity medium --no-progress --config .github/zizmor.yml .github'
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install actionlint 1.7.12
+        run: |
+          curl -fsSL -o actionlint.tar.gz https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+      - name: Lint the workflows
+        run: ./actionlint -color
+
+  osv-npm:
+    # Known vulnerabilities in the feedback worker's npm packages. High and Critical (CVSS 7.0 and up) fail the job;
+    # lower ones are only listed. NuGet is covered by the next job, because osv-scanner doesn't read .csproj files.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install osv-scanner 2.7.0
+        run: |
+          curl -fsSL -o osv-scanner https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+          echo "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+      - name: Scan
+        run: |
+          # Exit code 1 means it found vulnerabilities; anything else but 0 is a failure of the scanner itself.
+          rc=0
+          ./osv-scanner scan source --lockfile tools/feedback-worker/package-lock.json || rc=$?
+          if [ "$rc" -gt 1 ]; then echo "::error::osv-scanner failed (exit code $rc)."; exit "$rc"; fi
+          rc=0
+          ./osv-scanner scan source --lockfile tools/feedback-worker/package-lock.json --format json --output-file osv.json >/dev/null || rc=$?
+          if [ "$rc" -gt 1 ]; then echo "::error::osv-scanner failed (exit code $rc)."; exit "$rc"; fi
+          high=$(jq '[.results[]?.packages[]?.groups[]? | select(((.max_severity // "") | tonumber? // 0) >= 7)] | length' osv.json)
+          if [ "$high" -gt 0 ]; then echo "::error::$high High or Critical vulnerability group(s) in the npm packages."; exit 1; fi
+
+  osv-nuget:
+    # Known vulnerabilities in NuGet packages, direct and transitive, from the SDK's own audit data. The repo has no
+    # NuGet lock files, so osv-scanner can't see these. High and Critical fail the job; lower ones are only listed.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '8.0.x'
+      - name: Audit packages
+        shell: pwsh
+        run: |
+          dotnet restore FlareAI.sln
+          if ($LASTEXITCODE) { throw "dotnet restore failed." }
+          $out = dotnet list FlareAI.sln package --vulnerable --include-transitive
+          if ($LASTEXITCODE) { throw "dotnet list package failed." }
+          $out | Write-Host
+          $bad = @($out | Where-Object { $_ -match '^\s*>\s.*\s(High|Critical)\s+https?://' })
+          if ($bad.Count) { throw "$($bad.Count) High or Critical package vulnerability line(s) found." }
