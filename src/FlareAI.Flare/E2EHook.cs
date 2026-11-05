@@ -27,7 +27,7 @@ namespace FlareAI.Flare
         /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
         internal static readonly string[] Verbs =
         {
-            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertVariable", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
             "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
         };
 
@@ -153,6 +153,7 @@ namespace FlareAI.Flare
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
                 case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
                 case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
+                case "insertVariable": { string err; var ok = Active().TryInsertVariable(arg, out err); return new { ok, error = err }; }
                 case "bodyXml": return new { xml = FlareAI.Core.Editing.BlockSelector.FindBody(Active().Document).InnerXml };   // the live body, to compare before and after undo and redo
                 case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false);   // new blocks after the body block holding "after"; one tracked operation
                 case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true);       // the same without the refusal: only for the control that proves a crash is seen

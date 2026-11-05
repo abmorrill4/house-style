@@ -40,6 +40,12 @@ namespace FlareAI.Core.Editing
         /// <summary>Select a span of one text node in the editor so the author sees it. False if the editor could not.</summary>
         bool SelectText(XmlText run, int start, int length);
 
+        /// <summary>
+        /// Replaces the selection (or inserts at the caret) with the project variable "Set.Name", as one tracked, undoable
+        /// change. False when the editor could not do it (nothing changed).
+        /// </summary>
+        bool InsertVariable(string name);
+
         /// <summary>Runs <paramref name="body"/> as one undoable operation (one Ctrl+Z), then refreshes the view.</summary>
         void Edit(string operationName, System.Action body);
 

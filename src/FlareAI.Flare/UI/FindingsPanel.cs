@@ -2664,7 +2664,7 @@ namespace FlareAI.Flare.UI
             _accept.Enabled = open;
             _goTo.Enabled = f != null && !f.IsFixed;
             _openFile.Enabled = _session.FilePathOf(f) != null;
-            _accept.Text = f == null ? "Change" : f.Rule == "Structure.AltText" && f.DocumentPath == null ? "Add Alt Text…" : f.Kind == "restructure" ? "Change…" : f.Kind == "variable" || f.Kind == "manual" ? "Go To" : "Change";
+            _accept.Text = f == null ? "Change" : f.Rule == "Structure.AltText" && f.DocumentPath == null ? "Add Alt Text…" : f.Kind == "restructure" ? "Change…" : f.Kind == "manual" ? "Go To" : "Change";
             _accept.AccessibleName = _accept.Text.TrimEnd('…');
             var sameRule = open && _files == null ? _session.ChangeAllCandidates(f).Count : 0;
             _changeAll.Visible = sameRule > 1;   // only when there is more than one of this issue (a narrow pane has no room for a dead button)

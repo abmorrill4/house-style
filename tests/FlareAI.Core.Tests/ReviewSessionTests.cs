@@ -299,8 +299,24 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void Accept_Variable_SelectsTheText_AndSaysInsertTheVariable()
+        public void Accept_Variable_InsertsTheVariable_AndMarksItFixed()
         {
+            var s = Session();
+            var f = Find(_topic, "the tool", null);
+            f.Variable = "General.ProductName";
+            s.Add(new[] { f });
+            s.Current = f;
+
+            Assert.Equal(AcceptOutcome.Applied, s.Accept());
+            Assert.Equal("the tool", _topic.LastSelected);
+            Assert.Equal(new[] { "General.ProductName" }, _topic.InsertedVariables.ToArray());
+            Assert.True(f.IsFixed);
+        }
+
+        [Fact]
+        public void Accept_Variable_WhenTheEditorCannot_SelectsTheText_AndSaysInsertTheVariable()
+        {
+            _topic.InsertVariableResult = false;
             var s = Session();
             var f = Find(_topic, "the tool", null);
             f.Variable = "General.ProductName";

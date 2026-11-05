@@ -68,6 +68,10 @@ namespace FlareAI.Core.Tests
         public List<string> TextOperations = new List<string>();
         public string LastSelected;
 
+        public System.Collections.Generic.List<string> InsertedVariables = new System.Collections.Generic.List<string>();
+        public bool InsertVariableResult = true;
+        public bool InsertVariable(string name) { if (InsertVariableResult) InsertedVariables.Add(name); return InsertVariableResult; }
+
         public bool SelectText(XmlText run, int start, int length)
         {
             LastSelected = run.Value.Substring(start, length);
