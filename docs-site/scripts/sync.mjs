@@ -64,7 +64,7 @@ const decode = (s) =>
     if (e[0] === '#') return String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
     return ENT[e.toLowerCase()] ?? m;
   });
-const text = (html) => decode(html.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+const text = (html) => decode(html.replace(/<[^>]*>/g, '').replace(/[<>]/g, '')).replace(/\s+/g, ' ').trim();
 const esc = (s) => s.replace(/([\\`*_\[\]<>|])/g, '\\$1');
 const cell = (s) => esc(s).replace(/\n/g, ' ');
 const slug = (s) => (s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x');
@@ -251,6 +251,8 @@ function releaseBody(md) {
   let body = md.replace(/\r\n/g, '\n').trim();
   body = body.replace(/\n#{1,3} Install or update[\s\S]*$/, '');
   body = body.replace(/^# .*\n+/, '');
+  // Release notes are plain Markdown. Raw HTML in one would end up in the page, so any tag is shown as text.
+  body = body.replace(/<(?!https?:\/\/)/g, '&lt;');
   body = body.replace(/^(#{1,2}) /gm, (m, h) => '#'.repeat(h.length + 2) + ' ');
   return body.trim();
 }
