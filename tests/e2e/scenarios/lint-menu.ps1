@@ -4,11 +4,11 @@
 param($Fixture)
 $run = Start-FlareE2E -Fixture $Fixture -Force
 $ending = "These issues come from the rules only. To add the AI review, choose Rules and AI Review on Lint Topic."
-function WhatsNew { (Get-E2EState).dialogs | Where-Object { $_.title -like "*What's new*" } }
+function WhatsNew { (Get-E2EState).dialogs | Where-Object { $_.title -like "*What's New*" } }
 
 Invoke-RibbonMenu -Button "Help" -Item "What's New"
 Wait-Until { WhatsNew } 30 "What's New to open from Help's menu" | Out-Null
-Send-E2E dialogClick "Close" -Extra @{ title = "What's new" } | Out-Null
+Send-E2E dialogClick "Close" -Extra @{ title = "What's New" } | Out-Null
 Wait-Until { -not (WhatsNew) } 15 "What's New to close" | Out-Null
 
 Send-E2E open (Join-Path $run.Project "Content\billpay\faq.htm") | Out-Null
