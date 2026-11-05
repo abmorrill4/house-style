@@ -373,7 +373,7 @@ namespace FlareAI.Flare.Tests
                 Assert.True(list.Focused);
                 Assert.Single(list.SelectedItems.Cast<ListViewItem>());
                 Assert.True(list.Items[0].Selected);
-                // A disabled window (a modal dialog over Flare) can't take the focus: the scenario sees false.
+                // A disabled window (a modal dialog over Flare) can't take the focus: the test sees false.
                 other.Focus();
                 form.Enabled = false;
                 Assert.False(panel.E2EFocusList());

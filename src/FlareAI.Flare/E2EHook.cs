@@ -143,7 +143,7 @@ namespace FlareAI.Flare
                     return null;
                 case "dialogType": Type(Dialog((string)c["title"]), (string)c["name"], arg); return null;   // a text box or list by its accessible name
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
-                // The scenario sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
+                // The test sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
                 case "paneRow": return new { text = Pane().E2EClickHeading(arg) };   // a file heading (collapses or expands the file) or an issue row (selects it) by part of its text
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
@@ -211,7 +211,7 @@ namespace FlareAI.Flare
         }
 
         /// <summary>
-        /// For pane code that shows a Save dialog: the path a scenario set with saveAs, which the caller writes to instead of
+        /// For pane code that shows a Save dialog: the path a test set with saveAs, which the caller writes to instead of
         /// showing the dialog. Null (show the dialog) when the hook is off or no path was set. Clears it, so it's one-shot.
         /// </summary>
         internal static string TakeSavePath()
@@ -271,7 +271,7 @@ namespace FlareAI.Flare
                 try { SizePane(pane, width, height); }
                 catch (InvalidOperationException) { }   // the floating window took UndockedSize instead
             }
-            var hosts = new List<string>();   // what holds the pane, for a scenario's failure message
+            var hosts = new List<string>();   // what holds the pane, for a test's failure message
             for (Control p = pane.Parent; p != null && hosts.Count < 8; p = p.Parent) hosts.Add(p.GetType().Name);
             return new { floating, width = pane.ClientSize.Width, height = pane.ClientSize.Height, hosts };
         }

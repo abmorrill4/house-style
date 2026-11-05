@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Test-support library for scenario tests: a Flare-faithful fake editor (FlareSimDocument), the adapter conformance
+    Test-support library for test tests: a Flare-faithful fake editor (FlareSimDocument), the adapter conformance
     suite, recorded/scripted LLM clients, a localhost LLM mock server and a temp workspace. No test-framework dependency,
     so the conformance suite can also run inside Flare against FlareDocumentAdapter (the in-Flare self-test, #82).
   -->

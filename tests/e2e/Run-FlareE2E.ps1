@@ -1,25 +1,25 @@
 <#
-.SYNOPSIS Runs the end-to-end scenarios in real Flare and writes results.json; the exit code is the number of failures.
-.DESCRIPTION Each scenario (scenarios\*.ps1) gets a fresh Flare on a fresh copy of the fixture project, with the
+.SYNOPSIS Runs the end-to-end tests in real Flare and writes results.json; the exit code is the number of failures.
+.DESCRIPTION Each test (tests\*.ps1) gets a fresh Flare on a fresh copy of the fixture project, with the
 plugin's settings isolated in the run folder. A failure saves Flare's state (JSON) and a screenshot next to results.json.
 Closes any running Flare: don't run it while you have unsaved work in Flare.
-A watchdog ends a scenario that runs past -ScenarioMinutes: it saves a screenshot and the open windows' titles, then
+A watchdog ends a test that runs past -TestMinutes: it saves a screenshot and the open windows' titles, then
 kills Flare, which also frees a UI Automation call stuck on an unresponsive window.
 -QueueSeconds is how long the job waited before this run (-1 when unknown). Each results.json row also records
 installSeconds, flareStartSeconds, resolution, windowState, paneWidth and paneHeight (see README.md).
 Flare is maximized at the start of every run.
 .EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install
-.EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Scenario lint-menu
+.EXAMPLE powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Test lint-menu
 #>
 param(
-    [string[]]$Scenario,                      # names without .ps1; default all
+    [Alias('Scenario')][string[]]$Test,                      # names without .ps1; default all
     [switch]$Install,                         # build Release and install into Flare first
-    [switch]$NoAi,                            # skip scenarios that call the AI (no key, or to save cost)
+    [switch]$NoAi,                            # skip tests that call the AI (no key, or to save cost)
     [string]$Fixture,                         # default: corpus\DigitalBanking in the repo
     [string]$RepoRoot,                        # the checkout to build and test, when this harness runs from a copy (the factory)
     [string]$OutDir,
     [int]$QueueSeconds = -1,                  # seconds the job waited before this run; -1 means unknown
-    [int]$ScenarioMinutes = 12                # a scenario still running after this is hung (its own waits add up to ~11)
+    [int]$TestMinutes = 12                # a test still running after this is hung (its own waits add up to ~11)
 )
 $ErrorActionPreference = "Stop"
 if ($PSVersionTable.PSEdition -ne "Desktop") { throw "Run with Windows PowerShell 5.1 (powershell.exe): UI Automation needs .NET Framework." }
@@ -40,10 +40,10 @@ if ($Install) {
 # The size this 5.1 process sees: it is DPI-unaware, so a scaled desktop reports the scaled size.
 $resolution = try { Add-Type -AssemblyName System.Windows.Forms; $b = [System.Windows.Forms.SystemInformation]::VirtualScreen; "$($b.Width)x$($b.Height)" } catch { $null }
 
-$files = Get-ChildItem (Join-Path $repo "tests\e2e\scenarios") -Filter *.ps1 |
-    Where-Object { -not $Scenario -or $Scenario -contains $_.BaseName }
+$files = Get-ChildItem (Join-Path $repo "tests\e2e\tests") -Filter *.ps1 |
+    Where-Object { -not $Test -or $Test -contains $_.BaseName }
 if ($NoAi) { $files = $files | Where-Object { $_.BaseName -notlike "ai-*" } }
-if (-not @($files).Count) { throw "No scenarios to run (check -Scenario names)." }   # an empty run must not look like a pass
+if (-not @($files).Count) { throw "No tests to run (check -Test names)." }   # an empty run must not look like a pass
 $out = $OutDir
 New-Item -ItemType Directory -Force $out | Out-Null
 $env:HOUSESTYLE_E2E_OUT = $out   # Save-E2EScreenshot puts its screenshots here
@@ -66,27 +66,27 @@ $watchdog = {
     Get-Process Flare -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 $q = { param($p) "'" + ($p -replace "'", "''") + "'" }
-# One try of one scenario. A failure is "vm" only when Flare itself never came up (no main window, or the licensing
+# One try of one test. A failure is "vm" only when Flare itself never came up (no main window, or the licensing
 # wizard stuck) or hung before the plugin reported ready: the machine is the likely cause, so it earns one retry.
-# Everything else is "test" and is never retried: Flare up but the plugin never ready, a scenario that fails before
+# Everything else is "test" and is never retried: Flare up but the plugin never ready, a test that fails before
 # starting Flare, and anything after the plugin is ready, hangs included (a fix can deadlock Flare).
 function Invoke-Once($f, $tag) {
     $start = Get-Date
     $hung = Join-Path $out "$tag-hung.txt"
-    $cmd = "& {$watchdog} $PID $($ScenarioMinutes * 60) $(& $q (Join-Path $out "$tag-hung.png")) $(& $q $hung)"
+    $cmd = "& {$watchdog} $PID $($TestMinutes * 60) $(& $q (Join-Path $out "$tag-hung.png")) $(& $q $hung)"
     $dog = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList "-NoProfile", "-EncodedCommand", ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd)))
     $r = [ordered]@{ passed = $false; kind = $null; seconds = 0; error = $null; version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null; paneWidth = $null; paneHeight = $null }
-    (Get-Module FlareE2E).Invoke({ $script:Run = $null })   # no state from the scenario before
+    (Get-Module FlareE2E).Invoke({ $script:Run = $null })   # no state from the test before
     try {
         & $f.FullName -Fixture $Fixture | Out-Host   # to the console, not into this function's result
         $r.passed = $true
     } catch {
         $r.error = $_.Exception.Message
-        # Where Flare got to: never launched by this scenario, launched, or the plugin ready.
+        # Where Flare got to: never launched by this test, launched, or the plugin ready.
         $stage = (Get-Module FlareE2E).Invoke({ if (-not $script:Run) { "none" } elseif ($script:Run.PSObject.Properties["PluginReady"]) { "ready" } else { "launched" } })
         $flareUp = $stage -eq "launched" -and -not (Test-Path $hung) -and [bool](Get-Process Flare -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -ne "Licensing Wizard" })
         $r.kind = if ($stage -eq "launched" -and -not $flareUp) { "vm" } else { "test" }
-        if (Test-Path $hung) { $r.error = "Hung for $ScenarioMinutes min, so the watchdog killed Flare: $($r.error)"; $r.artifacts += "$tag-hung.txt", "$tag-hung.png" }
+        if (Test-Path $hung) { $r.error = "Hung for $TestMinutes min, so the watchdog killed Flare: $($r.error)"; $r.artifacts += "$tag-hung.txt", "$tag-hung.png" }
         try { Get-E2EState | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $out "$tag-state.json"); $r.artifacts += "$tag-state.json" } catch { }
         try {
             Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -107,14 +107,14 @@ function Invoke-Once($f, $tag) {
     $r
 }
 
-# One line per scenario run, kept across runs, so the sequence of tries and why each failed is readable at a glance.
+# One line per test run, kept across runs, so the sequence of tries and why each failed is readable at a glance.
 $history = Join-Path (Get-E2ERoot) "history.log"
 $head = try { "$(git -C $repo rev-parse --abbrev-ref HEAD 2>$null)@$(git -C $repo rev-parse --short HEAD 2>$null)" } catch { "" }
 
 foreach ($f in $files) {
     Write-Host "== $($f.BaseName)"
     # Mistakes a static check finds cost no Flare launch.
-    $problems = try { @(& (Join-Path $PSScriptRoot "Test-E2EScenario.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo) } catch { @("the preflight check itself failed: $($_.Exception.Message)") }
+    $problems = try { @(& (Join-Path $PSScriptRoot "Test-E2E.ps1") -Path $f.FullName -Fixture $Fixture -RepoRoot $repo) } catch { @("the preflight check itself failed: $($_.Exception.Message)") }
     if ($problems.Count) {
         $r = [ordered]@{ passed = $false; kind = "preflight"; seconds = 0; error = ($problems -join " | "); version = $null; artifacts = @(); flareStartSeconds = $null; windowState = $null; paneWidth = $null; paneHeight = $null }
     } else {

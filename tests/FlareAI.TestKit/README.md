@@ -1,6 +1,6 @@
 # FlareAI.TestKit
 
-Test-support library for scenario tests (`tests/FlareAI.Scenarios`). It lets a test drive real Core flows offline:
+Test-support library for test tests (`tests/FlareAI.Integration.Tests`). It lets a test drive real Core flows offline:
 a Flare-faithful fake editor, scripted model answers, a localhost HTTP mock of the model endpoints, and a
 temp workspace. No test-framework dependency, so the conformance suite can also run inside Flare.
 

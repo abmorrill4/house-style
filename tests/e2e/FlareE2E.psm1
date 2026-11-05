@@ -30,7 +30,7 @@ function Get-E2ERoot { if (Test-Path "E:\") { "E:\HouseStyle\e2e" } else { "$env
 <# Throws when the plugin is up but Flare's UI thread has stopped answering, naming the windows it had open. #>
 function Assert-Heartbeat {
     if (-not ($script:Run -and $script:Run.PSObject.Properties["ProjectOpen"])) { return }
-    if (-not (Get-Process Flare -ErrorAction SilentlyContinue)) { throw "Flare exited (crashed or closed) during the scenario." }
+    if (-not (Get-Process Flare -ErrorAction SilentlyContinue)) { throw "Flare exited (crashed or closed) during the test." }
     $f = Join-Path $script:Run.Hook "heartbeat.json"
     if (-not (Test-Path $f)) { return }   # a plugin build without the heartbeat
     $age = ((Get-Date) - (Get-Item $f).LastWriteTime).TotalSeconds
@@ -77,7 +77,7 @@ function Get-FlareWindow([string]$Name) {
 #>
 function Start-FlareE2E {
     param([Parameter(Mandatory)][string]$Fixture, [switch]$Ai, [switch]$Force, [hashtable]$Settings = @{})
-    # A run with only the Bifrost key (a factory branch on the Flare VM) sends every AI scenario through the gateway.
+    # A run with only the Bifrost key (a factory branch on the Flare VM) sends every AI test through the gateway.
     $Bifrost = $Ai -and -not $env:ANTHROPIC_API_KEY -and $env:HOUSESTYLE_TEST_BIFROST_KEY
     if ($Bifrost) {
         if (-not $env:HOUSESTYLE_TEST_BIFROST_URL -or -not $env:HOUSESTYLE_TEST_BIFROST_KEY) { throw "-Bifrost needs HOUSESTYLE_TEST_BIFROST_URL and HOUSESTYLE_TEST_BIFROST_KEY." }
@@ -165,9 +165,9 @@ function Start-FlareE2E {
     return $script:Run
 }
 
-# One results.json row: the scenario's own fields first (their order is unchanged), then the run-level values.
-function New-E2EResultRow($Scenario, $Result, $InstallSeconds, [int]$QueueSeconds, $Resolution) {
-    $row = [ordered]@{ scenario = $Scenario }
+# One results.json row: the test's own fields first (their order is unchanged), then the run-level values.
+function New-E2EResultRow($Test, $Result, $InstallSeconds, [int]$QueueSeconds, $Resolution) {
+    $row = [ordered]@{ test = $Test }
     foreach ($k in $Result.Keys) { $row[$k] = $Result[$k] }
     $row.installSeconds = $InstallSeconds
     $row.queueSeconds = if ($QueueSeconds -lt 0) { $null } else { $QueueSeconds }
