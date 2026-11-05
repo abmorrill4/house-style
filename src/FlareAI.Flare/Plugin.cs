@@ -363,6 +363,7 @@ namespace FlareAI.Flare
             if (c == Commands.LintFolders) return OnLintFolders;
             if (c == Commands.ShowIssues) return () => { if (!PanelHost.Reopen(_nav.GetParentForm())) OnLintTopic(); };
             if (c == Commands.TopicMetadata) return OnAssist;
+            if (c == Commands.Introduction) return OnIntroduction;
             if (c == Commands.TestRules) return OnValidateGuide;
             if (c == Commands.Rules) return OnStyleRules;
             if (c == Commands.RuleDecisions) return () => OnTuneGuide(null);
@@ -586,8 +587,20 @@ namespace FlareAI.Flare
             }
         }
 
+        /// <summary>Write an Introduction: the same draft-and-insert path, under the heading above the caret, with a fixed instruction.</summary>
+        private void OnIntroduction()
+        {
+            if (!AiReady(Commands.Introduction.Label)) return;
+            var adapter = ActiveAdapter();
+            if (adapter == null || !adapter.IsEditableTopic) { Notify.Info(Owner, "Open a topic in the XML Editor first.", Commands.Introduction.Label); return; }
+            string refusal;
+            var anchor = DraftAnchor.ForIntroduction(adapter, out refusal);
+            if (anchor == null) { Notify.Info(Owner, refusal, Commands.Introduction.Label); return; }
+            RunInsert(Commands.Introduction.Label, null, anchor);
+        }
+
         /// <summary>Insert at the cursor: drafts new text after the paragraph or heading the caret is in and, once the writer agrees, inserts it as one tracked change.</summary>
-        private void RunInsert(string title, string instruction)
+        private void RunInsert(string title, string instruction, System.Xml.XmlNode anchor = null)
         {
             try
             {
@@ -598,10 +611,12 @@ namespace FlareAI.Flare
                     return;
                 }
                 string refusal;
-                var anchor = DraftAnchor.For(adapter, out refusal);
+                if (anchor == null) anchor = DraftAnchor.For(adapter, out refusal);
+                else refusal = null;
                 if (anchor == null) { Notify.Info(Owner, refusal, title); return; }
                 var runner = NewRunner(adapter, true, false);
                 if (runner == null) return;
+                if (instruction == null) instruction = runner.IntroductionInstruction();
                 runner.LogChecks = "rules+ai";
                 using (var f = new InsertForm(title, runner, adapter, anchor, instruction))
                 {

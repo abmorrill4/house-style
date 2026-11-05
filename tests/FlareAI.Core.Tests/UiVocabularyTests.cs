@@ -119,7 +119,7 @@ namespace FlareAI.Core.Tests
         public void TheRibbonFollowsTheRole()
         {
             var writer = FlareAI.Flare.Commands.Ribbon(FlareAI.Core.Settings.UserRole.Writer).Select(c => c.Label).ToArray();
-            Assert.Equal(new[] { "Lint Topic", "Lint Project", "Reopen Issues", "Rules", "Rewrite", "Ask AI", "AI On", "Topic Metadata", "Settings", "Help" }, writer);
+            Assert.Equal(new[] { "Lint Topic", "Lint Project", "Reopen Issues", "Rules", "Rewrite", "Ask AI", "AI On", "Topic Metadata", "Write an Introduction", "Settings", "Help" }, writer);
             // The AI toggle is on the ribbon only: a Tool Strip menu item cannot change its label.
             var toggle = FlareAI.Flare.Commands.AiToggle;
             Assert.Equal("AI", toggle.Group);
@@ -142,7 +142,7 @@ namespace FlareAI.Core.Tests
             Assert.Equal(new[] { FlareAI.Flare.Commands.WhatsNew, FlareAI.Flare.Commands.Tour, FlareAI.Flare.Commands.ReportProblem }, FlareAI.Flare.Commands.HelpMenu.ToArray());
             // A writer on a team guide gets My Requests after Rules, with the approved tooltip; an owner doesn't need it.
             var teamWriter = FlareAI.Flare.Commands.Ribbon(FlareAI.Core.Settings.UserRole.Writer, true).Select(c => c.Label).ToArray();
-            Assert.Equal(new[] { "Lint Topic", "Lint Project", "Reopen Issues", "Rules", "My Requests", "Rewrite", "Ask AI", "AI On", "Topic Metadata", "Settings", "Help" }, teamWriter);
+            Assert.Equal(new[] { "Lint Topic", "Lint Project", "Reopen Issues", "Rules", "My Requests", "Rewrite", "Ask AI", "AI On", "Topic Metadata", "Write an Introduction", "Settings", "Help" }, teamWriter);
             Assert.Equal("See your rule change requests and the owners' answers.", FlareAI.Flare.Commands.MyRequests.Tooltip);
             Assert.DoesNotContain(FlareAI.Flare.Commands.MyRequests, FlareAI.Flare.Commands.Ribbon(FlareAI.Core.Settings.UserRole.Owner, true));
             Assert.StartsWith("https://gethousestyle.com", FlareAI.Flare.Commands.UserGuideUrl);
