@@ -548,5 +548,23 @@ namespace FlareAI.Core.Tests
             }
             finally { Directory.Delete(dir, true); }
         }
+
+        [Fact]
+        public void TeamFile_IgnoresValuesTheApiDoesNotExpect()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "flareai-routing-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(dir, "FlareAI"));
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, @"FlareAI\models.json"),
+                    "{\"tiers\":{\"fast\":{\"model\":\"claude-haiku-5-5\",\"effort\":\"low\"},\"standard\":{\"model\":\"x y; drop\",\"effort\":\"ludicrous\"}},\"review_unit\":\"everything\"}");
+                var routing = new FlareAI.Core.Llm.Routing().WithTeamFile(dir);
+                Assert.Equal("low", routing.For("refine").Effort);                       // a good value is applied
+                Assert.Equal("claude-sonnet-5-5", routing.For("review").Model);         // a bad model name keeps the default
+                Assert.Equal("medium", routing.For("review").Effort);                   // an unknown effort keeps the default
+                Assert.Equal("section", routing.ReviewUnit);                            // an unknown review unit keeps the default
+            }
+            finally { Directory.Delete(dir, true); }
+        }
     }
 }
