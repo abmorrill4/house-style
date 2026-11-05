@@ -133,6 +133,17 @@ namespace FlareAI.TestKit.Editor
             return true;
         }
 
+        /// <summary>The variables inserted so far, in order ("Set.Name"). The sim writes the variable's value as text; real Flare writes a MadCap:variable.</summary>
+        public List<string> InsertedVariables = new List<string>();
+
+        public bool InsertVariable(string name)
+        {
+            if (SelectedRun == null || string.IsNullOrEmpty(name)) return false;
+            Edit("Insert variable", () => ReplaceSelection(VariableValue(name) ?? name));
+            InsertedVariables.Add(name);
+            return true;
+        }
+
         public bool SelectText(XmlText run, int start, int length)
         {
             if (run == null || !Usable(run, start, length)) return false;

@@ -103,9 +103,16 @@ IRibbonComboBox combo = group.AddRibbonCombobox(new RibbonMenuData { ... });
   be inserted… wrong type"). The same replacement without a variable redoes fine.
   The plugin never takes this path: `NodeWrites.Refusal` (Core) refuses any `ReplaceBlocks` whose old or new blocks hold a
   variable (restructure, alt text), and `FlareDocumentAdapter.ReplaceBlocks` refuses it again (#110).
-- `ISelection.ReplaceText("<MadCap:variable …/>")` inserts the markup as literal text. There is no public, redo-safe way
-  to insert a variable; the plugin guides the author to Insert ▸ Variable on the selected text instead.
-  (Flare's own command is `B3.XmlTextApi.TextVariableInsertCommand`, internal.)
+- `ISelection.ReplaceText("<MadCap:variable …/>")` inserts the markup as literal text.
+- **Redo-safe route (verified 2026-11-05, #421).** Run Flare's own Insert Variable command on the editor control:
+  `B3.AppKit.CommandRouter.Shared.TryInvoke(boxView, null, new B3.XmlTextApi.TextVariableInsertCommand(name), name)`.
+  The types are public but not in the plugin API, so `FlareDocumentAdapter.TryInsertVariable` finds them by reflection:
+  `boxView` is the private field `mBoxView` of the `IDocument` implementation (`B3.PluginEngineKit.EditorDocument`).
+  It inserts at the caret, or replaces the selection. It is tracked only when `BoxView.TrackChanges` is true (set that property by
+  reflection around the call and restore it; `ISelection.TrackChange` does not do it). Checked by hand and by the
+  `variable-insert` E2E test: caret insert and replace-a-phrase, tracked, Ctrl+Z / Ctrl+Y several times, Accept All and
+  Reject All (and Undo/Redo after them), no crash. If a reflection lookup fails the plugin falls back to selecting the text
+  and asking the author to use Insert ▸ Variable. Node-level inserts of variables still crash on Redo and stay refused.
 - Inside one operation Flare writes `MadCap:change` elements immediately but adds their `changeData` ids to the head
   only at `EndOperation`: don't use head ids to recognise changes made in the current operation.
 - `IPaneDock.PinPane` means auto-hide (the pane collapses when the editor gets focus); `InstallPane` alone docks it.

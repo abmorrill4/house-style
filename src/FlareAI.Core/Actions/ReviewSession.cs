@@ -900,6 +900,13 @@ namespace FlareAI.Core.Actions
             if (f.Kind == "variable")
             {
                 GoTo(f, true);
+                if (!f.IsStale && !string.IsNullOrEmpty(f.Variable) && _doc.InsertVariable(f.Variable))
+                {
+                    f.IsFixed = true; f.Written = true;
+                    RecordFeedback(f, _doc.SourcePath, "accepted", null);
+                    Next();
+                    return AcceptOutcome.Applied;
+                }
                 Status = "The text is selected. On the Insert tab, click Variable and choose " + f.Variable + ".";
                 return AcceptOutcome.WentTo;
             }

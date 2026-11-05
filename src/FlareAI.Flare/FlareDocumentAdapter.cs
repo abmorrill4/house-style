@@ -21,6 +21,51 @@ namespace FlareAI.Flare
 
         public FlareDocumentAdapter(IDocument doc) { _doc = doc; }
 
+        /// <summary>
+        /// Inserts a variable at the caret by running Flare's own Insert Variable command on the editor control, so Flare
+        /// itself records it as one tracked, undoable change. Reflection: the types are public but not in the plugin API.
+        /// </summary>
+        public bool InsertVariable(string name)
+        {
+            string error;
+            if (TryInsertVariable(name, out error)) return true;
+            Diagnostics.Log("InsertVariable: " + error);
+            return false;
+        }
+
+        public bool TryInsertVariable(string name, out string error)
+        {
+            error = null;
+            try
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var field = _doc.GetType().GetField("mBoxView", flags);
+                var box = field == null ? null : field.GetValue(_doc);
+                if (box == null) { error = "the editor control was not found"; return false; }
+                Type Find(string n) { foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { var t = a.GetType(n, false); if (t != null) return t; } return null; }
+                var routerType = Find("B3.AppKit.CommandRouter");
+                var cmdType = Find("B3.XmlTextApi.TextVariableInsertCommand");
+                if (routerType == null || cmdType == null) { error = "Flare's variable command was not found"; return false; }
+                var sharedProp = routerType.GetProperty("Shared", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                var router = sharedProp != null ? sharedProp.GetValue(null, null) : routerType.GetField("Shared", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public).GetValue(null);
+                var cmd = Activator.CreateInstance(cmdType, new object[] { name });
+                System.Reflection.MethodInfo try4 = null;
+                foreach (var m in routerType.GetMethods()) if (m.Name == "TryInvoke" && m.GetParameters().Length == 4) try4 = m;
+                if (try4 == null) { error = "TryInvoke not found"; return false; }
+                var tracking = box.GetType().GetProperty("TrackChanges", flags);
+                var was = tracking == null ? null : tracking.GetValue(box, null);
+                if (tracking == null || !tracking.CanWrite) { error = "tracking could not be turned on"; return false; }
+                try
+                {
+                    tracking.SetValue(box, true, null);
+                    var ok = try4.Invoke(router, new object[] { box, null, cmd, name });
+                    return !(ok is bool) || (bool)ok;
+                }
+                finally { try { tracking.SetValue(box, was, null); } catch (Exception) { } }
+            }
+            catch (Exception ex) { error = ex.GetBaseException().Message; return false; }
+        }
+
         /// <summary>True when the plugin opened this file (it wasn't open in Flare before): bulk edits save and close it.</summary>
         public bool OpenedByPlugin { get; set; }
 
