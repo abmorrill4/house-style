@@ -27,7 +27,7 @@ namespace FlareAI.Flare
         /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
         internal static readonly string[] Verbs =
         {
-            "state", "command", "open", "click", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "state", "command", "open", "click", "caret", "bodyXml", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
             "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
         };
 
@@ -151,12 +151,35 @@ namespace FlareAI.Flare
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
                 case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
+                case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
+                case "bodyXml": return new { xml = FlareAI.Core.Editing.BlockSelector.FindBody(Active().Document).InnerXml };   // the live body, to compare before and after undo and redo
+                case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false);   // new blocks after the body block holding "after"; one tracked operation
+                case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true);       // the same without the refusal: only for the control that proves a crash is seen
                 case "replace": Replace(Active(), arg, (string)c["text"]); return null;
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
                 case "saveAs": SetSavePath(arg); return null;
                 default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
+        }
+
+        private static object InsertBlocks(FlareDocumentAdapter a, string xml, string after, bool raw)
+        {
+            var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
+            if (body == null) throw new InvalidOperationException("No body in the topic.");
+            System.Xml.XmlNode anchor = null;
+            foreach (System.Xml.XmlNode n in body.ChildNodes)
+                if (n.NodeType == System.Xml.XmlNodeType.Element && n.InnerText.Contains(after)) { anchor = n; break; }
+            if (anchor == null) throw new InvalidOperationException("No body block with the text " + after);
+            var index = 0;
+            for (var n = body.FirstChild; n != anchor; n = n.NextSibling) index++;
+            index++;
+            var frag = a.Document.CreateDocumentFragment();
+            frag.InnerXml = xml;
+            var nodes = new List<System.Xml.XmlNode>();
+            foreach (System.Xml.XmlNode n in frag.ChildNodes) nodes.Add(n);
+            if (raw) a.E2EInsertRaw(body, index, nodes); else a.InsertBlocks("E2E insert", body, index, nodes);
+            return new { inserted = nodes.Count, index };
         }
 
         private FlareDocumentAdapter Active()
