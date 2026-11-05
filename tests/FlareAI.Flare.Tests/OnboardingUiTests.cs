@@ -568,9 +568,7 @@ namespace FlareAI.Flare.Tests
             {
 #pragma warning disable 618
                 t.Suspend();
-                try { return new System.Diagnostics.StackTrace(t, true).ToString().Replace("
-", " | ").Replace("
-", " | "); }
+                try { return string.Join(" | ", new System.Diagnostics.StackTrace(t, true).ToString().Split(new[] { (char)13, (char)10 }, StringSplitOptions.RemoveEmptyEntries)); }
                 finally { t.Resume(); }
 #pragma warning restore 618
             }
