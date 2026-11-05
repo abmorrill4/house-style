@@ -81,6 +81,12 @@ namespace FlareAI.Core.Update
 
                 // 1. The new files, as a real folder beside current.
                 var source = UpdateStager.ReadyPayload(_layout, version);
+                if (source != null)
+                {
+                    // The payload was verified when it was staged; check it is still the same files before it is installed.
+                    try { UpdateStager.VerifyManifest(_layout.StagedDir(version)); }
+                    catch (UpdateException) { UpdateStager.DeleteDir(_layout.StagedDir(version)); throw; }
+                }
                 if (source == null && File.Exists(Path.Combine(_layout.VersionDir(version), "FlareAI.Flare.dll"))) source = _layout.VersionDir(version);
                 if (source == null) throw new UpdateException("No downloaded update for " + version + " was found.");
                 UpdateStager.DeleteDir(Fresh);

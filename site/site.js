@@ -21,9 +21,12 @@
       if (count) count.textContent = n === 1 ? '1 issue' : n + ' issues';
       if (empty) empty.hidden = n !== 0;
     }
-    function say(html) {
+    function say(text) {
       if (!result) return;
-      result.innerHTML = html + ' <button class="ui-btn" data-act="reset">Start again</button>';
+      var again = document.createElement('button');
+      again.className = 'ui-btn'; again.dataset.act = 'reset'; again.textContent = 'Start again';
+      result.textContent = text + ' ';
+      result.appendChild(again);
       result.hidden = false;
     }
     function resolve(row, text) {

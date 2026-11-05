@@ -15,7 +15,8 @@ namespace FlareAI.Mcp
     /// The plugin's style guide and linter over MCP (stdio, newline-delimited JSON-RPC), built from the same Core code, so
     /// Claude and other AI tools check docs exactly like the plugin does.
     ///
-    ///   FlareAI.Mcp.exe [--guide PATH ...]     (default: the styleguide project next to the exe or in the repo)
+    ///   FlareAI.Mcp.exe [--guide PATH ...] [--allow-root FOLDER ...]     (default: the styleguide project next to the exe or in the repo)
+    ///   --allow-root limits the `project` argument to paths inside those folders; without it any readable path is accepted.
     ///   FlareAI.Mcp.exe --llm-export OUTPUT_DIR [--url BASE_URL]
     /// </summary>
     internal static class Program
@@ -31,6 +32,7 @@ namespace FlareAI.Mcp
             Diagnostics.Sink = m => Console.Error.WriteLine(m);   // stdout is the protocol channel
             var guides = Enumerable.Range(0, args.Length).Where(i => args[i] == "--guide" && i + 1 < args.Length).Select(i => args[i + 1]).ToList();
             if (guides.Count == 0) guides.Add(DefaultGuide());
+            AllowRoots = Enumerable.Range(0, args.Length).Where(i => args[i] == "--allow-root" && i + 1 < args.Length).Select(i => args[i + 1]).ToList();
             var export = Array.IndexOf(args, "--llm-export");
             if (export >= 0)
             {
@@ -87,9 +89,12 @@ namespace FlareAI.Mcp
             }
         }
 
+        private static List<string> AllowRoots = new List<string>();
+
         private static JObject Call(StyleEngine e, string name, JObject a)
         {
             var project = (string)a["project"];
+            if (!AllowedRoots.IsAllowed(project, AllowRoots)) throw new InvalidOperationException("That project path is outside the folders this server was started with (--allow-root).");
             switch (name)
             {
                 case "lint":

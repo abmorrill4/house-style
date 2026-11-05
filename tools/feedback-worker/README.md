@@ -100,3 +100,6 @@ Schema changes go in a new file under `migrations/` (never edit an applied one),
   flagged words, the optional note and the opt-in context), and hourly rate-limit counters keyed by hashed IP or client
   id, which are deleted once they expire. Raw IPs are never stored.
 - **Logs:** event names, status codes, signatures and issue numbers only. No IPs, client ids, report text or tokens.
+  That is what this Worker's own code logs. Cloudflare keeps its own request and invocation logs for the Worker, and
+  those can include the client IP address. Turn them off or shorten their retention in the Cloudflare dashboard if you
+  don't want that.
