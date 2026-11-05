@@ -77,7 +77,7 @@ namespace FlareAI.Flare.UI
             A11y.Name(_transcript, "Conversation", "What you asked and how the AI replied.");
             A11y.Name(_message, "Message", "Ask about this text or describe a change. Press Enter to send, or Shift+Enter for a new line.");
             A11y.Name(_send, "Send", "Sends your message.");
-            A11y.Name(_replies, "Reply to apply", "Choose which proposed change to apply. Any earlier one works.");
+            A11y.Name(_replies, "Reply to apply", "Choose which change to apply. Any earlier one works.");
             A11y.Name(_apply, "Apply", "Make the chosen change in the topic as a tracked change.");
             A11y.Apply(this);
 
@@ -149,7 +149,7 @@ namespace FlareAI.Flare.UI
                 n++;
                 sb.AppendLine("You: " + t.Message).AppendLine();
                 sb.AppendLine("Reply " + n + (t.IsChange ? " (a change" + (t.Applied ? ", applied" : "") + ")" : "") + ": " + t.Answer.Replace("\n", Environment.NewLine));
-                if (t.IsChange) sb.AppendLine().AppendLine("Proposed text: " + System.Text.RegularExpressions.Regex.Replace(string.Join(" ", t.Proposal.ProposedBlocks.Select(b => b.InnerText).ToArray()), @"\s+", " ").Trim());
+                if (t.IsChange) sb.AppendLine().AppendLine("Suggested text: " + System.Text.RegularExpressions.Regex.Replace(string.Join(" ", t.Proposal.ProposedBlocks.Select(b => b.InnerText).ToArray()), @"\s+", " ").Trim());
                 sb.AppendLine().AppendLine();
             }
             _transcript.Text = sb.ToString().TrimEnd();
