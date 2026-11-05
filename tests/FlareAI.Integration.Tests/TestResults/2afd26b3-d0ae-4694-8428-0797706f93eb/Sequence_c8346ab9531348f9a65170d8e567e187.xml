@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<TestSequence>
+  <Test Name="FlareAI.Integration.Tests.Review.ConversationTests.AChange_AppliesAsOneUndoStep_AndUndoRestoresTheTopic" DisplayName="FlareAI.Integration.Tests.Review.ConversationTests.AChange_AppliesAsOneUndoStep_AndUndoRestoresTheTopic" Source="E:\HouseStyle\repos\house-style\tests\FlareAI.Integration.Tests\bin\Debug\net48\FlareAI.Integration.Tests.dll" Completed="False" />
+</TestSequence>

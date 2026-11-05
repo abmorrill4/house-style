@@ -44,6 +44,8 @@ namespace FlareAI.Core.Llm
             var messages = new JArray();
             if (!string.IsNullOrEmpty(req.System))
                 messages.Add(new JObject { ["role"] = "system", ["content"] = req.System + (string.IsNullOrEmpty(req.SystemPacks) ? "" : "\n\n" + req.SystemPacks) + (string.IsNullOrEmpty(req.SystemTerms) ? "" : "\n\n" + req.SystemTerms) });
+            if (req.History != null)
+                foreach (var turn in req.History) messages.Add(new JObject { ["role"] = turn.Role, ["content"] = turn.Text ?? "" });
             JToken content = req.User ?? "";
             if (req.Images != null && req.Images.Count > 0)
             {

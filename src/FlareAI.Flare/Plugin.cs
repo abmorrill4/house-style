@@ -583,7 +583,33 @@ namespace FlareAI.Flare
             {
                 if (f.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(f.Instruction)) return;
                 if (f.IsInsert) { RunInsert(Commands.Ask.Label, f.Instruction); return; }
+                if (f.IsConversation) { RunConversation(Commands.Ask.Label, f.Instruction); return; }
                 RunAction(Commands.Ask.Label, f.IsQuestion ? ActionKind.Question : ActionKind.Ask, f.Instruction);   // title of the result window
+            }
+        }
+
+        /// <summary>Ask AI as a conversation: the instruction becomes the first message, and any proposed change can be applied as a tracked change.</summary>
+        private void RunConversation(string title, string firstMessage)
+        {
+            try
+            {
+                var adapter = ActiveAdapter();
+                if (adapter == null || !adapter.IsEditableTopic)
+                {
+                    Notify.Info(Owner, "Open a topic in the XML Editor first.", title);
+                    return;
+                }
+                var runner = NewRunner(adapter, true, false);
+                if (runner == null) return;
+                runner.LogChecks = "rules+ai";
+                var blocks = runner.PickBlocks(adapter);
+                using (var f = new ConversationForm(title, runner, adapter, blocks, firstMessage)) f.ShowDialog();
+                GettingStarted.Mark(ChecklistItem.AiRewrite);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log(title, ex);
+                Notify.Failed(Owner, "finish \"" + title + "\"", ex, title);
             }
         }
 

@@ -266,6 +266,22 @@ namespace FlareAI.Core.Actions
                        P("rule_ids", Arr(Str("The id of a style-guide rule the answer depends on, from the [brackets] in the guide."))));
         }
 
+        /// <summary>
+        /// One schema for every turn of a conversation (the schema is part of the cached prefix): the reply is an answer in words or a
+        /// proposed change as new text for the runs it changes (the rewrite's shape), and the model says which.
+        /// </summary>
+        public static readonly JObject Converse = Obj(
+            P("kind", Enum(new[] { "answer", "change" }, "\"change\" when the reply proposes new text for the selection. \"answer\" when it only answers in words.")),
+            P("answer", Str("For an answer: the reply in plain text, no markup. For a change: one short sentence saying what the change does. Never empty.")),
+            P("rule_ids", Arr(Str("The id of a style-guide rule the reply depends on, from the [brackets] in the guide."))),
+            P("changes", Arr(Obj(
+                P("run_id", Str("The run to change, for example r3, from the numbered text of this conversation.")),
+                P("text", Str("The run's complete new text in plain words, no markup."))))),
+            P("needs_restructure", Bool("True when the task needs a structural change (split a step, make a list) that new wording alone can't make.")),
+            P("note", Str("What the writer should know: what needs a structural change, or what only they can supply. Empty when nothing.")));
+
+        public const string ConverseFields = "Reply in \"kind\", \"answer\", \"rule_ids\", \"changes\", \"needs_restructure\" and \"note\".";
+
         public const string ChangeRequestReply = "This is a request for a change. Choose Make a change to apply it.";
 
         /// <summary>The answer as the author reads it: the text, plus the rules it names (only ids that were sent for this text).</summary>
