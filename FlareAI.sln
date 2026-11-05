@@ -27,7 +27,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlareAI.Scoring.Tests", "te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlareAI.TestKit", "tests\FlareAI.TestKit\FlareAI.TestKit.csproj", "{3C01E4AA-764F-42F7-823A-C0D09289AC2B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlareAI.Scenarios", "tests\FlareAI.Scenarios\FlareAI.Scenarios.csproj", "{727976DE-FD1D-490B-A909-9603F0BFE059}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlareAI.Integration.Tests", "tests\FlareAI.Integration.Tests\FlareAI.Integration.Tests.csproj", "{727976DE-FD1D-490B-A909-9603F0BFE059}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlareAI.FixtureGen", "tools\FlareAI.FixtureGen\FlareAI.FixtureGen.csproj", "{A61A652C-8CAF-45DB-971C-73527F70131A}"
 EndProject

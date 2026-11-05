@@ -68,7 +68,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Test
-        run: dotnet test FlareAI.sln -c Release   # Core, scenarios, rule fixtures (ratchet), scoring, corpus kit
+        run: dotnet test FlareAI.sln -c Release   # Core, integration, rule fixtures (ratchet), scoring, corpus kit
 
       - name: Release notes for writers
         if: github.event_name == 'pull_request'
