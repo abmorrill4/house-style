@@ -1,0 +1,4 @@
+# Owners of the files that decide what ships to users. Review by code owners is not required by a branch rule.
+/.github/ @abmorrill4
+/scripts/release/ @abmorrill4
+/tools/FlareAI.Updater/ @abmorrill4
