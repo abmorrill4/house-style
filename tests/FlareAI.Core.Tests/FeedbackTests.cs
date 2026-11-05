@@ -190,6 +190,36 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void Anonymize_CutsAnyDriveOrNetworkPath_ToItsLastPart()
+        {
+            var t = ReportBuilder.Anonymize(@"Couldn't open D:\Clients\Acme Bank\Content\Transfers.htm because it is locked, or \\nas01\Projects\Acme\a.htm, or E:/Work/Acme/b.htm.", null);
+            Assert.Contains(@"[project]\Transfers.htm because it is locked", t);
+            Assert.Contains(@"[project]\a.htm,", t);
+            Assert.Contains(@"[project]\b.htm.", t);
+            foreach (var gone in new[] { "Acme", "Clients", "nas01", "D:", "E:" })
+                Assert.DoesNotContain(gone, t);
+            Assert.Equal(@"at Foo.Bar() in [project]\Foo.cs:line 12", ReportBuilder.Anonymize(@"at Foo.Bar() in D:\a\house-style\src\Foo.cs:line 12", null));
+        }
+
+        [Fact]
+        public void Anonymize_ReplacesTheHostOfAnAddress_ButKeepsTheAnthropicOne()
+        {
+            var t = ReportBuilder.Anonymize("Can't reach the gateway at https://llm.acme-internal.example:8443/v1/messages: refused. Also http://10.1.2.3/x and https://api.anthropic.com/v1/messages.", null);
+            Assert.Contains("https://[host]/v1/messages: refused", t);
+            Assert.Contains("http://[host]/x", t);
+            Assert.Contains("https://api.anthropic.com/v1/messages", t);
+            Assert.DoesNotContain("acme-internal", t);
+            Assert.DoesNotContain("10.1.2.3", t);
+            Assert.DoesNotContain("8443", t);
+        }
+
+        [Fact]
+        public void Anonymize_LeavesTheEarlierPlaceholdersAlone()
+        {
+            Assert.Equal(@"%USERPROFILE%\Projects\a.htm and C:\Users\[user]\Desktop\x.htm", ReportBuilder.Anonymize(@"%USERPROFILE%\Projects\a.htm and C:\Users\someone\Desktop\x.htm", null));
+        }
+
+        [Fact]
         public void Settings_AreAWhitelist_OfHarmlessValues()
         {
             var s = Context().Settings;

@@ -219,7 +219,12 @@ function Get-GuidePages([string]$guide, [string[]]$folders, [string]$prefix, [st
 
 function New-Conf([string]$baseUrl, [string]$pat) {
     $base = $baseUrl.TrimEnd('/')
-    $u = New-Object Uri $base
+    $u = $null
+    if (-not [Uri]::TryCreate($base, [UriKind]::Absolute, [ref]$u)) { throw "CONFLUENCE_BASE_URL is not a web address. Use an address that starts with https://, for example https://wiki.example.com/confluence" }
+    $loopback = ($u.IsLoopback -or $u.Host -eq 'localhost' -or $u.Host.EndsWith('.localhost'))
+    if ($u.Scheme -ne 'https' -and -not ($u.Scheme -eq 'http' -and $loopback)) {
+        throw "CONFLUENCE_BASE_URL must start with https:// so the token is not sent unencrypted. Change CONFLUENCE_BASE_URL (or -BaseUrl) and run again."
+    }
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072 } catch { }
     return @{ Base = $base; Origin = $u.GetLeftPart([UriPartial]::Authority); Ctx = $u.AbsolutePath.TrimEnd('/'); Pat = $pat }
 }
@@ -230,6 +235,7 @@ function Invoke-Conf($conf, [string]$method, [string]$path, $body = $null, [int[
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         $req = [Net.HttpWebRequest]::Create($conf.Base + $path)
         $req.Method = $method
+        $req.AllowAutoRedirect = $false
         $req.Accept = 'application/json'
         $req.Headers['Authorization'] = 'Bearer ' + $conf.Pat
         $req.Headers['X-Atlassian-Token'] = 'no-check'
@@ -261,6 +267,7 @@ function Invoke-Conf($conf, [string]$method, [string]$path, $body = $null, [int[
         switch ($status) {
             401 { throw "401 Unauthorized: check CONFLUENCE_PAT (is it valid, not expired or revoked?)$msg" }
             403 { throw "403 Forbidden: the token's user needs view and add/edit page permission in the space, and view on the parent page$msg" }
+            { $_ -ge 300 -and $_ -lt 400 } { throw "HTTP ${status}: Confluence redirected this request, and the publisher does not follow redirects. Change CONFLUENCE_BASE_URL to the final address and run again." }
             429 { throw "429 Too Many Requests: Confluence is rate limiting this account; try again later$msg" }
             default { return @{ Status = $status; Json = $json; Message = "$method $path -> HTTP $status$msg" } }
         }

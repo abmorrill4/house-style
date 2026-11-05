@@ -137,6 +137,23 @@ describe("problem reports", () => {
 		expect(issue.title).not.toMatch(/@octocat/);
 		expect(issue.body).not.toMatch(/@octocat/);
 	});
+
+	it("neutralises @mentions, links and table breaks in os and flare_version", async () => {
+		await post("/v1/report", problemReport({ os: "Windows @octocat | `x` [a](http://evil.example)", flare_version: "22 @org/team <b>" }));
+		const body = gh.issues.get(1)!.body;
+		expect(body).not.toMatch(/@octocat|@org/);
+		expect(body).not.toMatch(/(^|[^\\])\[a\]\(/);
+		expect(body).toContain("\\|");
+		expect(body).toContain("\\`x\\`");
+		expect(body).toContain("\\<b>");
+	});
+
+	it("does not render links or images from free text", async () => {
+		await post("/v1/report", problemReport({ what_happened: "![x](http://evil.example/a.png) [click](http://evil.example) <http://evil.example>" }));
+		const body = gh.issues.get(1)!.body;
+		expect(body).not.toMatch(/(^|[^\\])\[/m);
+		expect(body).not.toMatch(/(^|[^\\])<http/m);
+	});
 });
 
 describe("redaction", () => {

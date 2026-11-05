@@ -91,11 +91,11 @@ Describe 'Publish against the mock Data Center server' {
     for ($i = 0; $i -lt 40; $i++) { try { [void](Invoke-RestMethod "http://localhost:$port/__state"); break } catch { Start-Sleep -Milliseconds 250 } }
 
     function Get-State { Invoke-RestMethod "http://localhost:$port/__state" }
-    function Add-Fault($method, $contains, $status, $retry = 0) {
-        Invoke-RestMethod "http://localhost:$port/__inject" -Method Post -ContentType 'application/json' -Body (@{ method = $method; contains = $contains; status = $status; count = 1; retryAfter = $retry } | ConvertTo-Json) | Out-Null
+    function Add-Fault($method, $contains, $status, $retry = 0, $location = '') {
+        Invoke-RestMethod "http://localhost:$port/__inject" -Method Post -ContentType 'application/json' -Body (@{ method = $method; contains = $contains; status = $status; count = 1; retryAfter = $retry; location = $location } | ConvertTo-Json) | Out-Null
     }
-    function Run-Publish($pat = 'test-pat') {
-        $env:CONFLUENCE_BASE_URL = $root; $env:CONFLUENCE_PAT = $pat; $env:CONFLUENCE_PARENT_ID = '100'
+    function Run-Publish($pat = 'test-pat', $baseUrl = $root) {
+        $env:CONFLUENCE_BASE_URL = $baseUrl; $env:CONFLUENCE_PAT = $pat; $env:CONFLUENCE_PARENT_ID = '100'
         $r = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -GuideProject $proj -Folders Company 2>&1) -join "`n"
         $script:lastCode = $LASTEXITCODE
         $env:CONFLUENCE_BASE_URL = $null; $env:CONFLUENCE_PAT = $null; $env:CONFLUENCE_PARENT_ID = $null
@@ -166,6 +166,22 @@ Describe 'Publish against the mock Data Center server' {
         $o = Run-Publish
         $lastCode | Should Be 1
         $o | Should Match 'permission'
+    }
+    It 'refuses plain http to a host other than this computer, before any request' {
+        $before = @((Get-State).log).Count
+        $o = Run-Publish 'test-pat' 'http://wiki.example.com/confluence'
+        $lastCode | Should Be 1
+        $o | Should Match 'https://'
+        @((Get-State).log).Count | Should Be $before
+    }
+    It 'does not follow a redirect and sends the token nowhere else' {
+        Add-Fault 'GET' '/rest/api/content/100' 302 0 "http://127.0.0.1:$port/confluence/rest/api/space/DOC"
+        $before = @((Get-State).log).Count
+        $o = Run-Publish
+        $lastCode | Should Be 1
+        $o | Should Match 'redirect'
+        $o | Should Not Match 'test-pat'
+        @((Get-State).log | Select-Object -Skip $before).Count | Should Be 1
     }
     It 'never overwrites a page it did not publish' {
         [IO.File]::WriteAllText((Join-Path $co 'Collide.htm'), '<html><head><title>Style guide (parent)</title></head><body><h1>x</h1></body></html>')

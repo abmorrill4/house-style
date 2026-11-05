@@ -58,7 +58,9 @@
       if (act === 'change') {
         var oldText = t.textContent;
         var newText = t.dataset.new || '';
-        t.innerHTML = '<del class="tc">' + oldText + '</del>' + (newText ? '<ins class="tc">' + newText + '</ins>' : '');
+        var del = document.createElement('del'); del.className = 'tc'; del.textContent = oldText;
+        t.textContent = ''; t.appendChild(del);
+        if (newText) { var ins = document.createElement('ins'); ins.className = 'tc'; ins.textContent = newText; t.appendChild(ins); }
         t.classList.add('done'); t.classList.remove('on');
         resolve(row, newText ? "Changed '" + oldText + "' to '" + newText + "'" : "Deleted '" + oldText + "'");
         if (firstNote && !noteShown) { firstNote.hidden = false; noteShown = true; }

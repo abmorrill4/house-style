@@ -1,0 +1,4 @@
+# actionlint settings (run by security.yml). Only adds the custom label of the owner's Flare VM runner used by e2e.yml.
+self-hosted-runner:
+  labels:
+    - flare

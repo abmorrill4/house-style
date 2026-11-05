@@ -1,0 +1,36 @@
+# Proposes updates for the workflow actions, the NuGet packages and the feedback worker's npm packages.
+# Each proposal is an ordinary pull request, so it runs the usual checks. Nothing here merges by itself.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: nuget
+    directories:
+      - /src/*
+      - /tools/*
+      - /tests/*
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      nuget:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /tools/feedback-worker
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ['*']

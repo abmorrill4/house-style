@@ -44,7 +44,7 @@ namespace FlareAI.Core.Output
                 if (title.Length == 0) title = Path.GetFileNameWithoutExtension(path);
                 var mdRel = Path.ChangeExtension(relUrl, ".md");
                 var url = baseUrl != null ? baseUrl.TrimEnd('/') + "/" + relUrl : null;
-                var front = "---\ntitle: " + title.Replace("\n", " ") + "\nsource: " + relUrl + (url != null ? "\nurl: " + url : "") + "\n---\n\n";
+                var front = "---\ntitle: " + title.Replace("\r", " ").Replace("\n", " ") + "\nsource: " + relUrl + (url != null ? "\nurl: " + url : "") + "\n---\n\n";
                 var target = Path.Combine(mdRoot, mdRel.Replace('/', '\\'));
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
                 File.WriteAllText(target, front + body, new UTF8Encoding(false));
