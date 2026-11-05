@@ -257,8 +257,8 @@ namespace FlareAI.Flare
                     if (c == Commands.AiToggle) _aiButton = button as System.Windows.Controls.Button;
                     else if (c == Commands.Ask) _askButton = button as System.Windows.Controls.Button;
                     else if (c == Commands.Rewrite) _rewriteButton = button as System.Windows.Controls.Button;
-                    // No split button: Lint Topic's checks become buttons of their own, so the choice stays on the ribbon.
-                    if (c == Commands.LintTopic && items != null)
+                    // No split button: Lint Topic's checks and Lint Folders become buttons of their own, so they stay on the ribbon.
+                    if ((c == Commands.LintTopic || c == Commands.LintProject) && items != null)
                         foreach (var m in items)
                         {
                             var b = group.AddRibbonButton(Button(m));
@@ -360,6 +360,7 @@ namespace FlareAI.Flare
             if (c == Commands.Ask) return OnAsk;
             if (c == Commands.AiToggle) return OnToggleAi;
             if (c == Commands.LintProject) return OnLintProject;
+            if (c == Commands.LintFolders) return OnLintFolders;
             if (c == Commands.ShowIssues) return () => { if (!PanelHost.Reopen(_nav.GetParentForm())) OnLintTopic(); };
             if (c == Commands.TopicMetadata) return OnAssist;
             if (c == Commands.TestRules) return OnValidateGuide;
@@ -583,7 +584,12 @@ namespace FlareAI.Flare
         }
 
         /// <summary>Lints every topic and snippet in the active topic's project (no AI cost) into the issues pane.</summary>
-        private void OnLintProject()
+        private void OnLintProject() { LintProjectFiles(Commands.LintProject, false); }
+
+        /// <summary>Lints the topics and snippets in the folders the writer picks (no AI cost), the same report as Lint Project.</summary>
+        private void OnLintFolders() { LintProjectFiles(Commands.LintFolders, true); }
+
+        private void LintProjectFiles(CommandInfo command, bool pickFolders)
         {
             try
             {
@@ -591,22 +597,41 @@ namespace FlareAI.Flare
                 var files = ActionRunner.ProjectFiles(adapter == null ? null : adapter.SourcePath);
                 if (adapter == null || files.Count == 0)
                 {
-                    Notify.Info(Owner, "Open a topic in the project first. Lint Project lints every topic and snippet in that project.", Commands.LintProject.Label);
+                    Notify.Info(Owner, pickFolders ? "Open a topic in the project first. Lint Folders lints the folders you pick in that project."
+                                                   : "Open a topic in the project first. Lint Project lints every topic and snippet in that project.", command.Label);
                     return;
                 }
-                var runner = NewRunner(adapter, true, true);
-                if (runner == null) return;
                 var root = Path.GetDirectoryName(files[0]);
                 while (root != null && Directory.GetFiles(root, "*.flprj").Length == 0) root = Path.GetDirectoryName(root);
                 var name = root == null ? "" : Path.GetFileName(root);
+                var runner = NewRunner(adapter, true, true);   // before the picker, so a missing key or guide error shows first
+                if (runner == null) return;
+                if (pickFolders)
+                {
+                    var content = Path.Combine(root ?? "", "Content");
+                    var folders = FolderScope.Folders(files, content);
+                    if (folders.Count == 0)
+                    {
+                        Notify.Info(Owner, "This project has no folders with topics or snippets in them. Use Lint Project instead.", command.Label);
+                        return;
+                    }
+                    List<string> picked;
+                    using (var f = new FolderPickerForm(folders))
+                    {
+                        if (f.ShowDialog(Owner) != DialogResult.OK || f.Picked.Count == 0) return;
+                        picked = f.Picked;
+                    }
+                    files = FolderScope.Filter(files, content, picked);
+                    name = name + " - " + FolderScope.Describe(picked);
+                }
                 var panel = FindingsPanel.ForProject(runner, adapter, () => NewRunner(adapter, true, true), OpenAdapter, files, name);
                 panel.FindOpen = FindOpenAdapter;
                 PanelHost.Show(panel, _nav.GetParentForm());
             }
             catch (Exception ex)
             {
-                Diagnostics.Log("Lint project", ex);
-                Notify.Failed(Owner, "lint the project", ex, Commands.LintProject.Label);
+                Diagnostics.Log(pickFolders ? "Lint folders" : "Lint project", ex);
+                Notify.Failed(Owner, pickFolders ? "lint the folders" : "lint the project", ex, command.Label);
             }
         }
 

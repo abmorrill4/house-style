@@ -31,6 +31,48 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void FolderScope_ListsFoldersWithFiles_AndLintsOnlyThePickedOnesWithTheirSubfolders()
+        {
+            Directory.CreateDirectory(Path.Combine(_root, @"Content\Sub\Deep"));
+            Directory.CreateDirectory(Path.Combine(_root, @"Content\Other"));
+            Directory.CreateDirectory(Path.Combine(_root, @"Content\Empty"));
+            File.WriteAllText(Path.Combine(_root, @"Content\Sub\Deep\C.htm"), "<html><body><p>Deep.</p></body></html>");
+            File.WriteAllText(Path.Combine(_root, @"Content\Other\D.htm"), "<html><body><p>Other.</p></body></html>");
+            var content = Path.Combine(_root, "Content");
+            var files = ActionRunner.ProjectFiles(Path.Combine(content, "A.htm"));
+
+            // The style guide folder and the folder with no files are not offered.
+            Assert.Equal(new[] { @"Other\", @"Sub\", @"Sub\Deep\" }, FolderScope.Folders(files, content).ToArray());
+
+            string[] Names(params string[] picked) { return FolderScope.Filter(files, content, picked).Select(Path.GetFileName).ToArray(); }
+            Assert.Equal(new[] { "B.htm", "C.htm" }, Names(@"Sub\"));              // subfolders come with the folder
+            Assert.Equal(new[] { "C.htm" }, Names(@"Sub\Deep\"));
+            Assert.Equal(new[] { "B.htm", "C.htm", "D.htm" }, Names(@"Other\", @"Sub\").OrderBy(n => n).ToArray());   // several folders
+            Assert.Equal(new[] { "B.htm", "C.htm" }, Names("Sub"));                // no trailing backslash is fine
+            Assert.Empty(Names());                                                  // nothing picked, nothing linted
+            Assert.Empty(Names(@"Sub\Dee"));                                        // a folder name is not a prefix match
+
+            // Exclusions still win.
+            LintExclusions.Add(Path.Combine(content, "A.htm"), @"Sub\Deep\");
+            files = ActionRunner.ProjectFiles(Path.Combine(content, "A.htm"));
+            Assert.Equal(new[] { @"Other\", @"Sub\" }, FolderScope.Folders(files, content).ToArray());
+            Assert.Equal(new[] { "B.htm" }, Names(@"Sub\"));
+
+            // A sibling that shares a prefix, a different case, a file outside Content, and a folder picked inside another picked one.
+            Directory.CreateDirectory(Path.Combine(_root, @"Content\Subway"));
+            File.WriteAllText(Path.Combine(_root, @"Content\Subway\E.htm"), "<html><body><p>Subway.</p></body></html>");
+            files = ActionRunner.ProjectFiles(Path.Combine(content, "A.htm"));
+            Assert.Equal(new[] { "B.htm" }, Names(@"Sub\"));
+            Assert.Equal(new[] { "E.htm" }, Names("subway"));
+            Assert.Empty(FolderScope.Folders(new[] { @"E:\elsewhere\X.htm" }, content));
+            Assert.Equal("Sub", FolderScope.Describe(new[] { @"Sub\", @"Sub\Deep\" }));
+
+            Assert.Equal("Sub", FolderScope.Describe(new[] { @"Sub\" }));
+            Assert.Equal(@"Other, Sub", FolderScope.Describe(new[] { @"Other\", @"Sub\" }));
+            Assert.Equal(@"Other, Sub and 1 more", FolderScope.Describe(new[] { @"Other\", @"Sub\", @"Zed\" }));
+        }
+
+        [Fact]
         public void ProjectFiles_LeavesOutExcludedFilesAndFolders_UntilIncludedAgain()
         {
             var b = Path.Combine(_root, @"Content\Sub\B.htm");

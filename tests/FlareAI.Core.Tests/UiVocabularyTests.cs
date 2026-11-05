@@ -180,6 +180,20 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void LintFoldersIsInLintProjectsMenuAndNotOnTheRibbonOnItsOwn()
+        {
+            var folders = FlareAI.Flare.Commands.LintFolders;
+            Assert.Equal(new[] { folders }, FlareAI.Flare.Commands.SplitMenus[FlareAI.Flare.Commands.LintProject].ToArray());
+            Assert.Equal("Lint Folders…", folders.Label);
+            Assert.Equal("Lint the topics and snippets in the folders you pick.", folders.Tooltip);
+            foreach (var role in new[] { FlareAI.Core.Settings.UserRole.Writer, FlareAI.Core.Settings.UserRole.Owner })
+            {
+                Assert.DoesNotContain(folders, FlareAI.Flare.Commands.Ribbon(role));
+                Assert.Contains(folders, FlareAI.Flare.Commands.Menu(role));
+            }
+        }
+
+        [Fact]
         public void ThePresetsAreInTheRewriteMenu()
         {
             Assert.Equal(new[] { FlareAI.Flare.Commands.Simplify, FlareAI.Flare.Commands.Shorten }, FlareAI.Flare.Commands.SplitMenus[FlareAI.Flare.Commands.Rewrite].ToArray());
