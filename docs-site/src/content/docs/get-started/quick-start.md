@@ -17,6 +17,9 @@ Start Flare. The **House Style** tab is on the ribbon, and a four-step setup ope
 
 ## 3. Lint a topic
 
+![The House Style tab in Flare, with Lint Topic, Lint Project, Rewrite, Ask AI, Import Rules and Settings.](../../../assets/screenshots/ribbon.png)
+
+
 Open a topic and select **House Style > Lint Topic**. The issues pane opens and lists what it found, in reading order.
 
 ## 4. Change an issue

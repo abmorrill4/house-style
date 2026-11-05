@@ -7,6 +7,8 @@ sidebar:
 
 Select **House Style > Settings**. To go through setup again, select **Run setup again…**.
 
+![The Style guide tab of Settings, with the team style guide list, the project option and the team feedback folder.](../../../assets/screenshots/settings-style-guide.png)
+
 | Tab | What's on it |
 |---|---|
 | AI | How House Style uses AI, the key, and **Test connection**. |

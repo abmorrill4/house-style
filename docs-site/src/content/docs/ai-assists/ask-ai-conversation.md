@@ -9,6 +9,11 @@ A conversation lets you ask about your text, change your mind, and apply the rep
 
 ## Start a conversation
 
+![The Ask AI window with Have a conversation chosen.](../../../assets/screenshots/ask-ai.png)
+
+![A conversation with a suggested change and the Reply to apply list.](../../../assets/screenshots/ask-ai-conversation.png)
+
+
 1. Select the text you want to talk about.
 2. Select **House Style > Ask AI**, and then choose **Have a conversation**.
 3. Type your first message, and then select **Run**.

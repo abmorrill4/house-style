@@ -9,6 +9,9 @@ Select **House Style > Rules** to see every rule in one list: Google's, your tea
 
 ## Find a rule
 
+![The Rules window with its search box, filters and the list of rules.](../../../assets/screenshots/rules.png)
+
+
 Type any word from the rule, its examples or its page in **Search**. Every word must match. To narrow the list, filter by:
 
 - **Source**: Google, Starter rules, your team's guide, your own guide, or the project.
