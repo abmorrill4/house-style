@@ -13,11 +13,11 @@ using FlareAI.TestKit.Editor;
 namespace FlareAI.TestKit.Workspace
 {
     /// <summary>
-    /// A disposable sandbox for one scenario: a temp copy of a corpus project, the documents "open in Flare", folders
+    /// A disposable sandbox for one test: a temp copy of a corpus project, the documents "open in Flare", folders
     /// made read-only with a Windows ACL (as Program Files is for a standard user), the writer's AppData redirected to a
     /// temp folder (<see cref="Paths.Root"/>), a <see cref="FakeClock"/>, and Core's statics (Team.Current, feedback
     /// paths, diagnostics) reset on entry and restored on dispose. Workspaces are exclusive: a second one waits until
-    /// the first is disposed, so scenario tests that use them never race on Core's statics.
+    /// the first is disposed, so test tests that use them never race on Core's statics.
     /// </summary>
     public sealed class FakeWorkspace : IDisposable
     {

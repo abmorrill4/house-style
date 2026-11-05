@@ -14,7 +14,7 @@ namespace FlareAI.TestKit.Editor
     /// <summary>
     /// A Flare-faithful fake of the editor behind <see cref="IDocumentAdapter"/>: what <c>FlareDocumentAdapter</c> over
     /// Flare 22 does, including the traps, as verified live and written down in docs/flare-api-notes.md
-    /// ("Verified write behavior", "Variables and redo"). Scenario tests drive real Core flows through it.
+    /// ("Verified write behavior", "Variables and redo"). Test tests drive real Core flows through it.
     /// <list type="bullet">
     /// <item><see cref="Edit"/> is one undo step (StartOperation/EndOperation); <see cref="ReplaceSpan"/> outside it throws.</item>
     /// <item><see cref="ReplaceSpan"/> writes real <c>MadCap:change</c> markup: one Remove/Add id pair per operation; the ids
@@ -177,6 +177,26 @@ namespace FlareAI.TestKit.Editor
                 }
                 else RemoveDocumentNode(anchor);
                 for (var i = 1; i < oldNodes.Count; i++) RemoveDocumentNode(oldNodes[i]);
+            }
+            finally { if (!joined) End(); }
+        }
+
+        public void InsertBlocks(string operationName, XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            var refusal = NodeWrites.InsertRefusal(newNodes);
+            if (refusal != null) throw new InvalidOperationException(refusal);
+            foreach (var n in newNodes)
+                if (n.OwnerDocument != Document) throw new ArgumentException("The node to be inserted is from a different document context.");
+            var joined = _current != null;
+            if (!joined) Begin(operationName);
+            try
+            {
+                XmlNode after = index <= 0 ? null : parent.ChildNodes[index - 1];
+                foreach (var n in newNodes)
+                {
+                    InsertDocumentNode(parent, n, after);
+                    after = n;
+                }
             }
             finally { if (!joined) End(); }
         }

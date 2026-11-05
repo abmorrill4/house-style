@@ -119,6 +119,40 @@ namespace FlareAI.Flare
             }
         }
 
+        public void InsertBlocks(string operationName, XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            var refusal = NodeWrites.InsertRefusal(newNodes);
+            if (refusal != null) throw new InvalidOperationException(refusal);
+            _doc.StartOperation(operationName);
+            try
+            {
+                for (var i = 0; i < newNodes.Count; i++) _doc.InsertDocumentNode(parent, newNodes[i], index + i, true);
+            }
+            finally
+            {
+                _doc.EndOperation();
+                try { _doc.UpdateView(); } catch (Exception) { }
+            }
+        }
+
+        /// <summary>For the E2E hook only: the same tracked insert without the refusal, to show that a refused insert really does crash Flare.</summary>
+        internal void E2EInsertRaw(XmlNode parent, int index, IList<XmlNode> newNodes)
+        {
+            _doc.StartOperation("E2E raw insert");
+            try { for (var i = 0; i < newNodes.Count; i++) _doc.InsertDocumentNode(parent, newNodes[i], index + i, true); }
+            finally { _doc.EndOperation(); try { _doc.UpdateView(); } catch (Exception) { } }
+        }
+
+        /// <summary>For the E2E hook: what Flare reports for the caret, so a test can see how to find the paragraph it is in.</summary>
+        internal object E2ECaret()
+        {
+            var nodes = SelectionNodes;
+            var list = new List<object>();
+            foreach (var n in nodes)
+                list.Add(new { type = n.NodeType.ToString(), name = n.Name, parent = n.ParentNode == null ? null : n.ParentNode.Name, text = n.InnerText.Length > 60 ? n.InnerText.Substring(0, 60) : n.InnerText });
+            return new { selected = SelectionText, nodes = list };
+        }
+
         public bool SelectText(XmlText run, int start, int length)
         {
             try

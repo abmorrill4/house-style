@@ -132,8 +132,10 @@ namespace FlareAI.Flare.UI
 
         private void Notes()
         {
-            var text = NotesDialog.Ask(this);
+            System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs;
+            var text = NotesDialog.Ask(this, out pdfs);
             if (string.IsNullOrEmpty(text)) return;
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"^\(PDF attached[^\r\n]*\)\s*$", "", System.Text.RegularExpressions.RegexOptions.Multiline).Trim();
             var runner = _runner();
             if (runner == null) return;
             Busy(true, "Reading your notes…");
@@ -141,7 +143,8 @@ namespace FlareAI.Flare.UI
             var skipped = 0;
             worker.DoWork += (s, e) =>
             {
-                var found = runner.ExtractRules(text);
+                var found = text.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(text, @"^(— [^\r\n]* —\s*)+$") ? runner.ExtractRules(text) : new List<RuleCandidate>();
+                foreach (var pdf in pdfs) found.AddRange(runner.ExtractRulesFromPdf(pdf.Value, pdf.Key));
                 // Like mining: drop rows whose words the guide already flags (the validator would report the duplicate).
                 if (_style != null)
                 {
@@ -161,9 +164,16 @@ namespace FlareAI.Flare.UI
                 Busy(false, null);
                 if (e.Error != null) { Diagnostics.Log("Build guide: notes", e.Error); ErrorReporter.Background(this, "House Style couldn't read the notes.", e.Error); _head.Text = "Could not read the notes: " + e.Error.Message; return; }
                 var found = (List<RuleCandidate>)e.Result;
-                Add(found, "notes");
-                _head.Text = Plural.Of(found.Count, "rule") + " found in your notes. Each shows the words it came from. Select the ones to keep." +
-                             (skipped > 0 ? " " + skipped + " more are already in the guide." : "");
+                // A second import can repeat what the first one found: leave out rules already in the list.
+                var have = _list.Items.Cast<ListViewItem>().Select(i => (RuleCandidate)i.Tag).ToList();
+                var fresh = new List<RuleCandidate>();
+                foreach (var c in found)
+                    if (!have.Any(h => RuleCandidate.SameRule(h, c))) { fresh.Add(c); have.Add(c); }
+                var repeated = found.Count - fresh.Count;
+                Add(fresh, "notes");
+                _head.Text = Plural.Of(fresh.Count, "rule") + " found in your notes. Each shows the words it came from. Select the ones to keep." +
+                             (skipped > 0 ? " " + skipped + " more are already in the guide." : "") +
+                             (repeated > 0 ? " " + repeated + " were already in the list." : "");
             };
             worker.RunWorkerAsync();
         }
@@ -343,32 +353,49 @@ namespace FlareAI.Flare.UI
     /// <summary>A large box for pasting notes, an old guide, or another tool's prompt (or loading a text file).</summary>
     internal static class NotesDialog
     {
-        public static string Ask(IWin32Window owner)
+        public static string Ask(IWin32Window owner, out System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs)
         {
+            var attached = pdfs = new System.Collections.Generic.List<KeyValuePair<string, byte[]>>();
             using (var form = new Form { Text = "House Style — Notes for the style guide", StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(680, 460), MinimumSize = new Size(480, 300), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font })
             {
                 var label = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 8, 8, 0),
-                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or load a Word (.docx), Word Web Page (.htm), .txt or .md file." };
+                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or add files: Word, Excel, PowerPoint, PDF, OpenDocument, Rich Text, web pages, .txt or .md. Add as many as you like, all at once or one at a time." };
                 var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, WordWrap = true };
                 var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 40, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
                 var ok = new Button { Text = "Extract rules", AutoSize = true, DialogResult = DialogResult.OK, Enabled = false, Font = new Font(form.Font, FontStyle.Bold) };
                 var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
-                var load = new Button { Text = "Load file…", AutoSize = true };
+                var load = new Button { Text = "Add Files…", AutoSize = true };
                 var hint = new Label { Text = "Ctrl+Enter extracts", AutoSize = true, Padding = new Padding(0, 6, 8, 0), ForeColor = SystemColors.GrayText };
                 box.TextChanged += (s, e) => ok.Enabled = box.Text.Trim().Length > 0;
                 // Enter stays a newline in the box (AcceptsReturn); the default button only fires from the other controls.
                 box.KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.Return && ok.Enabled) { e.Handled = e.SuppressKeyPress = true; ok.PerformClick(); } };
                 load.Click += (s, e) =>
                 {
-                    try
+                    using (var dlg = new OpenFileDialog { Multiselect = true, Filter = "Documents|*.docx;*.xlsx;*.pptx;*.odt;*.rtf;*.txt;*.md;*.htm;*.html;*.pdf|All files|*.*" })
                     {
-                        using (var dlg = new OpenFileDialog { Filter = "Notes, Word, HTML|*.docx;*.txt;*.md;*.htm;*.html|All files|*.*" })
-                            if (dlg.ShowDialog(form) == DialogResult.OK) box.Text = NoteText.ReadFile(dlg.FileName).Replace("\r\n", "\n").Replace("\n", "\r\n");   // a TextBox shows only CRLF as a line break
-                    }
-                    catch (Exception ex)
-                    {
-                        Diagnostics.Log("Build guide: load notes file", ex);
-                        Notify.Warn(form, LoadProblem(ex), "Notes");
+                        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+                        var problems = new System.Collections.Generic.List<string>();
+                        foreach (var file in dlg.FileNames)
+                        {
+                            try
+                            {
+                                var pdf = NoteText.ReadPdf(file);
+                                if (pdf != null)
+                                {
+                                    attached.Add(new KeyValuePair<string, byte[]>(Path.GetFileName(file), pdf));
+                                    box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n(PDF attached. It is read when you extract.)");
+                                    continue;
+                                }
+                                var text = NoteText.ReadFile(file).Replace("\r\n", "\n").Replace("\n", "\r\n");   // a TextBox shows only CRLF as a line break
+                                box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n" + text);   // each file under its own name, added to what is there
+                            }
+                            catch (Exception ex)
+                            {
+                                Diagnostics.Log("Build guide: load notes file", ex);
+                                problems.Add(Path.GetFileName(file) + ": " + LoadProblem(ex));
+                            }
+                        }
+                        if (problems.Count > 0) Notify.Warn(form, string.Join(Environment.NewLine + Environment.NewLine, problems.ToArray()), "Notes");
                     }
                 };
                 bar.Controls.AddRange(new Control[] { cancel, ok, load, hint });

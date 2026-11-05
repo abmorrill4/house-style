@@ -223,6 +223,7 @@ namespace FlareAI.Core.Update
             req.Timeout = timeoutMs;
             req.ReadWriteTimeout = Math.Max(timeoutMs, 30000);
             req.AllowAutoRedirect = true;           // release assets redirect to GitHub's download host
+            if (LoopbackProxy.Apply(req)) return req;   // a test server on this computer: no proxy (see LoopbackProxy)
             try
             {
                 var proxy = WebRequest.GetSystemWebProxy();

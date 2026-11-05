@@ -123,6 +123,28 @@ namespace FlareAI.Core.Actions
             return Embedded("action-question.md").Replace("{{QUESTION}}", (question ?? "").Trim()).Replace("{{FRAGMENT}}", fragment);
         }
 
+        /// <summary>The user message for drafting new text into a topic (the cached prefix is the same as restructure's).</summary>
+        public string BuildCompose(string instruction, string title, string headings, string section, string after)
+        {
+            return Contracts.ComposeFields + "\n\n" + Embedded("action-compose.md").Replace("{{INSTRUCTION}}", (instruction ?? "").Trim())
+                .Replace("{{TITLE}}", string.IsNullOrEmpty(title) ? "(none)" : title).Replace("{{HEADINGS}}", string.IsNullOrEmpty(headings) ? "(none)" : headings)
+                .Replace("{{SECTION}}", string.IsNullOrEmpty(section) ? "(empty)" : section).Replace("{{AFTER}}", after ?? "");
+        }
+
+        /// <summary>
+        /// The user message that carries the numbered text: the first turn of a conversation, and any turn after the text changed (the
+        /// run ids then replace the earlier ones). Later turns send only the writer's message.
+        /// </summary>
+        public string BuildConverse(string message, string marked, string title, bool first)
+        {
+            return Contracts.ConverseFields + "\n\n" + Embedded("action-converse.md").Replace("{{CONTEXT}}", string.IsNullOrEmpty(title) ? "" : "\nThe topic title: " + title + "\n")
+                .Replace("{{IDS_NOTE}}", first ? "are the ones to use" : "replace any ids from earlier in this conversation, because the text changed")
+                .Replace("{{FRAGMENT}}", marked ?? "").Replace("{{MESSAGE}}", (message ?? "").Trim());
+        }
+
+        /// <summary>The fixed instruction for Write an Introduction (a team can override it in FlareAI\prompts).</summary>
+        public string BuildIntroduction() { return Embedded("preset-introduction.md").Trim(); }
+
         public string BuildAlt(string context) { return Embedded("action-alt.md").Replace("{{CONTEXT}}", context ?? ""); }
 
         /// <summary>One part of Topic assists (description + keywords, synonyms, or micro content + glossary).</summary>
@@ -171,7 +193,8 @@ namespace FlareAI.Core.Actions
         public string OverrideFolder { get; set; }
 
         /// <summary>Names of the templates a team can override.</summary>
-        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-question.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
+        public static readonly string[] Templates = { "system-base.md", "system-plain.md", "action-check.md", "action-rewrite.md", "action-repair.md", "action-refine.md", "action-extract.md", "action-alt.md", "action-assist.md", "action-question.md", "action-compose.md", "action-converse.md", "preset-introduction.md", "action-rewrite-runs.md", "preset-simplify.md", "preset-shorten.md" };
+
 
         private string Embedded(string name)
         {

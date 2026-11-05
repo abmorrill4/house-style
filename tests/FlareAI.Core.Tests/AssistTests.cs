@@ -50,6 +50,18 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
+        public void PdfsAreSentAsDocumentsBeforeTheText()
+        {
+            var docs = new System.Collections.Generic.List<LlmImage> { new LlmImage { MediaType = "application/pdf", Base64 = "JVBE" } };
+            var body = AnthropicClient.BuildBody("m", new LlmRequest { User = "Read", Documents = docs });
+            Assert.True(body.IndexOf("\"type\":\"document\"", StringComparison.Ordinal) < body.IndexOf("\"text\":\"Read\"", StringComparison.Ordinal));
+            Assert.Contains("\"media_type\":\"application/pdf\"", body);
+            var bifrost = BifrostClient.BuildBody("m", new LlmRequest { User = "Read", Documents = docs });
+            Assert.Contains("\"type\":\"file\"", bifrost);
+            Assert.Contains("data:application/pdf;base64,JVBE", bifrost);
+        }
+
+        [Fact]
         public void ImagesAreSentBeforeTheText()
         {
             var body = AnthropicClient.BuildBody("m", new LlmRequest { User = "Describe", Images = new System.Collections.Generic.List<LlmImage> { new LlmImage { MediaType = "image/png", Base64 = "AAAA" } } });

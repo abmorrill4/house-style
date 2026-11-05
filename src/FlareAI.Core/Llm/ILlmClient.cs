@@ -18,6 +18,11 @@ namespace FlareAI.Core.Llm
         /// <summary>Optional last part of the system prompt, particular to this text (rules for words it uses): not cached.</summary>
         public string SystemTerms { get; set; }
         public string User { get; set; }
+        /// <summary>
+        /// Earlier turns of a conversation, oldest first, sent before <see cref="User"/>. The last one is cached, so each new turn pays
+        /// for the whole history once. Null or empty for a single-turn request.
+        /// </summary>
+        public List<LlmTurn> History { get; set; }
         /// <summary>A safety ceiling, not the control: output size is governed by <see cref="Schema"/>. 0 = route default.</summary>
         public int MaxTokens { get; set; }
         /// <summary>Model for this request; null = the client's default.</summary>
@@ -33,6 +38,16 @@ namespace FlareAI.Core.Llm
         public string CacheTtl { get; set; }
         /// <summary>Images sent before the text (vision): media type ("image/png") and base64 data.</summary>
         public List<LlmImage> Images { get; set; }
+        /// <summary>PDF files sent before the text; the model reads their text and pages itself.</summary>
+        public List<LlmImage> Documents { get; set; }
+    }
+
+    /// <summary>One earlier message of a conversation: "user" or "assistant", and its text (an assistant turn is the reply JSON as sent back).</summary>
+    public sealed class LlmTurn
+    {
+        public string Role { get; set; }
+        public string Text { get; set; }
+        public LlmTurn(string role, string text) { Role = role; Text = text; }
     }
 
     public sealed class LlmImage

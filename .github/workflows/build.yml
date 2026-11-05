@@ -68,7 +68,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Test
-        run: dotnet test FlareAI.sln -c Release   # Core, scenarios, rule fixtures (ratchet), scoring, corpus kit
+        run: dotnet test FlareAI.sln -c Release   # Core, integration, rule fixtures (ratchet), scoring, corpus kit
 
       - name: Release notes for writers
         if: github.event_name == 'pull_request'
@@ -192,9 +192,9 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           # In its own step, so the notes script never runs where the signing key is.
-          $note = 'Right-click the zip > Properties > Unblock before you unzip it.'
+          # The notes end with the Install or update section, which already says to unblock the zip.
           $notes = (& ./scripts/release/Build-WhatsNew.ps1 -Version $env:VERSION -NotesOnly) -join "`n"
-          "$note`n`n$notes" | Set-Content release-body.md -Encoding utf8
+          $notes | Set-Content release-body.md -Encoding utf8
 
       - name: Sign and publish
         shell: pwsh

@@ -31,10 +31,10 @@ jobs:
           & $check
           exit $LASTEXITCODE
 
-      - name: Run the scenarios in Flare
+      - name: Run the tests in Flare
         shell: powershell
         env:
-          # The ai-* scenarios need AI. This runner keeps state between jobs, so it never gets ANTHROPIC_API_KEY. All its
+          # The ai-* tests need AI. This runner keeps state between jobs, so it never gets ANTHROPIC_API_KEY. All its
           # AI goes through the owner's Bifrost gateway (aigw.praeviderant.com) with a virtual key that is for this Flare
           # VM only (owner, 2026-10-27; saved as FACTORY_TEST_ANTHROPIC_KEY, BIFROST_VK wins when set).
           HOUSESTYLE_TEST_BIFROST_KEY: ${{ secrets.BIFROST_VK || secrets.FACTORY_TEST_ANTHROPIC_KEY || '' }}
@@ -42,7 +42,7 @@ jobs:
           ANTHROPIC_API_KEY: ''   # blanks any copy in the runner's own environment
         run: |
           $noAi = -not $env:HOUSESTYLE_TEST_BIFROST_KEY
-          if ($noAi) { Write-Host "Skipping the ai-* scenarios: this run has no key." }
+          if ($noAi) { Write-Host "Skipping the ai-* tests: this run has no key." }
           try { $null = Invoke-WebRequest "$env:HOUSESTYLE_TEST_BIFROST_URL/health" -UseBasicParsing -TimeoutSec 10; Write-Host "The AI gateway answers." }
           catch {
             if (-not $noAi) { Write-Host "::error::The AI gateway doesn't answer from this runner: $($_.Exception.Message)"; exit 1 }

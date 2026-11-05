@@ -12,8 +12,9 @@ namespace FlareAI.Core.Tests.Update
     {
         private static ReleaseInfo Release(MockReleaseServer server, string version)
         {
-            var r = new UpdateCheck("0.0.1", server.LatestUrl).CheckIfDue(new UpdateState(), DateTime.UtcNow);
-            Assert.NotNull(r);
+            var state = new UpdateState();
+            var r = new UpdateCheck("0.0.1", server.LatestUrl).CheckIfDue(state, DateTime.UtcNow);
+            Assert.True(r != null, "the update check returned nothing: " + state.LastCheckResult);
             Assert.Equal(version, r.Version);
             return r;
         }

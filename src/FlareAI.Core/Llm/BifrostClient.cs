@@ -44,11 +44,16 @@ namespace FlareAI.Core.Llm
             var messages = new JArray();
             if (!string.IsNullOrEmpty(req.System))
                 messages.Add(new JObject { ["role"] = "system", ["content"] = req.System + (string.IsNullOrEmpty(req.SystemPacks) ? "" : "\n\n" + req.SystemPacks) + (string.IsNullOrEmpty(req.SystemTerms) ? "" : "\n\n" + req.SystemTerms) });
+            if (req.History != null)
+                foreach (var turn in req.History) messages.Add(new JObject { ["role"] = turn.Role, ["content"] = turn.Text ?? "" });
             JToken content = req.User ?? "";
-            if (req.Images != null && req.Images.Count > 0)
+            if ((req.Images != null && req.Images.Count > 0) || (req.Documents != null && req.Documents.Count > 0))
             {
                 var parts = new JArray();
-                foreach (var img in req.Images)
+                if (req.Documents != null)
+                    foreach (var doc in req.Documents)
+                        parts.Add(new JObject { ["type"] = "file", ["file"] = new JObject { ["filename"] = "notes.pdf", ["file_data"] = "data:" + doc.MediaType + ";base64," + doc.Base64 } });
+                foreach (var img in req.Images ?? new System.Collections.Generic.List<LlmImage>())
                     parts.Add(new JObject { ["type"] = "image_url", ["image_url"] = new JObject { ["url"] = "data:" + img.MediaType + ";base64," + img.Base64 } });
                 parts.Add(new JObject { ["type"] = "text", ["text"] = req.User ?? "" });
                 content = parts;
@@ -81,6 +86,7 @@ namespace FlareAI.Core.Llm
             http.ReadWriteTimeout = _timeoutMs;
             http.AllowAutoRedirect = false;
             http.UserAgent = "FlareAI/0.1 (MadCap Flare plugin)";
+            FlareAI.Core.Update.LoopbackProxy.Apply(http);
             http.Headers["x-bf-vk"] = _virtualKey;
             http.ContentLength = payload.Length;
 

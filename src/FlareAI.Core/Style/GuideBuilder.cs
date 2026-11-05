@@ -51,6 +51,35 @@ namespace FlareAI.Core.Style
 
         public bool IsRow { get { return !string.IsNullOrEmpty(Avoid); } }
 
+        /// <summary>
+        /// True when two suggested rules say the same thing, so a second import that words a rule a little differently is not listed again.
+        /// Rows are the same when they avoid the same words (the preferred word may be phrased differently or left open). Prose rules are the
+        /// same when their titles match, or most of their meaningful words do.
+        /// </summary>
+        public static bool SameRule(RuleCandidate a, RuleCandidate b)
+        {
+            if (a == null || b == null) return false;
+            if (a.IsRow || b.IsRow)
+                return a.IsRow && b.IsRow && Words(a.Avoid).SetEquals(Words(b.Avoid));
+            var ta = Words(a.Title); var tb = Words(b.Title);
+            if (ta.Count > 0 && ta.SetEquals(tb)) return true;
+            var wa = Words((a.Title ?? "") + " " + (a.Text ?? "")); var wb = Words((b.Title ?? "") + " " + (b.Text ?? ""));
+            if (wa.Count == 0 || wb.Count == 0) return false;
+            var shared = wa.Count(wb.Contains);
+            return shared * 10 >= Math.Min(wa.Count, wb.Count) * 7;   // 70% of the shorter rule's words are in the other
+        }
+
+        private static readonly HashSet<string> Filler = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "a", "an", "the", "of", "to", "and", "or", "in", "on", "for", "is", "are", "be", "it", "that", "this", "with", "as", "at", "by", "never", "always", "do", "not", "use", "write", "avoid" };
+
+        private static HashSet<string> Words(string text)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text ?? "", @"[A-Za-z0-9']+"))
+                if (!Filler.Contains(m.Value)) set.Add(m.Value.ToLowerInvariant());
+            return set;
+        }
+
         /// <summary>The owner picked another preferred form: avoid the others, and use an example that breaks the new rule.</summary>
         public void Choose(string form)
         {
