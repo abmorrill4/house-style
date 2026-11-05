@@ -10,7 +10,9 @@
 	},
 	"vars": {
 		// Private repo that receives the issues. The token (secret GITHUB_TOKEN) must be limited to this repo.
-		"GITHUB_REPO": "abmorrill4/house-style-reports"
+		"GITHUB_REPO": "abmorrill4/house-style-reports",
+		// Kill switch: "1" makes /v1/report and /v1/false-positive answer 503 until set back to "0".
+		"FEEDBACK_DISABLED": "0"
 	},
 	"secrets": {
 		"required": ["GITHUB_TOKEN"]

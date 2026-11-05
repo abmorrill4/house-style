@@ -1,6 +1,6 @@
 import { storeFalsePositive, summariseFalsePositives } from "./falsePositive";
 import { errorResponse, HttpError, json, log, readJsonBody } from "./http";
-import { hit, LIMITS, pruneExpired } from "./ratelimit";
+import { hit, LIMITS, networkKey, pruneExpired } from "./ratelimit";
 import { handleReport } from "./report";
 import { parseFalsePositive, parseReport } from "./validate";
 
@@ -25,9 +25,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 	if (request.method !== "POST") throw new HttpError(405, "Use POST.");
 	if (request.headers.get(APP_HEADER) !== "1") throw new HttpError(403, "This endpoint only accepts reports from the House Style plugin.");
 
-	// Per-IP limit before the body is read, so floods are cheap to turn away.
-	const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+	// Kill switch: set FEEDBACK_DISABLED to "1" to stop taking reports without redeploying code.
+	if (String(env.FEEDBACK_DISABLED) === "1") throw new HttpError(503, "Reporting is switched off right now.", 3600);
+
+	// Per-address limit (IPv6 by /64) and the global cap, both before the body is read, so floods are cheap to turn away.
+	const ip = networkKey(request.headers.get("cf-connecting-ip") ?? "unknown");
 	await hit(env.DB, isReport ? LIMITS.reportPerIp : LIMITS.fpPerIp, ip);
+	await hit(env.DB, isReport ? LIMITS.reportGlobal : LIMITS.fpGlobal, "all", Date.now(), 503);
 
 	const body = await readJsonBody(request);
 	if (isReport) {

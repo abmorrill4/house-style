@@ -65,7 +65,9 @@ export function reportTitle(r: Report): string {
 }
 
 export function reportLabels(r: Report): string[] {
-	const labels = [r.kind, `v${r.plugin_version}`];
+	// Only a plain x.y.z becomes a label, so junk version strings can't create labels in the reports repo.
+	const version = /^\d{1,3}\.\d{1,3}\.\d{1,5}/.exec(r.plugin_version);
+	const labels = version ? [r.kind, `v${version[0]}`] : [r.kind];
 	if (r.automatic) labels.push("automatic");
 	return labels;
 }
