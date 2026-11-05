@@ -1,4 +1,4 @@
-import { fenced, GitHub, noMentions } from "./github";
+import { defang, fenced, GitHub, noMentions } from "./github";
 import { log, sha256Hex } from "./http";
 import { redactText } from "./redact";
 import { FP_REASONS, type FalsePositive, type FpReason } from "./validate";
@@ -95,14 +95,14 @@ function weekSection(rows: FpRow[], fromS: number, toS: number): string {
 		"",
 		...samples.map((r) => `- ${code(r.flagged_text)} (${REASON_LABELS[r.reason].toLowerCase()})`),
 	];
-	if (notes.length > 0) out.push("", "**Notes**", "", ...notes.map((r) => `- ${noMentions(oneLine(r.note ?? "", 500))}`));
+	if (notes.length > 0) out.push("", "**Notes**", "", ...notes.map((r) => `- ${defang(noMentions(oneLine(r.note ?? "", 500)))}`));
 	if (contexts.length > 0) out.push("", "**Context (shared by the writer)**", "", ...contexts.map((r) => fenced(r.context ?? "", "text")));
 	return out.join("\n");
 }
 
 function issueBody(ruleId: string, ruleName: string, totals: Map<FpReason, number>, sinceS: number): string {
 	return [
-		`False-positive reports for rule \`${ruleId.replace(/`/g, "")}\` (${noMentions(oneLine(ruleName))}), counted since ${new Date(sinceS * 1000).toISOString().slice(0, 10)}.`,
+		`False-positive reports for rule \`${ruleId.replace(/`/g, "")}\` (${defang(noMentions(oneLine(ruleName)))}), counted since ${new Date(sinceS * 1000).toISOString().slice(0, 10)}.`,
 		"",
 		countTable(totals),
 		"",

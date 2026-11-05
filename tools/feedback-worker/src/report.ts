@@ -1,4 +1,4 @@
-import { fenced, GITHUB_BODY_LIMIT, GitHub, noMentions } from "./github";
+import { defang, fenced, GITHUB_BODY_LIMIT, GitHub, noMentions } from "./github";
 import { log, sha256Hex } from "./http";
 import { redactSettings, redactText } from "./redact";
 import type { ExceptionInfo, Report } from "./validate";
@@ -70,8 +70,16 @@ export function reportLabels(r: Report): string[] {
 	return labels;
 }
 
+/** One value for a Markdown table cell. Untrusted text can't ping anyone, link, open HTML or break the table. */
+export function tableCell(value: string): string {
+	return defang(noMentions(value))
+		.replace(/[`|]/g, (c) => `\\${c}`)
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 function quote(text: string): string {
-	return noMentions(redactText(text))
+	return defang(noMentions(redactText(text)))
 		.split(/\r?\n/)
 		.map((l) => `> ${l}`)
 		.join("\n");
@@ -80,7 +88,7 @@ function quote(text: string): string {
 /** Renders the issue body, keeping it under GitHub's 65,536-character limit by trimming the log from the top. */
 export function renderReportBody(r: Report, signature: string | undefined, clientHash: string): string {
 	const parts: string[] = [];
-	const row = (k: string, v: string | undefined) => (v ? `| ${k} | ${v.replace(/\|/g, "\\|")} |` : "");
+	const row = (k: string, v: string | undefined, trusted = false) => (v ? `| ${k} | ${trusted ? v : tableCell(v)} |` : "");
 	parts.push(
 		[
 			"| | |",
@@ -90,7 +98,7 @@ export function renderReportBody(r: Report, signature: string | undefined, clien
 			row("Flare", r.flare_version),
 			row("OS", r.os),
 			row("Install", clientHash.slice(0, 8)),
-			row("Signature", signature ? `\`${signature}\`` : undefined),
+			row("Signature", signature ? `\`${signature}\`` : undefined, true),
 		]
 			.filter(Boolean)
 			.join("\n"),
@@ -142,7 +150,7 @@ export function renderReportBody(r: Report, signature: string | undefined, clien
 function commentBody(r: Report, clientHash: string, newInstall: boolean, count: number): string {
 	const lines = [
 		`**+1 from ${newInstall ? "another install" : "an install that reported this before"}** (House Style ${r.plugin_version}` +
-			`${r.flare_version ? `, Flare ${r.flare_version}` : ""}, install ${clientHash.slice(0, 8)}` +
+			`${r.flare_version ? `, Flare ${tableCell(r.flare_version)}` : ""}, install ${clientHash.slice(0, 8)}` +
 			`${r.automatic ? ", sent automatically" : ""}). Reports so far: ${count}.`,
 	];
 	if (r.user_note) lines.push(`\n${quote(r.user_note)}`);
