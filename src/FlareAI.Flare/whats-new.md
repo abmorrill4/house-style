@@ -66,16 +66,15 @@ New entries go in changes/<name>.md, not here: the nightly release adds them to 
 
 ### The changes you'll notice first
 
-- Setting up the gateway needed a walkthrough → now a three-step setup asks how you use AI and where your style
-  rules are. New writers see it on first use; you can open it from Settings > Run setup again. Test connection
+- A three-step setup asks how you use AI and where your style rules are, so setting up the gateway no longer needs a
+  walkthrough. New writers see it on first use; you can open it from Settings > Run setup again. Test connection
   checks the address and key, and a missing https:// or an extra slash is fixed for you.
-- You wanted to jump from Check project to the problem → now Go to selects the text, and Open file opens the topic or
-  snippet. Right-click a suggestion for the same commands.
-- A long Check project list was hard to work through → now it's grouped by rule, most frequent first. Fix all shows
+- Go to in a Check project report selects the text, and Open file opens the topic or snippet. Right-click a suggestion for the same commands.
+- A long Check project list is grouped by rule, most frequent first. Fix all shows
   the files and counts before it changes anything. Review one by one steps through a single rule.
-- Turning off a rule didn't stop it → now it does, on the next check, without admin rights. Style rules on the ribbon
+- Turning off a rule now stops it on the next check, without admin rights. Style rules on the ribbon
   lists every rule, with search and filters. Turn rules off, change their level, or turn them back on there.
-- You wanted owners to control the team's rules → now the guide's owners.txt names them. Other writers choose Request
+- The guide's owners.txt names who controls the team's rules. Other writers choose Request
   a change…, and owners approve or decline in Tune style guide. You see the answer on your next check.
 
 ### Also new
