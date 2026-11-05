@@ -42,6 +42,16 @@ No Python, uv or Vale at runtime. `StyleEngine` is the linter. Everything ships 
 The API key never appears in logs, output, reports, tests or commits. Settings store it with DPAPI.
 Wrong: `Diagnostics.Log("key=" + settings.ApiKey);`. Wrong: a test fixture with a real-looking key.
 
+What the protection does and doesn't cover, so nobody promises more:
+- DPAPI uses the `CurrentUser` scope and a fixed entropy string, so the saved key is readable by that Windows account
+  on any machine the account's profile roams to, and by any program running as that account. Changing the entropy
+  would lock every writer out of a saved key, so don't, unless the change reads the old value as a fallback.
+- The key is held in memory while the plugin runs, so a crash dump of Flare can contain it. Say so when a dump is shared.
+- `scripts\Load-DotEnv.ps1` puts the dev key into the environment of the process that starts Flare, so any child
+  process inherits it. That is for development only and is never part of the shipped plugin.
+- The per-user install (`%LOCALAPPDATA%\HouseStyle`) is built for one Windows account per install. Shared
+  computers aren't supported (see `docs/README-INSTALL.md`).
+
 ## Security invariants
 - **Shared folders are untrusted** (team guide, feedback folder, `requests\`). Never take a path, id, command or
   authorization decision from them without validating it. Request ids must pass `GuideRequests.IsValidId`. Never touch

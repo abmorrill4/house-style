@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Du+OJKJSbdUgz5nrHeWWINvez6XKDDU/tyj/5c2uvwo='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>House Style Privacy</title>
 <meta name="description" content="What House Style keeps on your computer, what it sends and when.">
@@ -77,6 +78,8 @@
       <div class="body">
         <ul>
           <li>Your key is encrypted and never written to a log.</li>
+          <li>Windows protects the saved key for your Windows account. If your organization uses roaming profiles, the saved key can follow your account to other computers you sign in to. It does not protect the key from other programs running as you.</li>
+          <li>While Flare is open, House Style holds your key in memory. A crash dump of Flare can contain it, so treat a dump file as private.</li>
           <li>A problem report has version numbers, the error and recent log lines.</li>
           <li>GitHub sees your IP address during the version check.</li>
         </ul>

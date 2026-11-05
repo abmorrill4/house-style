@@ -147,6 +147,7 @@ namespace FlareAI.Core.Tests.Update
                 // The updater can take it from here.
                 FakePlugin.Write(Path.Combine(layout.StagedDir("0.9.0"), "FlareAI"), "0.9.0");
                 File.WriteAllText(Path.Combine(layout.StagedDir("0.9.0"), ".verified"), "x");
+                UpdateStager.WriteManifest(layout.StagedDir("0.9.0"));
                 var swapped = new UpdateSwap(layout) { LockRetries = 0 }.Apply("0.9.0");
                 Assert.True(swapped.Ok, swapped.Error);
                 AssertOneHop(plugins, layout);

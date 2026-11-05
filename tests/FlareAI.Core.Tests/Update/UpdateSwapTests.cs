@@ -43,6 +43,7 @@ namespace FlareAI.Core.Tests.Update
         {
             FakePlugin.Write(Path.Combine(layout.StagedDir(version), "FlareAI"), contains ?? version);
             File.WriteAllText(Path.Combine(layout.StagedDir(version), ".verified"), "x");
+            UpdateStager.WriteManifest(layout.StagedDir(version));
         }
 
         private static UpdateSwap Swap(UpdateLayout layout) { return new UpdateSwap(layout) { LockRetries = 0, LockRetryDelayMs = 0 }; }
@@ -54,6 +55,36 @@ namespace FlareAI.Core.Tests.Update
             Assert.True(Junction.IsLink(Plugins(t)));
             Assert.False(Directory.Exists(layout.Current + ".old"));
             Assert.False(Directory.Exists(layout.Current + ".new"));
+        }
+
+        [Fact]
+        public void Apply_RefusesAStagedPayloadThatChangedAfterItWasVerified()
+        {
+            using (var t = new TempDir())
+            {
+                var layout = Installed(t, "0.7.0");
+                StageReady(layout, "0.8.0");
+                File.AppendAllText(Path.Combine(layout.StagedDir("0.8.0"), "FlareAI", "FlareAI.Flare.dll"), "tampered");
+                var r = Swap(layout).Apply("0.8.0");
+                Assert.False(r.Ok);
+                Assert.Contains("changed after it was checked", r.Error);
+                Assert.Equal("0.7.0", UpdateLayout.VersionIn(layout.Current));
+                Assert.False(Directory.Exists(layout.StagedDir("0.8.0")));
+            }
+        }
+
+        [Fact]
+        public void Apply_RefusesAStagedPayloadWithoutAManifest()
+        {
+            using (var t = new TempDir())
+            {
+                var layout = Installed(t, "0.7.0");
+                StageReady(layout, "0.8.0");
+                File.Delete(Path.Combine(layout.StagedDir("0.8.0"), UpdateStager.ManifestName));
+                var r = Swap(layout).Apply("0.8.0");
+                Assert.False(r.Ok);
+                Assert.Equal("0.7.0", UpdateLayout.VersionIn(layout.Current));
+            }
         }
 
         [Fact]

@@ -96,6 +96,7 @@ namespace FlareAI.Core.Update
                 DeleteDir(final);
                 Directory.Move(work, final);
                 File.WriteAllText(Path.Combine(final, ".verified"), actual);
+                WriteManifest(final);
                 return Path.Combine(final, "FlareAI");
             }
             catch (UpdateException) { DeleteDir(work); throw; }
@@ -118,6 +119,44 @@ namespace FlareAI.Core.Update
             if (sig == SignatureStatus.Unsigned && RunningPluginDir != null &&
                 CheckSignature(Path.Combine(RunningPluginDir, "FlareAI.Flare.dll")) == SignatureStatus.Valid)
                 throw new UpdateException("The update is not signed but the installed version is, so it was discarded.");
+        }
+
+        public const string ManifestName = ".manifest";
+
+        /// <summary>
+        /// Records the SHA-256 of every file in <c>staged\&lt;ver&gt;\FlareAI</c> right after it was verified, so the swap can
+        /// tell that nothing changed in the folder between staging (while Flare ran) and the swap (after it closed).
+        /// </summary>
+        public static void WriteManifest(string stagedVersionDir)
+        {
+            var payload = Path.Combine(stagedVersionDir, "FlareAI");
+            var sb = new StringBuilder();
+            foreach (var f in Directory.GetFiles(payload, "*", SearchOption.AllDirectories))
+                sb.Append(Sha256(f)).Append("  ").Append(f.Substring(payload.Length + 1)).Append('\n');
+            File.WriteAllText(Path.Combine(stagedVersionDir, ManifestName), sb.ToString(), new UTF8Encoding(false));
+        }
+
+        /// <summary>Throws unless the staged payload still holds exactly the files, with the hashes, that were verified when it was staged.</summary>
+        public static void VerifyManifest(string stagedVersionDir)
+        {
+            var path = Path.Combine(stagedVersionDir, ManifestName);
+            var payload = Path.Combine(stagedVersionDir, "FlareAI");
+            if (!File.Exists(path)) throw new UpdateException("The downloaded update can't be checked again before it is installed, so it was discarded.");
+            var expected = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in File.ReadAllLines(path, Encoding.UTF8))
+            {
+                var i = line.IndexOf("  ", StringComparison.Ordinal);
+                if (i > 0) expected[line.Substring(i + 2)] = line.Substring(0, i);
+            }
+            var actual = Directory.GetFiles(payload, "*", SearchOption.AllDirectories);
+            bool same = actual.Length == expected.Count;
+            for (int k = 0; same && k < actual.Length; k++)
+            {
+                string hash;
+                same = expected.TryGetValue(actual[k].Substring(payload.Length + 1), out hash) &&
+                       string.Equals(hash, Sha256(actual[k]), StringComparison.OrdinalIgnoreCase);
+            }
+            if (!same) throw new UpdateException("The downloaded update changed after it was checked, so it was discarded.");
         }
 
         /// <summary>The hash for <paramref name="fileName"/> in a sha256sum-style file ("hash  name" or "hash *name"); a single bare hash also counts.</summary>

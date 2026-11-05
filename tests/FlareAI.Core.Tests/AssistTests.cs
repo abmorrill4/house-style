@@ -45,6 +45,8 @@ namespace FlareAI.Core.Tests
                 var after = doc.Document.SelectSingleNode("//*[local-name()='img']") as XmlElement;
                 Assert.Equal("The Payees list with three payees", after.GetAttribute("alt"));
                 Assert.Throws<InvalidOperationException>(() => AltText.Load(topic, "Images/diagram.svg"));
+                foreach (var outside in new[] { @"C:/Windows/Web/Wallpaper/a.png", "//server/share/a.png", "file:///C:/a.png", "http://example.com/a.png" })
+                    Assert.Contains("only reads images in the project", Assert.Throws<InvalidOperationException>(() => AltText.Load(topic, outside)).Message);
             }
             finally { Directory.Delete(dir, true); }
         }

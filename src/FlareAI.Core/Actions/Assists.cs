@@ -66,7 +66,12 @@ namespace FlareAI.Core.Actions
         public static LlmImageFile Load(string topicPath, string src)
         {
             if (string.IsNullOrEmpty(src)) throw new InvalidOperationException("The image has no src.");
-            var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(topicPath) ?? "", Uri.UnescapeDataString(src).Replace('/', Path.DirectorySeparatorChar)));
+            // A topic can come from a shared project, so its image path stays relative: a full path, a UNC path or a
+            // URL would make House Style read (or reach out to) a place the topic's author picked.
+            var rel = Uri.UnescapeDataString(src).Replace('/', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(rel) || rel.StartsWith("\\") || rel.IndexOf(':') >= 0)
+                throw new InvalidOperationException("The AI only reads images in the project, not " + src + ".");
+            var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(topicPath) ?? "", rel));
             string type;
             if (!Types.TryGetValue(Path.GetExtension(path), out type)) throw new InvalidOperationException("The AI can read PNG, JPEG, GIF and WebP images, not " + Path.GetExtension(path) + ".");
             if (!File.Exists(path)) throw new InvalidOperationException("Image not found: " + path);
