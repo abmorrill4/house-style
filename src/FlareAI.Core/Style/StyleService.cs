@@ -107,6 +107,8 @@ namespace FlareAI.Core.Style
         internal int Position;
         /// <summary>A row of an Avoid/Use or Pattern table: the linter enforces it, so it isn't sent to the AI.</summary>
         public bool IsLint { get; set; }
+        /// <summary>The bullet or row carries class="uses-roles": the team's role names go with it (<see cref="GuideLayer.RoleNames"/>).</summary>
+        public bool UsesRoles { get; set; }
         /// <summary>Words or phrases the rule is about (a Term/Rule table row): it applies only when the text uses one.</summary>
         public List<string> Triggers = new List<string>();
 
