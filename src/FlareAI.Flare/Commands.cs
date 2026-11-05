@@ -91,6 +91,11 @@ namespace FlareAI.Flare
             Id = "assist", Label = "Topic Metadata", KeyTip = "M", Icon = "assist", Group = GroupAi,
             Tooltip = "Suggest a description, keywords, and other metadata for this topic."
         };
+        public static readonly CommandInfo Introduction = new CommandInfo
+        {
+            Id = "intro", Label = "Write an Introduction", KeyTip = "J", Icon = "assist", Group = GroupAi,
+            Tooltip = "Draft an introduction from the text in this topic."
+        };
         public static readonly CommandInfo Settings = new CommandInfo
         {
             Id = "settings", Label = "Settings", KeyTip = "S", Icon = "settings", Group = GroupOptions,
@@ -155,7 +160,7 @@ namespace FlareAI.Flare
         public static readonly IList<CommandInfo> All = new List<CommandInfo>
         {
             LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules,
-            Rewrite, Ask, AiToggle, TopicMetadata,
+            Rewrite, Ask, AiToggle, TopicMetadata, Introduction,
             RuleDecisions, ImportRules, TestRules,
             Settings, Help,
             ExportLlm, Diagnostics, WhatsNew, Tour, ReportProblem, MyRequests
@@ -192,7 +197,7 @@ namespace FlareAI.Flare
         {
             var list = new List<CommandInfo> { LintTopic, LintProject, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
-            list.AddRange(new[] { Rewrite, Ask, AiToggle, TopicMetadata });
+            list.AddRange(new[] { Rewrite, Ask, AiToggle, TopicMetadata, Introduction });
             if (role == UserRole.Owner) list.AddRange(OwnerOnly);
             list.Add(Settings);
             list.Add(Help);
@@ -207,7 +212,7 @@ namespace FlareAI.Flare
         {
             var list = new List<CommandInfo> { LintTopic, LintRulesOnly, LintRulesAndAi, LintProject, LintFolders, ShowIssues, Rules };
             if (role != UserRole.Owner && teamGuide) list.Add(MyRequests);
-            list.AddRange(new CommandInfo[] { Rewrite, Ask, TopicMetadata, null });
+            list.AddRange(new CommandInfo[] { Rewrite, Ask, TopicMetadata, Introduction, null });
             if (role == UserRole.Owner) { list.AddRange(OwnerOnly); list.Add(null); }
             list.Add(Settings); list.Add(Help); list.Add(WhatsNew); list.Add(Tour); list.Add(ReportProblem);
             return list;

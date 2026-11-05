@@ -84,6 +84,38 @@ namespace FlareAI.Core.Tests
             Assert.Equal(-1, DraftAnchor.InsertIndex(body, first));
         }
 
+        private static FakeDocumentAdapter Topic(string bodyXml)
+        {
+            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "flareai-intro-" + System.Guid.NewGuid().ToString("N") + ".htm");
+            System.IO.File.WriteAllText(path, "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><body>" + bodyXml + "</body></html>");
+            try { return new FakeDocumentAdapter(path, true); }
+            finally { System.IO.File.Delete(path); }
+        }
+
+        private static XmlNode TextOf(FakeDocumentAdapter d, string paragraph)
+        {
+            return d.Document.SelectSingleNode("//*[local-name()='p'][.='" + paragraph + "']").FirstChild;
+        }
+
+        [Fact]
+        public void AnIntroduction_GoesUnderTheHeadingAboveTheCaret_OrTheFirstHeading()
+        {
+            var d = Topic("<p>Before</p><h1>Title</h1><p>One</p><h2>Part</h2><p>Two</p>");
+            string refusal;
+            d.SelectionNodes = new List<XmlNode> { TextOf(d, "Two") };
+            Assert.Equal("Part", DraftAnchor.ForIntroduction(d, out refusal).InnerText);
+            d.SelectionNodes = new List<XmlNode> { TextOf(d, "One") };
+            Assert.Equal("Title", DraftAnchor.ForIntroduction(d, out refusal).InnerText);
+            d.SelectionNodes = new List<XmlNode> { TextOf(d, "Before") };   // above every heading: the first one
+            Assert.Equal("Title", DraftAnchor.ForIntroduction(d, out refusal).InnerText);
+            d.SelectionNodes = new List<XmlNode>();                          // no caret
+            Assert.Equal("Title", DraftAnchor.ForIntroduction(d, out refusal).InnerText);
+
+            var none = Topic("<p>No heading</p>");
+            Assert.Null(DraftAnchor.ForIntroduction(none, out refusal));
+            Assert.Equal(DraftAnchor.NoHeading, refusal);
+        }
+
         [Fact]
         public void Gaps_AreFilledIn_AndCounted()
         {
