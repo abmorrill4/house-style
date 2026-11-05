@@ -47,6 +47,8 @@ namespace FlareAI.Core.Style
         public string Good { get; set; }
         /// <summary>Where a notes-extracted rule came from (quoted from the notes).</summary>
         public string Quote { get; set; }
+        /// <summary>The file name, or "Pasted text", of the notes the rule was extracted from.</summary>
+        public string Source { get; set; }
         public int Impact { get; set; }
 
         public bool IsRow { get { return !string.IsNullOrEmpty(Avoid); } }

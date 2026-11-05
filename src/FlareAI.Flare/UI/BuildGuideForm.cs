@@ -55,7 +55,7 @@ namespace FlareAI.Flare.UI
             tools.Controls.AddRange(new Control[] { _mine, _notes });
 
             _list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, CheckBoxes = true };
-            _list.Columns.Add("Suggested rule", 430); _list.Columns.Add("Becomes", 110); _list.Columns.Add("Evidence", 330);
+            _list.Columns.Add("Suggested rule", 330); _list.Columns.Add("Becomes", 100); _list.Columns.Add("Evidence", 280); _list.Columns.Add("Source", 150);
             _list.Groups.Add("content", "From your content");
             _list.Groups.Add("notes", "From your notes");
             _list.SelectedIndexChanged += (s, e) => ShowDetail();
@@ -95,7 +95,7 @@ namespace FlareAI.Flare.UI
             Controls.Add(_progress);
             Controls.Add(_head);
             CancelButton = close;
-            A11y.Name(_list, "Suggested rules", "Tick the rules to add to the guide. Columns: suggested rule, becomes, evidence.");
+            A11y.Name(_list, "Suggested rules", "Tick the rules to add to the guide. Columns: suggested rule, becomes, evidence, source.");
             A11y.Name(_detail, "Details for the selected rule");
             A11y.Name(_edit, "Edit rule", "Change the selected rule's text, Avoid, Use, severity or reason before adding it. Shortcut F2.");
             A11y.Name(_remove, "Remove rule", "Drop the selected rule from this list. Shortcut Delete.");
@@ -132,10 +132,8 @@ namespace FlareAI.Flare.UI
 
         private void Notes()
         {
-            System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs;
-            var text = NotesDialog.Ask(this, out pdfs);
-            if (string.IsNullOrEmpty(text)) return;
-            text = System.Text.RegularExpressions.Regex.Replace(text, @"^\(PDF attached[^\r\n]*\)\s*$", "", System.Text.RegularExpressions.RegexOptions.Multiline).Trim();
+            var sources = NotesDialog.Ask(this);
+            if (sources == null || sources.Count == 0) return;
             var runner = _runner();
             if (runner == null) return;
             Busy(true, "Reading your notes…");
@@ -143,8 +141,7 @@ namespace FlareAI.Flare.UI
             var skipped = 0;
             worker.DoWork += (s, e) =>
             {
-                var found = text.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(text, @"^(— [^\r\n]* —\s*)+$") ? runner.ExtractRules(text) : new List<RuleCandidate>();
-                foreach (var pdf in pdfs) found.AddRange(runner.ExtractRulesFromPdf(pdf.Value, pdf.Key));
+                var found = runner.ExtractRules(sources);
                 // Like mining: drop rows whose words the guide already flags (the validator would report the duplicate).
                 if (_style != null)
                 {
@@ -182,7 +179,7 @@ namespace FlareAI.Flare.UI
         {
             foreach (var c in found)
             {
-                var item = new ListViewItem(new[] { c.Title, Becomes(c), Evidence(c) }) { Tag = c, Group = _list.Groups[group] };
+                var item = new ListViewItem(new[] { c.Title, Becomes(c), Evidence(c), From(c) }) { Tag = c, Group = _list.Groups[group] };
                 _list.Items.Add(item);
             }
             if (_list.SelectedItems.Count == 0 && _list.Items.Count > 0) _list.Items[0].Selected = true;
@@ -201,6 +198,8 @@ namespace FlareAI.Flare.UI
             if (c.Forms.Count > 0) return string.Join(" · ", c.Forms.Select(f => "“" + f.Text + "” " + f.Count + "×").ToArray());
             return string.IsNullOrEmpty(c.Quote) ? "" : "“" + c.Quote + "”";
         }
+
+        private static string From(RuleCandidate c) { return c.Source ?? ""; }
 
         private RuleCandidate Current() { return _list.SelectedItems.Count == 1 ? (RuleCandidate)_list.SelectedItems[0].Tag : null; }
 
@@ -224,6 +223,7 @@ namespace FlareAI.Flare.UI
             _detail.Clear();
             Write(c.Title, FontStyle.Bold);
             if (c.Forms.Count > 0) Write("Your content: " + Evidence(c), FontStyle.Regular);
+            if (!string.IsNullOrEmpty(c.Source)) Write("Source: " + c.Source, FontStyle.Regular);
             if (!string.IsNullOrEmpty(c.Quote)) Write("From your notes: “" + c.Quote + "”", FontStyle.Italic);
             foreach (var e in c.Examples.Take(4)) Write("• " + e.Text + (string.IsNullOrEmpty(e.File) ? "" : "  (" + e.File + ")"), FontStyle.Regular);
             Write("", FontStyle.Regular);
@@ -353,20 +353,44 @@ namespace FlareAI.Flare.UI
     /// <summary>A large box for pasting notes, an old guide, or another tool's prompt (or loading a text file).</summary>
     internal static class NotesDialog
     {
-        public static string Ask(IWin32Window owner, out System.Collections.Generic.List<KeyValuePair<string, byte[]>> pdfs)
+        /// <summary>The pasted text and the files added, one source each, or null when cancelled.</summary>
+        public static List<NoteSource> Ask(IWin32Window owner)
         {
-            var attached = pdfs = new System.Collections.Generic.List<KeyValuePair<string, byte[]>>();
+            var files = new List<NoteSource>();
             using (var form = new Form { Text = "House Style — Notes for the style guide", StartPosition = FormStartPosition.CenterParent, ClientSize = new Size(680, 460), MinimumSize = new Size(480, 300), Font = SystemFonts.MessageBoxFont, AutoScaleMode = AutoScaleMode.Font })
             {
-                var label = new Label { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 8, 8, 0),
-                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or add files: Word, Excel, PowerPoint, PDF, OpenDocument, Rich Text, web pages, .txt or .md. Add as many as you like, all at once or one at a time." };
+                var label = new Label { Dock = DockStyle.Top, Height = 60, Padding = new Padding(8, 8, 8, 0),
+                    Text = "Paste or dictate (Win+H) anything: how the team writes, words you never use, an old style guide, or the prompt you used with another AI tool. Or add files: Word, Excel, PowerPoint, PDF, OpenDocument, Rich Text, web pages, .txt or .md. Add as many as you like, all at once or one at a time. Files you add are listed below the box, and you can remove one before you extract." };
                 var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, WordWrap = true };
                 var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 40, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
                 var ok = new Button { Text = "Extract rules", AutoSize = true, DialogResult = DialogResult.OK, Enabled = false, Font = new Font(form.Font, FontStyle.Bold) };
                 var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
                 var load = new Button { Text = "Add Files…", AutoSize = true };
                 var hint = new Label { Text = "Ctrl+Enter extracts", AutoSize = true, Padding = new Padding(0, 6, 8, 0), ForeColor = SystemColors.GrayText };
-                box.TextChanged += (s, e) => ok.Enabled = box.Text.Trim().Length > 0;
+                var added = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
+                var removeFile = new Button { Text = "Remove", AutoSize = true, Dock = DockStyle.Right, Enabled = false };
+                var addedPanel = new Panel { Dock = DockStyle.Bottom, Height = 90, Visible = false };
+                addedPanel.Controls.Add(added); addedPanel.Controls.Add(removeFile);
+                Action refresh = () =>
+                {
+                    added.Items.Clear();
+                    foreach (var f in files) added.Items.Add(f.Name);
+                    addedPanel.Visible = files.Count > 0;
+                    removeFile.Enabled = added.SelectedIndex >= 0;
+                    ok.Enabled = box.Text.Trim().Length > 0 || files.Count > 0;
+                };
+                Action removeSelected = () =>
+                {
+                    var i = added.SelectedIndex;
+                    if (i < 0) return;
+                    files.RemoveAt(i);
+                    refresh();
+                    if (files.Count > 0) added.SelectedIndex = Math.Min(i, files.Count - 1);
+                };
+                removeFile.Click += (s, e) => removeSelected();
+                added.SelectedIndexChanged += (s, e) => removeFile.Enabled = added.SelectedIndex >= 0;
+                added.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) { e.Handled = e.SuppressKeyPress = true; removeSelected(); } };
+                box.TextChanged += (s, e) => refresh();
                 // Enter stays a newline in the box (AcceptsReturn); the default button only fires from the other controls.
                 box.KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.Return && ok.Enabled) { e.Handled = e.SuppressKeyPress = true; ok.PerformClick(); } };
                 load.Click += (s, e) =>
@@ -382,12 +406,10 @@ namespace FlareAI.Flare.UI
                                 var pdf = NoteText.ReadPdf(file);
                                 if (pdf != null)
                                 {
-                                    attached.Add(new KeyValuePair<string, byte[]>(Path.GetFileName(file), pdf));
-                                    box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n(PDF attached. It is read when you extract.)");
+                                    files.Add(new NoteSource { Name = Path.GetFileName(file), Pdf = pdf });
                                     continue;
                                 }
-                                var text = NoteText.ReadFile(file).Replace("\r\n", "\n").Replace("\n", "\r\n");   // a TextBox shows only CRLF as a line break
-                                box.AppendText((box.TextLength > 0 ? "\r\n\r\n" : "") + "— " + Path.GetFileName(file) + " —\r\n" + text);   // each file under its own name, added to what is there
+                                files.Add(new NoteSource { Name = Path.GetFileName(file), Text = NoteText.ReadFile(file) });
                             }
                             catch (Exception ex)
                             {
@@ -395,16 +417,23 @@ namespace FlareAI.Flare.UI
                                 problems.Add(Path.GetFileName(file) + ": " + LoadProblem(ex));
                             }
                         }
+                        refresh();
                         if (problems.Count > 0) Notify.Warn(form, string.Join(Environment.NewLine + Environment.NewLine, problems.ToArray()), "Notes");
                     }
                 };
                 bar.Controls.AddRange(new Control[] { cancel, ok, load, hint });
                 A11y.Name(box, "Notes", "Paste or type notes about how the team writes, or load a file. Control+Enter extracts rules.");
                 A11y.Name(ok, "Extract rules", "Find style rules in these notes.");
+                A11y.Name(added, "Files added", "The files that will be read. Select one and press Delete to remove it.");
+                A11y.Name(removeFile, "Remove file", "Take the selected file out of the notes.");
                 A11y.Name(bar, "Dialog buttons");
-                form.Controls.Add(box); form.Controls.Add(bar); form.Controls.Add(label);
+                form.Controls.Add(box); form.Controls.Add(addedPanel); form.Controls.Add(bar); form.Controls.Add(label);
                 form.AcceptButton = ok; form.CancelButton = cancel;
-                return form.ShowDialog(owner) == DialogResult.OK ? box.Text.Trim() : null;
+                if (form.ShowDialog(owner) != DialogResult.OK) return null;
+                var all = new List<NoteSource>();
+                if (box.Text.Trim().Length > 0) all.Add(new NoteSource { Name = "Pasted text", Text = box.Text.Trim() });
+                all.AddRange(files);
+                return all;
             }
         }
 
