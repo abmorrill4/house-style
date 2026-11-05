@@ -550,7 +550,7 @@ namespace FlareAI.Flare.Tests
             {
                 t.Start();
                 // The test passes in about 2 s. A hang (#295) blocks the thread for good, so a short limit fails it fast; the last Mark says where.
-                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s. It was stuck at: " + _stage + ". Its thread is " + t.ThreadState + ".");
+                if (!t.Join(60000)) throw new TimeoutException("The UI test didn't finish in 60 s. It was stuck at: " + _stage + ". Its thread is " + t.ThreadState + ". Where it is: " + StackOf(t));
             }
             finally { AppDomain.CurrentDomain.FirstChanceException -= seen; }
             if (error != null && first != null && first != error) throw new Exception(first.Message + " (then: " + error.Message + ")", first);
@@ -559,6 +559,22 @@ namespace FlareAI.Flare.Tests
             // the body ran to its end) it doesn't fail the test.
             if (error != null && !other && IsDisposeRace(error)) return;
             if (error != null) throw new Exception(error.Message + " Raised on the test's thread: " + string.Join(" | ", raised.ToArray()), error);
+        }
+
+        /// <summary>The stack of a thread that is stuck (#295), so the failure says where. Suspending it is safe here: the test is over.</summary>
+        private static string StackOf(Thread t)
+        {
+            try
+            {
+#pragma warning disable 618
+                t.Suspend();
+                try { return new System.Diagnostics.StackTrace(t, true).ToString().Replace("
+", " | ").Replace("
+", " | "); }
+                finally { t.Resume(); }
+#pragma warning restore 618
+            }
+            catch (Exception ex) { return "(unavailable: " + ex.Message + ")"; }
         }
 
         private static bool IsDisposeRace(Exception ex)
