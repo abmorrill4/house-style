@@ -22,6 +22,17 @@ namespace FlareAI.Core.Style
         private const string W ="http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
         /// <summary>Reads a notes file (shared read, so a copy open in Word still loads).</summary>
+        public const int MaxPdfBytes = 20 * 1024 * 1024;
+
+        /// <summary>The bytes of a PDF file, or null when the file is not a PDF. Throws when it is too large to send.</summary>
+        public static byte[] ReadPdf(string path)
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (!(bytes.Length > 4 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F')) return null;
+            if (bytes.Length > MaxPdfBytes) throw new InvalidDataException("This PDF is larger than 20 MB. Split it into smaller files, or save the pages with the rules as a new PDF.");
+            return bytes;
+        }
+
         public static string ReadFile(string path)
         {
             byte[] bytes;
@@ -36,7 +47,7 @@ namespace FlareAI.Core.Style
             if (ext == ".docx") return FromDocx(bytes);
             if (bytes.Length > 3 && bytes[0] == 'P' && bytes[1] == 'K' && bytes[2] == 3 && bytes[3] == 4) return FromPackage(bytes);
             if (bytes.Length > 4 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F')
-                throw new InvalidDataException("House Style can't read the text of a PDF. Open it, copy the text and paste it here, or save it as a Word (.docx) file and load that.");
+                throw new InvalidDataException("House Style can't read the text of a PDF here. Add it with Add Files in the notes box instead.");
             if (bytes.Length > 5 && bytes[0] == '{' && bytes[1] == '\\' && bytes[2] == 'r' && bytes[3] == 't' && bytes[4] == 'f') return FromRtf(DecodeText(bytes));
             if (bytes.Length > 7 && bytes[0] == 0xD0 && bytes[1] == 0xCF && bytes[2] == 0x11 && bytes[3] == 0xE0)
                 throw new InvalidDataException("This is an older binary Word file (.doc) or a protected file. Save it as .docx or as a Web Page (.htm) in Word, then load that.");

@@ -107,9 +107,12 @@ namespace FlareAI.Core.Llm
         /// <summary>Plain text, or image blocks followed by the text when the request carries images.</summary>
         private static JToken UserContent(LlmRequest req)
         {
-            if (req.Images == null || req.Images.Count == 0) return req.User ?? "";
+            if ((req.Images == null || req.Images.Count == 0) && (req.Documents == null || req.Documents.Count == 0)) return req.User ?? "";
             var parts = new JArray();
-            foreach (var img in req.Images)
+            if (req.Documents != null)
+                foreach (var doc in req.Documents)
+                    parts.Add(new JObject { ["type"] = "document", ["source"] = new JObject { ["type"] = "base64", ["media_type"] = doc.MediaType, ["data"] = doc.Base64 } });
+            foreach (var img in req.Images ?? new List<LlmImage>())
                 parts.Add(new JObject { ["type"] = "image", ["source"] = new JObject { ["type"] = "base64", ["media_type"] = img.MediaType, ["data"] = img.Base64 } });
             parts.Add(new JObject { ["type"] = "text", ["text"] = req.User ?? "" });
             return parts;
