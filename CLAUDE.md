@@ -56,8 +56,10 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
   or through a recompile with `tools/FlareAI.GuideCompiler`.
 - **Nothing extra at runtime.** Everything ships in the plugin folder, with no Python, uv or Vale at runtime.
   `StyleEngine` is the linter.
-- **The API key never appears in logs, output, reports or commits.** Settings store it with DPAPI. The dev fallback
-  is `ANTHROPIC_API_KEY` from the git-ignored `.env` (`scripts\Load-DotEnv.ps1`).
+- **The API key never appears in logs, output, reports or commits.** Settings store it with DPAPI, and
+  Settings is the only place the plugin takes a key from: it reads no environment variable or file for it. The e2e
+  harness reads `ANTHROPIC_API_KEY` from the shell or the git-ignored `.env` and writes it, DPAPI-protected, into the
+  test run's own settings.
 
 ## Security invariants (from the 2026-10-22 audit)
 - **Shared folders are untrusted input.** That covers the team guide, the feedback folder and its `requests\`

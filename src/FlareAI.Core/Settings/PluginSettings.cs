@@ -15,13 +15,14 @@ namespace FlareAI.Core.Settings
 
     /// <summary>
     /// Persisted at %APPDATA%\FlareAI\settings.json. The API key is DPAPI-protected (CurrentUser scope),
-    /// so the file is useless on another machine or account. Dev fallback: ANTHROPIC_API_KEY env var
-    /// for Anthropic direct, HOUSESTYLE_GATEWAY_KEY for Bifrost.
+    /// so the file is useless on another machine or account. The key is set in Settings only: no variable or
+    /// file outside Settings supplies it.
     /// </summary>
     public sealed class PluginSettings
     {
         public const string DefaultAnthropicBaseUrl = "https://api.anthropic.com";
         public const string DefaultModel = "claude-sonnet-5-5";
+        /// <summary>Names of variables a key might sit in. Never used to get a key: reports only use them to scrub a key from their text.</summary>
         public const string EnvKeyName = "ANTHROPIC_API_KEY";
         public const string GatewayEnvKeyName = "HOUSESTYLE_GATEWAY_KEY";
 
@@ -250,7 +251,7 @@ namespace FlareAI.Core.Settings
             ProtectedApiKey = Convert.ToBase64String(enc);
         }
 
-        /// <summary>Stored key first, then the environment variable for the provider: ANTHROPIC_API_KEY for Anthropic direct, HOUSESTYLE_GATEWAY_KEY for Bifrost. Null if neither.</summary>
+        /// <summary>The key saved in Settings, or null. Never taken from anywhere else.</summary>
         public string ResolveApiKey()
         {
             if (!string.IsNullOrEmpty(ProtectedApiKey))
@@ -260,14 +261,9 @@ namespace FlareAI.Core.Settings
                     var dec = ProtectedData.Unprotect(Convert.FromBase64String(ProtectedApiKey), Entropy, DataProtectionScope.CurrentUser);
                     return Encoding.UTF8.GetString(dec);
                 }
-                catch (CryptographicException) { /* different user/machine — fall through */ }
+                catch (CryptographicException) { /* different user or machine: no usable key */ }
             }
-            string name;
-            if (Provider == LlmProvider.AnthropicDirect) name = EnvKeyName;
-            else if (Provider == LlmProvider.Bifrost) name = GatewayEnvKeyName;
-            else return null;
-            var env = Environment.GetEnvironmentVariable(name);
-            return string.IsNullOrEmpty(env) ? null : env;
+            return null;
         }
 
         public bool HasStoredKey { get { return !string.IsNullOrEmpty(ProtectedApiKey); } }

@@ -445,9 +445,7 @@ namespace FlareAI.Flare.UI
             var typed = _key.Text.Trim();
             if (typed.Length > 0) return typed;
             if (AiChoices.Of(_settings) == Choice) return _settings.ResolveApiKey();
-            if (Choice != AiChoice.AnthropicKey) return null;
-            var env = Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName);
-            return string.IsNullOrEmpty(env) ? null : env;
+            return null;
         }
 
         private void LoadModels()
@@ -571,7 +569,6 @@ namespace FlareAI.Flare.UI
         {
             var mine = AiChoices.Of(_settings) == Choice;
             if (mine && _settings.HasStoredKey) _keyStatus.Text = "A key is stored (protected). Leave the box blank to keep it.";
-            else if (Choice == AiChoice.AnthropicKey && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(PluginSettings.EnvKeyName))) _keyStatus.Text = "Using " + PluginSettings.EnvKeyName + " from the environment.";
             else _keyStatus.Text = "No key yet.";
             _clearKey.Enabled = _settings.HasStoredKey;
         }

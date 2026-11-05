@@ -62,8 +62,8 @@ Design rules:
    must pass before `ReplaceDocumentNode` is called. Fail closed.
 4. **No `async`/`await`, no `HttpClient`, no `ValueTuple`** (net40). HTTP via `HttpWebRequest`,
    JSON via Newtonsoft.Json 13 (supports net40), threading via `BackgroundWorker`.
-5. **Secrets** live in DPAPI-protected settings. Dev fallback: `ANTHROPIC_API_KEY` env var,
-   loaded from the git-ignored `.env` at the repo root.
+5. **Secrets** live in DPAPI-protected settings and are set in Settings only. The plugin reads no environment
+   variable or file for a key. The e2e harness stores its test key, protected, in the test run's own settings.
 
 ## 2. Phases
 
