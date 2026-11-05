@@ -14,7 +14,7 @@ namespace FlareAI.Flare.UI
         }
 
         private readonly TextBox _text;
-        private readonly RadioButton _question, _change, _insert;
+        private readonly RadioButton _question, _change, _insert, _talk;
         public string Instruction { get { return _text.Text.Trim(); } }
 
         /// <summary>True when the writer chose "Ask a question". False for "Make a change" (and before any choice).</summary>
@@ -23,6 +23,9 @@ namespace FlareAI.Flare.UI
         /// <summary>True when the writer chose "Insert at the cursor": new text where the caret is, with nothing selected.</summary>
         public bool IsInsert { get { return _insert.Checked; } }
 
+        /// <summary>True when the writer chose "Have a conversation": the instruction becomes the first message of a back-and-forth about the text.</summary>
+        public bool IsConversation { get { return _talk.Checked; } }
+
         /// <param name="canInsert">False when text is selected: new text goes at the caret, so there must be no selection.</param>
         public AskForm(bool canInsert = false)
         {
@@ -30,30 +33,33 @@ namespace FlareAI.Flare.UI
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false;
-            ClientSize = new Size(520, 252);
+            ClientSize = new Size(520, 280);
             Font = SystemFonts.MessageBoxFont;
             AutoScaleMode = AutoScaleMode.Font;
 
-            _question = new ChoiceButton { Text = "Ask a question", Left = 12, Top = 12, Width = 160, Height = 24 };
-            _change = new ChoiceButton { Text = "Make a change", Left = 178, Top = 12, Width = 160, Height = 24 };
-            _insert = new ChoiceButton { Text = "Insert at the cursor", Left = 344, Top = 12, Width = 164, Height = 24, Enabled = canInsert };
-            var label = new Label { Text = "Type your question or your instruction. With nothing selected, it applies to the whole topic.", Left = 12, Top = 44, Width = 496, Height = 32 };
-            _text = new TextBox { Left = 12, Top = 80, Width = 496, Height = 96, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical };
-            var ok = new Button { Name = "Run", Text = "Run", Left = 352, Top = 188, Width = 75, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "Cancel", Left = 433, Top = 188, Width = 75, DialogResult = DialogResult.Cancel };
+            _question = new ChoiceButton { Text = "Ask a question", Left = 12, Top = 12, Width = 244, Height = 24 };
+            _change = new ChoiceButton { Text = "Make a change", Left = 264, Top = 12, Width = 244, Height = 24 };
+            _insert = new ChoiceButton { Text = "Insert at the cursor", Left = 12, Top = 40, Width = 244, Height = 24, Enabled = canInsert };
+            _talk = new ChoiceButton { Text = "Have a conversation", Left = 264, Top = 40, Width = 244, Height = 24 };
+            var label = new Label { Text = "Type your question or your instruction. With nothing selected, it applies to the whole topic.", Left = 12, Top = 72, Width = 496, Height = 32 };
+            _text = new TextBox { Left = 12, Top = 108, Width = 496, Height = 96, Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical };
+            var ok = new Button { Name = "Run", Text = "Run", Left = 352, Top = 216, Width = 75, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", Left = 433, Top = 216, Width = 75, DialogResult = DialogResult.Cancel };
             var tip = new ToolTip();
             tip.SetToolTip(_question, "Get an answer about the selected text. The topic doesn't change.");
+            tip.SetToolTip(_talk, "Talk it through. Ask, refine, and apply any reply as a tracked change.");
             tip.SetToolTip(_insert, canInsert ? "Have the AI write new text where the cursor is." : "Click in the topic without selecting text to insert new text there.");
             ok.Click += (s, e) =>
             {
-                if (!_question.Checked && !_change.Checked && !_insert.Checked) { DialogResult = DialogResult.None; _question.Focus(); }
+                if (!_question.Checked && !_change.Checked && !_insert.Checked && !_talk.Checked) { DialogResult = DialogResult.None; _question.Focus(); }
                 else if (Instruction.Length == 0) { DialogResult = DialogResult.None; _text.Focus(); }
             };
 
-            Controls.AddRange(new Control[] { _question, _change, _insert, label, _text, ok, cancel });
+            Controls.AddRange(new Control[] { _question, _change, _insert, _talk, label, _text, ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
             A11y.Name(_question, "Ask a question", "Get an answer about the selected text. The topic doesn't change.");
             A11y.Name(_change, "Make a change", "Have the AI change the selected text.");
+            A11y.Name(_talk, "Have a conversation", "Talk it through. Ask, refine, and apply any reply as a tracked change.");
             A11y.Name(_insert, "Insert at the cursor", "Have the AI write new text where the cursor is.");
             A11y.Name(_text, "Instruction", "Type your question or your instruction. With nothing selected, it applies to the whole topic.");
             A11y.Name(ok, "Run", "Sends your question or instruction.");

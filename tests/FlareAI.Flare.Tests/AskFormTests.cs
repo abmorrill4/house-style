@@ -33,11 +33,13 @@ namespace FlareAI.Flare.Tests
             using (var f = new AskForm())
             {
                 var choices = Choices(f);
-                Assert.Equal(3, choices.Count);
+                Assert.Equal(4, choices.Count);
                 Assert.All(choices, c => Assert.False(c.Checked));
                 Assert.Contains(choices, c => c.Text == "Ask a question");
                 Assert.Contains(choices, c => c.Text == "Make a change");
                 Assert.Contains(choices, c => c.Text == "Insert at the cursor");
+                Assert.Contains(choices, c => c.Text == "Have a conversation");
+                Assert.False(f.IsConversation);
                 Assert.False(f.IsQuestion);
                 Assert.False(f.IsInsert);
             }

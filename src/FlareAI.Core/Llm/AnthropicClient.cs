@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -50,7 +51,7 @@ namespace FlareAI.Core.Llm
             {
                 ["model"] = model,
                 ["max_tokens"] = req.MaxTokens > 0 ? req.MaxTokens : DefaultMaxTokens,
-                ["messages"] = new JArray(new JObject { ["role"] = "user", ["content"] = UserContent(req) })
+                ["messages"] = Messages(req)
             };
             // The system prompt (instructions + the always-on rules) is identical across calls: cache it, so per-section
             // reviews and repeat checks pay for it once. The rule packs for the unit's content are a second cached block.
@@ -81,6 +82,26 @@ namespace FlareAI.Core.Llm
             if (output.Count > 0) body["output_config"] = output;
             if (UsesFallback(model)) body["fallbacks"] = "default";
             return body.ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// The history, then the new user message. The last history message carries a cache breakpoint (a 5-minute one, like the rule
+        /// packs), so the next turn reads the conversation so far instead of paying for it again.
+        /// </summary>
+        private static JArray Messages(LlmRequest req)
+        {
+            var messages = new JArray();
+            var history = req.History ?? new List<LlmTurn>();
+            for (var i = 0; i < history.Count; i++)
+            {
+                var last = i == history.Count - 1 && (req.CacheTtl ?? "1h") != "none";
+                JToken content = history[i].Text ?? "";
+                if (last)
+                    content = new JArray(new JObject { ["type"] = "text", ["text"] = history[i].Text ?? "", ["cache_control"] = new JObject { ["type"] = "ephemeral" } });
+                messages.Add(new JObject { ["role"] = history[i].Role, ["content"] = content });
+            }
+            messages.Add(new JObject { ["role"] = "user", ["content"] = UserContent(req) });
+            return messages;
         }
 
         /// <summary>Plain text, or image blocks followed by the text when the request carries images.</summary>
