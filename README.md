@@ -32,9 +32,10 @@ or `docs/README-INSTALL.md`.
 
 | For | Read |
 |---|---|
-| Writers | The user guide, a Flare project in `docs/user-guide` (open `FlareAI-Guide.flprj`) |
+| Writers | The user guide at <https://gethousestyle.com/docs/>. Its pages are Markdown in `docs-site/src/content/docs`. The old Flare project in `docs/user-guide` stays until the new site replaces it |
 | Pilot testers | `docs/TESTER-GUIDE.md` |
-| Style guide owners | User guide topics *Set up a team style guide*, *Maintain the style guide* and *Publish the style guide to Confluence* |
+| Style guide owners | The *Team style guide* section of the user guide |
+| Contributors | <https://gethousestyle.com/docs/dev/>: test reports, architecture, Flare API notes. Built from `docs/testing`, `PLAN.md`, `docs/flare-api-notes.md` and `CLAUDE.md`, so edit those files |
 | Gateway admins | `docs/bifrost-migration.md` |
 | What changed | `docs/release-notes/` and **House Style > Help > What's New** |
 | AI cost | `docs/testing/ai-cost.md` |
@@ -111,6 +112,12 @@ dotnet test
 - `tools/FlareAI.Mcp`: the same style engine as an MCP stdio server (`lint`, `style_lookup`, `glossary_lookup`,
   `validate_guide`, `guide_examples`, `mine_style`). `.mcp.json` registers it for Claude Code.
 - `tools/FlareAI.Bench`: lints the test corpus (`corpus/`) against its ground truth.
+- `docs-site`: the documentation site (Astro Starlight). Run it with `cd docs-site; npm ci; npm run dev` (Node 22.23.4 or later), or
+  `npm run build` to build `docs-site/dist` and check every internal link. The rule reference, the release notes and the
+  contributor area at `/docs/dev/` are generated from the repo by `docs-site/scripts/sync.mjs`, so never edit them. To add a
+  page, add a Markdown file under `docs-site/src/content/docs/<section>/` with `title`, `description` and `sidebar.order`
+  in its front matter. The sidebar picks it up. To check the guide with House Style itself, run
+  `dotnet build tools/FlareAI.Mcp -c Release` and then `node docs-site/scripts/lint-docs.mjs` (Windows).
 - Test plan, corpus and bug template: `docs/testing/`.
 - Releases: push a `v*` tag. CI builds, tests and publishes the zip with `checksums.txt`.
 

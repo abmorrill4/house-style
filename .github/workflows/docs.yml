@@ -1,0 +1,74 @@
+# Builds the documentation site (docs-site, Astro Starlight) on pull requests that touch it or the files it is built from.
+# The build fails on a broken internal link or a redirect that points at a missing page. The House Style check of the
+# user guide pages is a second job that never fails the run. Neither job deploys: pages.yml does that from main.
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs-site/**'
+      - 'docs/**'
+      - 'styleguide/**'
+      - 'PLAN.md'
+      - 'CLAUDE.md'
+      - 'src/FlareAI.Flare/whats-new.md'
+      - 'tools/FlareAI.Mcp/**'
+      - 'site/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.14.0'
+
+      - name: Install the docs dependencies
+        working-directory: docs-site
+        run: npm ci --ignore-scripts
+
+      - name: Build the docs and check internal links
+        working-directory: docs-site
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # the job's own read-only token, so the releases list can be read
+        run: npm run build
+
+      - name: Check the redirects for the old user guide
+        run: node docs-site/scripts/guide-redirects.mjs "$RUNNER_TEMP/guide"
+
+  house-style-check:
+    # The user guide pages, checked by House Style's own style engine. Findings are shown as annotations, and never fail the run.
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.14.0'
+
+      - name: Build the checker
+        run: dotnet build tools/FlareAI.Mcp -c Release
+
+      - name: Check the user guide pages
+        continue-on-error: true
+        run: node docs-site/scripts/lint-docs.mjs
