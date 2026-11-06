@@ -1373,6 +1373,22 @@ namespace FlareAI.Flare.UI
         /// <summary>For tests and the real-Flare check: sets the drawer's height as if the writer dragged the divider.</summary>
         internal void E2ESetDrawerHeight(int px) { _drawerWriterLogical = PaneRows.Logical(px, Dpi); SizeCard(); }
 
+        /// <summary>For the demo runner: the screen rectangle of the first issue row whose text contains <paramref name="text"/>, scrolled into view. Changes nothing else.</summary>
+        internal Rectangle E2ERowRect(string text)
+        {
+            ListViewItem hit = null;
+            var texts = new List<string>();
+            foreach (ListViewItem i in _list.Items)
+            {
+                if (i.Tag is FileHeading) continue;
+                texts.Add(i.Text);
+                if (hit == null && i.Text.IndexOf(text ?? "", StringComparison.OrdinalIgnoreCase) >= 0) hit = i;
+            }
+            if (hit == null) throw new InvalidOperationException("No row " + text + E2EHook.Valid(texts));
+            hit.EnsureVisible();
+            return _list.RectangleToScreen(hit.Bounds);
+        }
+
         /// <summary>For tests and the real-Flare check: the drawer's toggle button.</summary>
         internal void E2EToggleDrawer() { ToggleDrawer(); }
 
