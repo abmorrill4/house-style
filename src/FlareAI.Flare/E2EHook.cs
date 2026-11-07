@@ -430,6 +430,7 @@ namespace FlareAI.Flare
             {
                 pane = pane == null ? null : new { panel = pane.E2EState(), buttons = Buttons(pane), size = new { width = pane.ClientSize.Width, height = pane.ClientSize.Height } },
                 editor = Editor(),
+                clipped = Clipped(pane),
                 dialogs = Application.OpenForms.Cast<Form>().Where(IsOurs).Select(f => new
                 {
                     title = f.Text,
@@ -444,6 +445,25 @@ namespace FlareAI.Flare
                                   .Select(x => new { name = x.AccessibleName, text = x.Text, items = x is ComboBox ? ((ComboBox)x).Items.Cast<object>().Select(i => i.ToString()).ToList() : null }).ToList()
                 }).ToList()
             };
+        }
+
+        /// <summary>
+        /// Filters and columns whose text is cut off in the pane and our dialogs, as "name: text". A check that needs no
+        /// screenshot and holds at every display scaling. The first column of a list (the rule, the issue) may end in "…".
+        /// </summary>
+        private static List<string> Clipped(Control pane)
+        {
+            var roots = Application.OpenForms.Cast<Form>().Where(IsOurs).Cast<Control>().ToList();
+            if (pane != null) roots.Add(pane);
+            var cut = new List<string>();
+            foreach (var root in roots)
+            {
+                cut.AddRange(All(root).OfType<ComboBox>().Where(b => b.Visible && !UI.Fit.ComboFits(b)).Select(b => (b.AccessibleName ?? "combo") + ": " + b.Text));
+                foreach (var list in All(root).OfType<ListView>().Where(l => l.Visible && l.View == View.Details && !l.OwnerDraw))
+                    for (var i = 1; i < list.Columns.Count; i++)
+                        if (UI.Fit.ColumnWidth(list, i) - UI.PaneRows.S(6, list.DeviceDpi / 96f) > list.Columns[i].Width) cut.Add((list.AccessibleName ?? "list") + " column: " + list.Columns[i].Text);
+            }
+            return cut;
         }
 
         /// <summary>The control with the keyboard focus in <paramref name="f"/>: its accessible name, else its text.</summary>
