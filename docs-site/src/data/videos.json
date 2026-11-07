@@ -1,0 +1,8 @@
+{
+  "lint-a-topic": {
+    "youtube": "",
+    "title": "Lint a topic and fix an issue",
+    "recorded": "House Style 0.3.20 and Flare 2026",
+    "transcript": "In this video, you'll check a topic in MadCap Flare with House Style, and then fix an issue. With your topic open, select the House Style tab. Then select Lint Topic. House Style checks the topic against your style guide, and lists what it finds in the House Style Issues pane. Here it found seven issues, listed in reading order. Six are Auto-fix, which means the rule has an exact fix. One needs you. Select an issue. The pane shows the words around it, with the removed word struck through, and the new word underlined. Select Change to make it. House Style makes the change as a tracked change, and goes on to the next issue. To recap, select Lint Topic, select an issue, and select Change. If you change your mind, press Control Z, and the issue comes back."
+  }
+}
