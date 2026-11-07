@@ -94,6 +94,9 @@ once. The rest run on Flare's UI thread and answer when they return.
   `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
 - **paneDrawer** (height, px) sets the height of the details drawer under the list, as if the writer dragged the divider.
   The drawer opens small so the list keeps its rows, so pull it up before reading a long card. Send-E2E paneDrawer -Extra @{ height = 480 }`r
+- **`bounds`** (`kind` button, row or box; `arg` the button text prefix, row text or accessible name) returns a pane
+  control's rectangle on the screen as `x`, `y`, `width`, `height`. Read only. The tutorial-video runner uses it to move
+  the real mouse. `Send-E2E bounds Change -Extra @{ kind = "button" }`
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
   as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
   it). Both fail "No text {arg} in one text run" or "No topic is open."
