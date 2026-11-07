@@ -33,8 +33,10 @@ namespace FlareAI.Flare.UI
             box.DpiChangedAfterParent += (s, e) => Size(box);
         }
 
+        /// <summary>A box with no choices yet keeps its width, so it doesn't show as a sliver while they load.</summary>
         public static void Size(ComboBox box)
         {
+            if (box.Items.Count == 0) return;
             box.Width = ComboWidth(box);
             box.DropDownWidth = box.Width;
         }

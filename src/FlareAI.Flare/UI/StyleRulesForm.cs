@@ -133,7 +133,7 @@ namespace FlareAI.Flare.UI
             _list.ColumnWidthChanged += (s, e) =>
             {
                 if (_sizing || !_shown || e.ColumnIndex < 1 || e.ColumnIndex > 3) return;
-                if (_cols == null) _cols = _list.Columns.Cast<ColumnHeader>().Select(c => PaneRows.Logical(c.Width, DeviceDpi / 96f)).ToArray();
+                if (_cols == null) _cols = new int[_list.Columns.Count];   // 0: fit the text
                 _cols[e.ColumnIndex] = PaneRows.Logical(_list.Columns[e.ColumnIndex].Width, DeviceDpi / 96f);
                 SizeColumns();
             };
@@ -194,7 +194,7 @@ namespace FlareAI.Flare.UI
                     Bounds = new Rectangle(Math.Max(area.X, Math.Min(cx - w / 2, area.Right - w)), Math.Max(area.Y, Math.Min(cy - h / 2, area.Bottom - h)), w, h);
                 }
                 if (saved != null && saved.Maximized) WindowState = FormWindowState.Maximized;
-                if (saved != null && saved.Columns != null && saved.Columns.Count == 4) _cols = saved.Columns.ToArray();
+                if (saved != null && saved.LogicalColumns != null && saved.LogicalColumns.Count == 4) _cols = saved.LogicalColumns.ToArray();
             }
             catch (Exception ex) { Diagnostics.Log("style rules: restore window", ex); }
         }
@@ -208,7 +208,7 @@ namespace FlareAI.Flare.UI
                 FlareAI.Core.Settings.UiState.Save(StateName, new FlareAI.Core.Settings.WindowState
                 {
                     X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, Maximized = WindowState == FormWindowState.Maximized,
-                    Columns = _list.Columns.Cast<ColumnHeader>().Select(c => PaneRows.Logical(c.Width, DeviceDpi / 96f)).ToList()   // logical pixels, so a width set at 100% still fits at 200%
+                    LogicalColumns = _cols == null ? null : _cols.ToList()   // only the widths the writer dragged
                 });
             }
             catch (Exception ex) { Diagnostics.Log("style rules: save window", ex); }

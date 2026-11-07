@@ -14,6 +14,12 @@ namespace FlareAI.Core.Settings
         public int Height { get; set; }
         public bool Maximized { get; set; }
         public List<int> Columns { get; set; }
+
+        /// <summary>
+        /// Column widths the writer dragged, in logical (96 DPI) pixels so they scale with the display; 0 for a column left to
+        /// fit its text. Replaces <see cref="Columns"/>, whose physical pixels also held a list's own default widths.
+        /// </summary>
+        public List<int> LogicalColumns { get; set; }
     }
 
     /// <summary>
