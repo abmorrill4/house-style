@@ -283,9 +283,9 @@ namespace FlareAI.Flare.UI
             // Level and Source: which issues the list shows. Remembered; locked during Review One by One.
             _filterTip = new ToolTip();
             // No labels: the choices say what they filter, and a narrow pane has no height to spare for a label row.
-            _levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Level", Width = 76, DropDownWidth = 110, Margin = new Padding(0, 0, 3, 0) };
+            _levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Level", Margin = new Padding(0, 0, 3, 0) };
             _levelBox.Items.AddRange(new object[] { "All Levels", "Errors", "Warnings", "Suggestions" });
-            _sourceBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Source", Width = 76, DropDownWidth = 110, Margin = new Padding(0, 0, 3, 0) };
+            _sourceBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Source", Margin = new Padding(0, 0, 3, 0) };
             _sourceBox.Items.AddRange(new object[] { "Rules and AI", "Rules Only", "AI Only" });
             _levelBox.SelectedIndex = (int)_session.Filter.Level;
             _sourceBox.SelectedIndex = (int)_session.Filter.Source;
@@ -293,6 +293,7 @@ namespace FlareAI.Flare.UI
             _filterTip.SetToolTip(_sourceBox, "Show only issues from the rules, or only those from the AI.");
             _viewBar.Controls.Add(_levelBox);
             _viewBar.Controls.Add(_sourceBox);
+            Fit.Track(_levelBox); Fit.Track(_sourceBox);   // as wide as the longest choice at this scaling
             _viewBar.SetFlowBreak(_sourceBox, true);
             _levelBox.SelectedIndexChanged += (s, e) => Safe.Run("Filter level", ApplyFilterChoice);
             _sourceBox.SelectedIndexChanged += (s, e) => Safe.Run("Filter source", ApplyFilterChoice);

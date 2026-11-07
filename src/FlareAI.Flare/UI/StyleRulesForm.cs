@@ -64,11 +64,11 @@ namespace FlareAI.Flare.UI
             _head = new LiveLabel { AutoSize = true, Text = "Reading the style guide…", Margin = new Padding(0, 0, 0, 6) };
 
             var filters = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _search = new TextBox { Width = 220, Margin = new Padding(0, 3, 12, 3) };
-            _source = Combo(200);
-            _state = Combo(130);
-            _fix = Combo(170);
-            _content = Combo(150);
+            _search = new TextBox { Width = PaneRows.S(220, DeviceDpi / 96f), Margin = new Padding(0, 3, 12, 3) };
+            _source = Combo();
+            _state = Combo();
+            _fix = Combo();
+            _content = Combo();
             _clear = new Button { Text = "Clear &filters", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
             filters.Controls.Add(Caption("&Search:")); filters.Controls.Add(_search);
             filters.Controls.Add(Caption("S&ource:")); filters.Controls.Add(_source);
@@ -132,9 +132,9 @@ namespace FlareAI.Flare.UI
             _list.Resize += (s, e) => SizeColumns();
             _list.ColumnWidthChanged += (s, e) =>
             {
-                if (_sizing || e.ColumnIndex < 1 || e.ColumnIndex > 3) return;
-                if (_cols == null) _cols = _list.Columns.Cast<ColumnHeader>().Select(c => c.Width).ToArray();
-                _cols[e.ColumnIndex] = _list.Columns[e.ColumnIndex].Width;
+                if (_sizing || !_shown || e.ColumnIndex < 1 || e.ColumnIndex > 3) return;
+                if (_cols == null) _cols = _list.Columns.Cast<ColumnHeader>().Select(c => PaneRows.Logical(c.Width, DeviceDpi / 96f)).ToArray();
+                _cols[e.ColumnIndex] = PaneRows.Logical(_list.Columns[e.ColumnIndex].Width, DeviceDpi / 96f);
                 SizeColumns();
             };
             _off.Click += (s, e) => ChangeRule(false);
@@ -144,7 +144,7 @@ namespace FlareAI.Flare.UI
             _delete.Click += (s, e) => DeleteRule();
             KeyDown += (s, e) => { if (e.Control && e.KeyCode == Keys.F) { e.SuppressKeyPress = true; _search.Focus(); _search.SelectAll(); } else if (e.KeyCode == Keys.F5) { e.SuppressKeyPress = true; Reload(null, Current() == null ? null : Current().Key); } };
             Resize += (s, e) => FitHead();
-            Shown += (s, e) => { split.SplitterDistance = Math.Max(split.Panel1MinSize, split.Width * 3 / 5); SizeColumns(); FitHead(); Reload(null, null); _search.Focus(); };
+            Shown += (s, e) => { _shown = true; split.SplitterDistance = Math.Max(split.Panel1MinSize, split.Width * 3 / 5); SizeColumns(); FitHead(); Reload(null, null); _search.Focus(); };
             FormClosed += (s, e) => _typing.Dispose();
         }
 
@@ -152,7 +152,7 @@ namespace FlareAI.Flare.UI
 
         private const string StateName = "StyleRules";
         private int[] _cols;
-        private bool _sizing;
+        private bool _sizing, _shown;   // _shown: only a drag after the window shows is the writer's; the list sets its own widths before that
 
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct Rect { public int Left, Top, Right, Bottom; }
@@ -208,13 +208,18 @@ namespace FlareAI.Flare.UI
                 FlareAI.Core.Settings.UiState.Save(StateName, new FlareAI.Core.Settings.WindowState
                 {
                     X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, Maximized = WindowState == FormWindowState.Maximized,
-                    Columns = _list.Columns.Cast<ColumnHeader>().Select(c => c.Width).ToList()
+                    Columns = _list.Columns.Cast<ColumnHeader>().Select(c => PaneRows.Logical(c.Width, DeviceDpi / 96f)).ToList()   // logical pixels, so a width set at 100% still fits at 200%
                 });
             }
             catch (Exception ex) { Diagnostics.Log("style rules: save window", ex); }
         }
 
-        private static ComboBox Combo(int width) { return new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = width, Margin = new Padding(0, 3, 12, 3) }; }
+        private static ComboBox Combo()
+        {
+            var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 3, 12, 3) };
+            Fit.Track(box);   // sized again when the choices are filled in
+            return box;
+        }
 
         private static Label Caption(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(0, 7, 4, 3) }; }
 
@@ -224,14 +229,15 @@ namespace FlareAI.Flare.UI
         private void SizeColumns()
         {
             if (_list.Columns.Count < 4) return;
-            // In font heights, so the columns grow with the text at 125% and 150% scaling; the rule takes the rest.
+            // Level, State and Changed by fit their widest text at this scaling, or keep a wider width the writer dragged them to
+            // (saved in logical pixels, so it scales too). Never narrower: older versions saved the list's 60 px default. The rule takes the rest.
             var em = _list.Font.Height;
+            var scale = DeviceDpi / 96f;
             _sizing = true;
             try
             {
-                _list.Columns[1].Width = _cols != null ? Math.Max(em * 3, _cols[1]) : em * 5;
-                _list.Columns[2].Width = _cols != null ? Math.Max(em * 3, _cols[2]) : em * 8;
-                _list.Columns[3].Width = _cols != null ? Math.Max(em * 3, _cols[3]) : em * 8;
+                for (var i = 1; i <= 3; i++)
+                    _list.Columns[i].Width = Math.Max(Fit.ColumnWidth(_list, i), _cols != null ? PaneRows.S(_cols[i], scale) : 0);
                 _list.Columns[0].Width = Math.Max(em * 10, _list.ClientSize.Width - _list.Columns[1].Width - _list.Columns[2].Width - _list.Columns[3].Width - 4);
             }
             finally { _sizing = false; }
@@ -303,6 +309,7 @@ namespace FlareAI.Flare.UI
             var keep = was == null ? -1 : box.Items.Cast<Choice>().ToList().FindIndex(c => c.Text == was.Text);
             box.SelectedIndex = keep >= 0 ? keep : 0;
             box.EndUpdate();
+            Fit.Size(box);
         }
 
         private void ClearFilters()
