@@ -28,7 +28,7 @@ namespace FlareAI.Flare
         internal static readonly string[] Verbs =
         {
             "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertVariable", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
-            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "replace", "select", "save", "saveAs"
+            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "bounds", "replace", "select", "save", "saveAs"
         };
 
         /// <summary>" (valid: a, b, c)" for an error message, cut after 30 names, or " (none)" when there are none.</summary>
@@ -151,6 +151,7 @@ namespace FlareAI.Flare
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
                 case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
+                case "bounds": return Bounds(Pane(), (string)c["kind"], arg);           // read only: a pane control's rectangle on the screen, for the demo runner's real mouse
                 case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
                 case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
                 case "insertVariable": { string err; var ok = Active().TryInsertVariable(arg, out err); return new { ok, error = err }; }
@@ -163,6 +164,35 @@ namespace FlareAI.Flare
                 case "saveAs": SetSavePath(arg); return null;
                 default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
+        }
+
+        /// <summary>
+        /// Where a pane control is on the screen, in pixels: kind "button" (a visible, enabled button whose text starts with
+        /// <paramref name="text"/>), "row" (the issue row whose text contains it) or "box" (a control by accessible name). Changes nothing.
+        /// </summary>
+        internal static object Bounds(FindingsPanel pane, string kind, string text)
+        {
+            System.Drawing.Rectangle r;
+            switch (kind ?? "button")
+            {
+                case "button":
+                    var b = All(pane).OfType<ButtonBase>().FirstOrDefault(x => x.Visible && x.Enabled && x.Width > 0 && Label(x).StartsWith(text ?? "", StringComparison.Ordinal));
+                    if (b == null) throw new InvalidOperationException("No enabled button " + text +
+                        Valid(All(pane).OfType<ButtonBase>().Where(x => x.Visible && x.Enabled).Select(Label)));
+                    r = b.RectangleToScreen(b.ClientRectangle);
+                    break;
+                case "row":
+                    r = pane.E2ERowRect(text);
+                    break;
+                case "box":
+                    var c = All(pane).FirstOrDefault(x => x.Visible && x.Width > 0 && x.AccessibleName == text);
+                    if (c == null) throw new InvalidOperationException("No control named " + text +
+                        Valid(All(pane).Where(x => x.Visible && !string.IsNullOrEmpty(x.AccessibleName)).Select(x => x.AccessibleName)));
+                    r = c.RectangleToScreen(c.ClientRectangle);
+                    break;
+                default: throw new ArgumentException("Unknown bounds kind " + kind + " (valid: button, row, box)");
+            }
+            return new { x = r.Left, y = r.Top, width = r.Width, height = r.Height };
         }
 
         private static string AcceptedText(FlareDocumentAdapter a, string contains)
