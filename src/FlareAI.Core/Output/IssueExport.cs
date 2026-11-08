@@ -27,16 +27,17 @@ namespace FlareAI.Core.Output
             public string Path { get; set; }
         }
 
-        public const string Open = "Open", Changed = "Changed", TextChanged = "Text changed", Skipped = "Skipped";
+        public const string Open = "Open", Changed = "Changed", TextChanged = "Text changed", Skipped = "Skipped", Exempt = "Exempt";
 
         public static readonly string[] Columns = { "Topic", "Level", "Issue", "Rule", "Source", "Text", "Suggested text", "Status", "Link" };
 
         public const string LinkText = "Open file";
         public const string NothingToExport = "There are no issues to export.";
 
-        /// <summary>Changed when fixed, Text changed when stale, Skipped when skipped, else Open.</summary>
-        public static string StatusOf(bool isFixed, bool isStale, bool skipped)
+        /// <summary>Exempt when exempt, Changed when fixed, Text changed when stale, Skipped when skipped, else Open.</summary>
+        public static string StatusOf(bool isFixed, bool isStale, bool skipped, bool isExempt = false)
         {
+            if (isExempt) return Exempt;
             if (isFixed) return Changed;
             if (isStale) return TextChanged;
             if (skipped) return Skipped;

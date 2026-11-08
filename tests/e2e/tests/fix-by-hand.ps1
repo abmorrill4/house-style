@@ -31,6 +31,20 @@ $items = Send-E2E rowMenu "Mark as Fixed" -Extra @{ index = $i }
 Assert-E2E ((($items.value | Out-String) -match "Go To[\s\S]*Mark as Fixed")) "Mark as Fixed is in the row menu after Go To"
 Wait-Until { $s = (Get-E2EState).pane.panel; $r = @($s.rows | Where-Object { $_.excerpt -eq $marked }); if ($r.Count -ge 1 -and $r[0].text -like "*$check*" -and $s.status -like "*Marked as fixed.*") { $s } } 15 "the marked row to show as fixed" | Out-Null
 
+# Reopen Issue is on the marked row's menu (and only there), puts it back as open, and Mark as Fixed marks it again (#447).
+$ri = [array]::FindIndex([object[]](Rows), [Predicate[object]]{ param($r) $r.excerpt -eq $marked })
+$items = Send-E2E rowMenu "Reopen Issue" -Extra @{ index = $ri }
+Assert-E2E ((($items.value | Out-String) -match "Reopen Issue")) "Reopen Issue is in the marked row's menu"
+Wait-Until { $s = (Get-E2EState).pane.panel; $r = @($s.rows | Where-Object { $_.excerpt -eq $marked }); if ($r.Count -ge 1 -and $r[0].text -notlike "*$check*" -and $s.status -like "*Reopened.*") { $s } } 15 "the reopened row to be open with 'Reopened.' in the status" | Out-Null
+$other = [array]::FindIndex([object[]](Rows), [Predicate[object]]{ param($r) $r.excerpt -and $r.text -like "*$check*" })
+if ($other -ge 0) {
+    $items = Send-E2E rowMenu "(select only)" -Extra @{ index = $other }
+    Assert-E2E ((-not (($items.value | Out-String) -match "Reopen Issue"))) "Reopen Issue is not offered on a row fixed by typing"
+}
+$ri = [array]::FindIndex([object[]](Rows), [Predicate[object]]{ param($r) $r.excerpt -eq $marked })
+Send-E2E rowMenu "Mark as Fixed" -Extra @{ index = $ri } | Out-Null
+Wait-Until { $s = (Get-E2EState).pane.panel; $r = @($s.rows | Where-Object { $_.excerpt -eq $marked }); if ($r.Count -ge 1 -and $r[0].text -like "*$check*") { $s } } 15 "the row marked as fixed again" | Out-Null
+
 # A later edit elsewhere in the topic leaves it marked, with no second row.
 Send-E2E replace "within a few minutes" -Extra @{ text = "within a minute" } | Out-Null
 Start-Sleep -Seconds 3

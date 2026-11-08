@@ -178,7 +178,8 @@ namespace FlareAI.Integration.Tests.Rules
                 s.Select(f);
                 s.Exempt(f, "Intended here.");
                 Assert.Equal("1 issue is exempt.", s.ExemptTail);
-                Assert.Equal(0, EMailCount(s));
+                Assert.Equal(0, s.Open().Count(x => x.RuleId == EMail));
+                Assert.Equal(1, EMailCount(s));   // the row stays, marked Exempt
                 Assert.Equal(1, Exemptions.Load(fx.Doc.SourcePath).Entries.Count);
             }
         }

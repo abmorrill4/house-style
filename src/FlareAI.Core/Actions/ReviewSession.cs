@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Xml;
 using FlareAI.Core.Editing;
@@ -62,7 +63,11 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _ignoredAi;
         private List<KeyValuePair<string, string>> _ignoredAiTexts;
         private ExemptionList _exemptions;
-        private readonly HashSet<string> _exemptIdentities = new HashSet<string>(StringComparer.Ordinal);
+        private sealed class HiddenText { public string[] Parts; public int Count; }
+        /// <summary>The exempt findings a lint hid, by identity (topic, rule, text, context): where each came from and how many.</summary>
+        private readonly Dictionary<string, HiddenText> _exemptIdentities = new Dictionary<string, HiddenText>(StringComparer.Ordinal);
+        private long _exemptStamp = -1;
+        private bool _hadAdds, _relint;
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
@@ -206,6 +211,7 @@ namespace FlareAI.Core.Actions
             if (!protect && _rememberScope != null && RememberedRule == null) ForgetWalkIn(_rememberScope);
             _rememberScope = RememberScope();
             RememberedRule = null;
+            _relint = _hadAdds;   // a second check in this session (Lint Again): see AdoptFromPeer
             _findings.Clear();
             DropIgnored(f => true);
             _skippedRules.Clear();
@@ -232,7 +238,9 @@ namespace FlareAI.Core.Actions
                 var topic = key == null ? null : Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
                 if (topic != null && Exemptions.Covers(_exemptions, topic, key, f.Excerpt, f.Before ?? ""))
                 {
-                    _exemptIdentities.Add(ExemptIdentity(topic, key, f));
+                    HiddenText hidden; var hid = ExemptIdentity(topic, key, f);
+                    if (!_exemptIdentities.TryGetValue(hid, out hidden)) _exemptIdentities[hid] = hidden = new HiddenText { Parts = new[] { topic, key, f.Excerpt, f.Before ?? "" } };
+                    hidden.Count++;
                     continue;
                 }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
@@ -261,6 +269,8 @@ namespace FlareAI.Core.Actions
                 try { Record(f, DomOf(f, addDoms), addTexts); }
                 catch (Exception ex) { Diagnostics.Log("record baseline: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
             }
+            AdoptFromPeer(added);
+            if (added.Count > 0) _hadAdds = true;
             Sort();
             if (_rememberScope != null && RememberedRule == null) RememberFromLint();
         }
@@ -317,7 +327,7 @@ namespace FlareAI.Core.Actions
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
             DropIgnored(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);   // the fresh lint parks them again, once
             var own = Exemptions.TopicPathFor(_doc.SourcePath);
-            if (own != null) _exemptIdentities.RemoveWhere(id => id.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal));
+            if (own != null) foreach (var id in _exemptIdentities.Keys.Where(k => k.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal)).ToList()) _exemptIdentities.Remove(id);
             RefreshExemptions();
             Add(lint);
         }
@@ -340,6 +350,88 @@ namespace FlareAI.Core.Actions
                 : a.Order.CompareTo(b.Order));
             var h = ListChanged;
             if (h != null) h();
+            SyncPeer();
+        }
+
+        // ---- one state per issue across the This Topic and Project tabs ---------------------------
+
+        /// <summary>The other tab's session (This Topic when this is Project, and the other way round), or null.</summary>
+        public ReviewSession Peer { get; set; }
+        private bool _syncing;
+
+        private static int StateOf(StyleFinding f)
+        {
+            return (f.IsFixed ? 1 : 0) | (f.FixedByEdit ? 2 : 0) | (f.MarkedFixed ? 4 : 0) | (f.IsExempt ? 8 : 0);
+        }
+
+        private static void CopyState(StyleFinding from, StyleFinding to)
+        {
+            to.IsFixed = from.IsFixed; to.FixedByEdit = from.FixedByEdit; to.MarkedFixed = from.MarkedFixed; to.IsExempt = from.IsExempt;
+            if (from.IsFixed) { to.IsStale = false; to.ContextChanged = false; }
+            // A fix the other tab wrote is checked here too, so undoing it in the editor reopens this row as well.
+            to.Written = from.IsFixed && !from.FixedByEdit && !from.MarkedFixed && !from.IsExempt && from.Written;
+            to.SyncedState = from.SyncedState = StateOf(from);
+        }
+
+        /// <summary>The same issue in a session's list: same file, rule and flagged text with its surroundings.</summary>
+        private bool Matches(StyleFinding mine, ReviewSession other, StyleFinding theirs)
+        {
+            if (string.IsNullOrEmpty(mine.Excerpt) || mine.Source == "ai" || theirs.Source == "ai") return false;
+            return (mine.RuleId ?? mine.Rule) == (theirs.RuleId ?? theirs.Rule) && HandFixes.ContextKey(mine) == HandFixes.ContextKey(theirs)
+                   && HandFixes.SamePath(FilePathOf(mine), other.FilePathOf(theirs));
+        }
+
+        /// <summary>Carries rows whose state changed here to the matching rows of the other tab, one row for each.</summary>
+        private void SyncPeer()
+        {
+            var other = Peer;
+            if (other == null || _syncing || other == this) return;
+            _syncing = true;
+            try
+            {
+                var changed = false;
+                foreach (var f in _findings.ToArray())
+                {
+                    var state = StateOf(f);
+                    if (f.SyncedState == state) continue;
+                    f.SyncedState = state;
+                    var m = other._findings.Find(x => StateOf(x) != state && other.Matches(x, this, f));
+                    if (m == null) continue;
+                    CopyState(f, m);
+                    changed = true;
+                }
+                if (changed) other.PeerChanged();
+            }
+            catch (Exception ex) { Diagnostics.Log("sync tabs", ex); }
+            finally { _syncing = false; }
+        }
+
+        private void PeerChanged()
+        {
+            Sort();
+            if (_findings.Count > 0) Status = Summary();
+        }
+
+        /// <summary>
+        /// The first check in this session takes the Marked as Fixed state of the same issue in the other tab, so a row has one
+        /// state in both. A Change or typed fix is not carried to a row a fresh lint just found, because that row's text is still in
+        /// the topic. Lint Again is the writer starting over: the new rows are open and the other tab's marks on the same issues
+        /// are cleared with them, so a cleared mark is not brought back.
+        /// </summary>
+        private void AdoptFromPeer(List<StyleFinding> added)
+        {
+            var other = Peer;
+            if (other == null) return;
+            var claimed = new HashSet<StyleFinding>();
+            foreach (var f in added)
+            {
+                var m = other._findings.Find(x => x.IsFixed && x.MarkedFixed && !x.IsExempt && !claimed.Contains(x) && other.Matches(x, this, f));
+                if (m == null) { f.SyncedState = StateOf(f); continue; }
+                claimed.Add(m);
+                if (_relint) { f.SyncedState = StateOf(m); continue; }   // this row is open and the other is marked: the next sync opens it there
+                f.IsFixed = m.IsFixed; f.FixedByEdit = m.FixedByEdit; f.MarkedFixed = m.MarkedFixed; f.IsExempt = m.IsExempt;
+                f.SyncedState = StateOf(f);
+            }
         }
 
         /// <summary>Suggestions not yet applied whose text is still there.</summary>
@@ -714,6 +806,27 @@ namespace FlareAI.Core.Actions
             Sort();
             Next();
             Status = Summary() + "  Marked as fixed.";
+        }
+
+        /// <summary>True for a row the writer marked as fixed by hand (and not exempted).</summary>
+        public bool CanReopen(StyleFinding f) { return f != null && f.IsFixed && f.MarkedFixed && !f.IsExempt; }
+
+        /// <summary>Reopen Issue: a row marked as fixed by hand is open again, in the same place. Does nothing on any other row.</summary>
+        public void ReopenCurrent()
+        {
+            var f = Current;
+            if (!CanReopen(f)) return;
+            f.IsFixed = false; f.MarkedFixed = false; f.FixedByEdit = false;
+            RecheckAfterReopen();
+            Sort();
+            Status = Summary() + "  Reopened.";
+        }
+
+        /// <summary>Text changed while the row was marked: the check finds it fixed by typing now.</summary>
+        private void RecheckAfterReopen()
+        {
+            try { var marked = new List<StyleFinding>(); int reopened; CheckEdits(null, null, marked, out reopened); }
+            catch (Exception ex) { Diagnostics.Log("recheck after reopen", ex); }
         }
 
         /// <summary>Starts or stops telling House Style's own writes from the writer's edits.</summary>
@@ -1369,13 +1482,44 @@ namespace FlareAI.Core.Actions
             return new RestoreResult(back.Count, saved);
         }
 
-        /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>
-        public int ExemptHidden { get { return _exemptIdentities.Count; } }
+        /// <summary>
+        /// How many issues the project's exemptions cover in this list: each row marked Exempt, plus the findings a lint hid that
+        /// have no row (Lint Again drops the rows). Derived, never counted up.
+        /// </summary>
+        public int ExemptHidden
+        {
+            get
+            {
+                RefreshExemptions();
+                foreach (var gone in _exemptIdentities.Where(kv => !Exemptions.Covers(_exemptions, kv.Value.Parts[0], kv.Value.Parts[1], kv.Value.Parts[2], kv.Value.Parts[3])).Select(kv => kv.Key).ToList()) _exemptIdentities.Remove(gone);
+                var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var r in _findings)
+                {
+                    if (!r.IsExempt) continue;
+                    var id = IdentityOf(r) ?? "";
+                    int n; rows.TryGetValue(id, out n); rows[id] = n + 1;
+                }
+                var total = 0;
+                foreach (var kv in rows) { HiddenText h; total += _exemptIdentities.TryGetValue(kv.Key, out h) ? Math.Max(kv.Value, h.Count) : kv.Value; }
+                foreach (var kv in _exemptIdentities) if (!rows.ContainsKey(kv.Key)) total += kv.Value.Count;
+                return total;
+            }
+        }
 
         /// <summary>The status line's tail: "1 issue is exempt." or "2 issues are exempt."; empty when none are.</summary>
         public string ExemptTail
         {
-            get { return ExemptHidden > 0 ? Plural.Of(ExemptHidden, "issue") + (ExemptHidden == 1 ? " is" : " are") + " exempt." : ""; }
+            get
+            {
+                var n = ExemptHidden;
+                return n > 0 ? Plural.Of(n, "issue") + (n == 1 ? " is" : " are") + " exempt." : "";
+            }
+        }
+
+        /// <summary>How many exemptions the project's list holds (the Exemptions button's count).</summary>
+        public int ExemptionEntries
+        {
+            get { RefreshExemptions(); return _exemptions == null ? 0 : _exemptions.Entries.Count; }
         }
 
         /// <summary>True when the finding has text to exempt, in a topic inside a Flare project's Content, under a rule that can be named.</summary>
@@ -1421,12 +1565,89 @@ namespace FlareAI.Core.Actions
                 return;
             }
             RefreshExemptions();
-            _exemptIdentities.Add(ExemptIdentity(topic, key, f));
-            var next = NextAfter(f);
-            _findings.Remove(f);
+            var id = ExemptIdentity(topic, key, f);
+            foreach (var r in _findings)
+                if (!r.IsFixed && r.Source != "ai" && IdentityOf(r) == id)
+                {
+                    r.IsFixed = true; r.IsExempt = true; r.MarkedFixed = false; r.FixedByEdit = false; r.IsStale = false; r.ContextChanged = false;
+                }
             Sort();
-            Select(next);
-            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
+            Select(NextAfter(f));
+            Status = Summary() + "  Exempted. " + ExemptTail;
+        }
+
+        private string IdentityOf(StyleFinding f)
+        {
+            var key = ExemptRuleKey(f);
+            var topic = key == null ? null : Exemptions.TopicPathFor(FilePathOf(f));
+            return topic == null ? null : ExemptIdentity(topic, key, f);
+        }
+
+        /// <summary>True for an exempt row.</summary>
+        public bool CanRemoveExemption(StyleFinding f) { return f != null && f.IsExempt; }
+
+        /// <summary>Remove Exemption: takes the text off the project's list and reopens every row that shows it as exempt.</summary>
+        public void RemoveExemptionCurrent()
+        {
+            var f = Current;
+            if (!CanRemoveExemption(f)) return;
+            var id = IdentityOf(f);
+            var key = ExemptRuleKey(f);
+            var topic = Exemptions.TopicPathFor(FilePathOf(f));
+            try
+            {
+                RefreshExemptions();
+                var entry = _exemptions == null ? null : _exemptions.Entries.FirstOrDefault(e =>
+                    string.Equals(e.Topic, Exemptions.Clean(topic), StringComparison.OrdinalIgnoreCase) && e.Rule == Exemptions.Clean(key)
+                    && e.Text == Exemptions.Clean(f.Excerpt) && e.Before == Exemptions.Clean(f.Before ?? ""));
+                if (entry != null) Exemptions.Remove(_doc.SourcePath, entry);
+            }
+            catch (GuideWriteException ex)
+            {
+                Diagnostics.Log("Remove exemption", ex);
+                _host.ShowError("House Style couldn't remove this exemption in " + ex.Target + ".",
+                                ex.Message + Environment.NewLine + Environment.NewLine + "Nothing was changed. The issue is still exempt.", ex, "Remove Exemption");
+                Status = Summary() + "  The exemption was not removed.";
+                return;
+            }
+            RefreshExemptions(true);
+            ReopenExempt(id);
+            if (Peer != null && Peer != this) Peer.SyncExemptionsHere();   // its hidden text, button and status
+            Status = Summary() + "  The exemption is removed. The issue is open again.";
+        }
+
+        /// <summary>Exemptions was edited elsewhere (the dialog): rows and hidden text no longer exempt are open again, here and in the other tab.</summary>
+        public void SyncExemptions()
+        {
+            SyncExemptionsHere();
+            var other = Peer;
+            if (other != null && other != this) other.SyncExemptionsHere();
+        }
+
+        private void SyncExemptionsHere()
+        {
+            RefreshExemptions(true);
+            var gone = new HashSet<string>();
+            foreach (var r in _findings)
+            {
+                if (!r.IsExempt) continue;
+                var key = ExemptRuleKey(r);
+                var topic = key == null ? null : Exemptions.TopicPathFor(FilePathOf(r));
+                if (topic == null || !Exemptions.Covers(_exemptions, topic, key, r.Excerpt, r.Before ?? "")) gone.Add(IdentityOf(r) ?? "");
+            }
+            foreach (var id in gone) ReopenExempt(id);
+            Sort();   // the button and the counts follow, even when only hidden text went
+            var tail = ExemptTail;
+            Status = Summary() + (tail.Length > 0 ? "  " + tail : "");
+        }
+
+        private void ReopenExempt(string id)
+        {
+            foreach (var r in _findings)
+                if (r.IsExempt && (IdentityOf(r) ?? "") == id) { r.IsFixed = false; r.IsExempt = false; }
+            _exemptIdentities.Remove(id);
+            RecheckAfterReopen();
+            Sort();
         }
 
         internal static string ExemptRuleKey(StyleFinding f)
@@ -1440,17 +1661,17 @@ namespace FlareAI.Core.Actions
             return topic.ToLowerInvariant() + "|" + key + "|" + Exemptions.Clean(f.Excerpt) + "|" + Exemptions.Clean(f.Before ?? "");
         }
 
-        /// <summary>Loads the project's list when none is cached or the file changed since it was read.</summary>
-        private void RefreshExemptions()
+        /// <summary>Loads the project's list when none is cached or the file changed (time or size) since it was read; otherwise only looks at the file.</summary>
+        private void RefreshExemptions(bool force = false)
         {
             var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
             long stamp = 0;
             if (root != null)
             {
                 var file = Exemptions.FileFor(root);
-                if (System.IO.File.Exists(file)) stamp = new System.IO.FileInfo(file).LastWriteTimeUtc.Ticks;
+                if (System.IO.File.Exists(file)) { var info = new System.IO.FileInfo(file); stamp = info.LastWriteTimeUtc.Ticks * 31 + info.Length; }
             }
-            if (_exemptions == null || _exemptions.Stamp != stamp) _exemptions = Exemptions.Load(_doc.SourcePath);
+            if (force || _exemptions == null || _exemptStamp != stamp) { _exemptions = Exemptions.Load(_doc.SourcePath); _exemptStamp = stamp; }
         }
 
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>

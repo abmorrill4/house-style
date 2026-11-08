@@ -106,6 +106,7 @@ namespace FlareAI.Flare.UI
         {
             var old = Slots.Put(panel.Slot, panel, front);
             if (old != null && old != panel) Discard(old);
+            LinkPeers();
 
             _owner = flareMainForm;
             object o;
@@ -218,6 +219,7 @@ namespace FlareAI.Flare.UI
             if (old != null)
             {
                 Discard(old);
+                LinkPeers();
                 if (Slots.Both().Count == 0)
                 {
                     Slots.Close();
@@ -230,6 +232,14 @@ namespace FlareAI.Flare.UI
                 SyncHost();
                 PushCounts();
             }
+        }
+
+        /// <summary>Joins the This Topic and Project panels so a row has one state in both tabs.</summary>
+        private static void LinkPeers()
+        {
+            var topic = TopicPanel; var project = ProjectPanel;
+            if (topic != null) topic.SetPeer(project);
+            if (project != null) project.SetPeer(topic);
         }
 
         private static void PushCounts()
