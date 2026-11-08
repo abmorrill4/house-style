@@ -115,10 +115,27 @@ Wait-Until { $r = @(Rows | Where-Object { $_.file -eq $goFile -and $_.excerpt -e
 # Arrow keys switch tabs.
 Send-E2E click "This Topic" | Out-Null
 Wait-Tab "topic" "the This Topic tab before the arrow keys" | Out-Null
-Keys "%t"   # Alt+T puts the focus on the This Topic tab, which is already shown
+Assert-E2E ((Send-E2E paneFocusTab).value.focused) "the focus is on the This Topic tab"
 Keys "{RIGHT}"
 Wait-Tab "project" "the Project tab after the Right arrow key" | Out-Null
-Keys "%p"   # Alt+P puts the focus on the Project tab, which is already shown
+Assert-E2E ((Send-E2E paneFocusTab).value.focused) "the focus is on the Project tab"
 Keys "{LEFT}"
 Wait-Tab "topic" "the This Topic tab after the Left arrow key" | Out-Null
 
+
+# Plain letters typed in the topic never switch the tab either (#446).
+Add-Type -AssemblyName System.Windows.Forms
+Invoke-Ribbon "Lint Topic"
+Wait-PaneDone 120 | Out-Null
+Send-E2E open $faq | Out-Null; Start-Sleep -Milliseconds 800
+$phrases = 'How long does a payee take', 'Who can see a payee', 'Only the account owner', 'Contact your bank', 'people they share access with', 'If the user deletes', 'appear within a few', 'Most changes to a payee'
+$i = 0
+foreach ($k in 'p', 't', 'P', 'T', 'r', 'f') {
+    Send-E2E click "This Topic" | Out-Null
+    Wait-Tab "topic" "the This Topic tab before typing '$k'" | Out-Null
+    Send-E2E select $phrases[$i++] | Out-Null; Start-Sleep -Milliseconds 400
+    $len = ((Send-E2E bodyXml).value.xml).Length
+    Keys $k
+    Assert-E2E ((Panel).tab -eq "topic") "typing '$k' in the topic left the This Topic tab shown (tab: $((Panel).tab))"
+    Assert-E2E ((((Send-E2E bodyXml).value.xml).Length) -ne $len) "typing '$k' reached the topic"
+}

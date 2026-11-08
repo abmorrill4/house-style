@@ -1263,10 +1263,10 @@ namespace FlareAI.Flare.Tests
 
                 var buttons = tabs.Controls.OfType<RadioButton>().ToList();
                 Assert.Equal(2, buttons.Count);
-                var topic = buttons.First(b => b.Text.StartsWith("This &Topic", StringComparison.Ordinal));
-                var project = buttons.First(b => b.Text.StartsWith("&Project", StringComparison.Ordinal));
-                Assert.Equal("This &Topic (7)", topic.Text);
-                Assert.Equal("&Project (183)", project.Text);
+                var topic = buttons.First(b => b.Text.StartsWith("This Topic", StringComparison.Ordinal));
+                var project = buttons.First(b => b.Text.StartsWith("Project", StringComparison.Ordinal));
+                Assert.Equal("This Topic (7)", topic.Text);
+                Assert.Equal("Project (183)", project.Text);
                 Assert.True(topic.Checked, "topic tab checked when slot is topic");
                 Assert.False(project.Checked);
 
@@ -1303,7 +1303,7 @@ namespace FlareAI.Flare.Tests
                 var projList = All(panel).OfType<ListView>().Single();
                 var projTabs = All(panel).OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Issues for");
                 var projButtons = projTabs.Controls.OfType<RadioButton>().ToList();
-                var topicRadio = projButtons.First(b => b.Text.StartsWith("This &Topic"));
+                var topicRadio = projButtons.First(b => b.Text.StartsWith("This Topic"));
 
                 topicList.Items[0].Selected = true;
                 projList.Items[0].Selected = true;
@@ -1347,7 +1347,7 @@ namespace FlareAI.Flare.Tests
                 Pump(null, 200);
 
                 var tabs = All(panel).OfType<FlowLayoutPanel>().Single(f => f.AccessibleName == "Issues for");
-                var topicRadio = tabs.Controls.OfType<RadioButton>().First(b => b.Text.StartsWith("This &Topic"));
+                var topicRadio = tabs.Controls.OfType<RadioButton>().First(b => b.Text.StartsWith("This Topic"));
 
                 topicRadio.Focus();
                 Pump(null, 200);
@@ -1409,7 +1409,7 @@ namespace FlareAI.Flare.Tests
                     Assert.Equal(projectPanel.Title, form.AccessibleName);
 
                     // The Topic tab on the project panel shows the topic panel in the same form.
-                    var radio = All(projectPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("This &Topic", StringComparison.Ordinal));
+                    var radio = All(projectPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("This Topic", StringComparison.Ordinal));
                     radio.PerformClick();
                     Assert.Same(topicPanel, PanelHost.Current);
                     Assert.Equal(topicPanel.Title, form.Text);
@@ -1417,7 +1417,7 @@ namespace FlareAI.Flare.Tests
                     Assert.Same(form, topicPanel.FindForm());
 
                     // A topic switch while Project is shown replaces only the Topic slot.
-                    All(topicPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("&Project", StringComparison.Ordinal)).PerformClick();
+                    All(topicPanel).OfType<RadioButton>().First(b => b.Text.StartsWith("Project", StringComparison.Ordinal)).PerformClick();
                     Assert.Same(projectPanel, PanelHost.Current);
                     var newTopic = new FindingsPanel(runner, doc, () => runner, p => null, null, true);
                     PanelHost.Show(newTopic, null, false);

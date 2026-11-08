@@ -1429,7 +1429,7 @@ namespace FlareAI.Core.Actions
             Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
         }
 
-        private static string ExemptRuleKey(StyleFinding f)
+        internal static string ExemptRuleKey(StyleFinding f)
         {
             if (!string.IsNullOrEmpty(f.RuleId)) return f.RuleId;
             return f.Rule != null && f.Rule.StartsWith("Structure.", StringComparison.Ordinal) ? f.Rule : null;

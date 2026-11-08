@@ -59,6 +59,24 @@ namespace FlareAI.Flare.UI
             return true;
         }
 
+        /// <summary>
+        /// Shows a slot's panel as it is, opening the pane if it was closed, without checking again. False when that slot
+        /// has no results yet. Clears the Level and Source filters so what a notice counted is what the list shows.
+        /// </summary>
+        public static bool ShowExisting(PaneSlot slot, Form flareMainForm)
+        {
+            var panel = Slots.Get(slot);
+            if (panel == null || panel.IsDisposed || !panel.HasResults) return false;
+            panel.ShowEveryIssue(false);
+            if (Slots.IsOpen) ShowSlot(slot, flareMainForm);
+            else
+            {
+                Slots.Show(slot);
+                Display(panel, flareMainForm);
+            }
+            return true;
+        }
+
         public static void BeginClose()
         {
             CloseAll();

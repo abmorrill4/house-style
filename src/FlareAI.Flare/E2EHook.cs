@@ -28,7 +28,7 @@ namespace FlareAI.Flare
         internal static readonly string[] Verbs =
         {
             "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertVariable", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
-            "paneFocus", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "bounds", "replace", "select", "save", "saveAs"
+            "paneFocus", "paneFocusTab", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "bounds", "replace", "select", "save", "saveAs", "toast", "toastClick", "toastClose"
         };
 
         /// <summary>" (valid: a, b, c)" for an error message, cut after 30 names, or " (none)" when there are none.</summary>
@@ -145,6 +145,7 @@ namespace FlareAI.Flare
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
                 // The test sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
+                case "paneFocusTab": return new { focused = Pane().E2EFocusTab() };
                 case "paneRow": return new { text = Pane().E2EClickHeading(arg) };   // a file heading (collapses or expands the file) or an issue row (selects it) by part of its text
                 case "paneType": Type(Pane(), (string)c["name"], arg); return null;
                 case "paneMenu": Pane().E2EMenuPick(arg); return null;               // an item in the pane's open drop-down menu
@@ -162,6 +163,9 @@ namespace FlareAI.Flare
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
                 case "saveAs": SetSavePath(arg); return null;
+                case "toast": return Toast.E2EState();                                          // the notice now: its text, action and whether it is still showing
+                case "toastClick": return new { ran = Toast.E2EClickAction() };                 // as clicking the notice's action
+                case "toastClose": Toast.E2EClose(); return null;                               // as its close mark
                 default: throw new ArgumentException("Unknown verb " + verb + Valid(Verbs));
             }
         }
