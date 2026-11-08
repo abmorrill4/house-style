@@ -108,6 +108,27 @@ namespace FlareAI.Core.Tests
             Assert.Equal(s.Open().Count, toast.Count);
         }
 
+        [Fact]
+        public void ShowIssues_UsesTheExistingResults_WhetherOrNotThePaneKeepsExemptRows()
+        {
+            var a = Find(_topic, "utilize", "use", ruleId: "plain-words.utilize", documentPath: _topicPath);
+            var b = Find(_topic, "utilize", "use", occurrence: 1, ruleId: "plain-words.menu", documentPath: _topicPath);
+            Exemptions.Add(_topicPath, Exemptions.TopicPathFor(_topicPath), "plain-words.menu", b.Excerpt, b.Before ?? "", "Reason", "ana", DateTime.UtcNow.Date);
+            var dismissed = Dismissals.Load(Path.Combine(_root, "dismissed.json"));
+            var noticeCount = ReportCount.Listed(new[] { a, b }, _topicPath, dismissed).Count;
+            Assert.Equal(1, noticeCount);
+            // The pane drops exempt issues today; a pane that keeps them as rows counts the same by the same definition.
+            var s = Session();
+            s.Add(new[] { a, b });
+            Assert.True(ReportCount.CanShowExisting(ReportCount.Listed(s.Open(), _topicPath, dismissed).Count, noticeCount, false));
+            var paneKeepingExempt = new List<StyleFinding> { a, b };
+            Assert.Equal(2, paneKeepingExempt.Count);
+            Assert.True(ReportCount.CanShowExisting(ReportCount.Listed(paneKeepingExempt, _topicPath, dismissed).Count, noticeCount, false));
+            // A pane with a different count is checked again, unless it is still checking.
+            Assert.False(ReportCount.CanShowExisting(0, noticeCount, false));
+            Assert.True(ReportCount.CanShowExisting(0, noticeCount, true));
+        }
+
         // ---- fixed by hand ------------------------------------------------------------------------
 
         private static XmlText FirstRun(FakeDocumentAdapter doc, int paragraph)

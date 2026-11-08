@@ -121,6 +121,12 @@ namespace FlareAI.Flare.UI
             return showing && escDown && !wasDown && flareActive;
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { if (_timer != null) _timer.Dispose(); if (_keys != null) _keys.Dispose(); }
+            base.Dispose(disposing);
+        }
+
         private static bool InOurProcess()
         {
             try { uint pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid == (uint)System.Diagnostics.Process.GetCurrentProcess().Id; }
@@ -160,12 +166,16 @@ namespace FlareAI.Flare.UI
                 var changed = LastChanged;
                 if (changed != null) try { changed(); } catch (Exception ex) { FlareAI.Core.Diagnostics.Log("toast notice", ex); }
                 if (_open != null && !_open.IsDisposed) _open.Close();
-                var t = new Toast(text, actionLabel, action, secondLabel, second);
+                Toast t = null;
+                try {
+                t = new Toast(text, actionLabel, action, secondLabel, second);
                 var r = owner != null ? owner.Bounds : Screen.PrimaryScreen.WorkingArea;
                 t.Location = new Point(r.Right - t.Width - 24, r.Bottom - t.Height - 48);
                 _open = t;
                 t.Show(owner);
                 t.AccessibilityNotifyClients(AccessibleEvents.SystemAlert, -1);
+                }
+                catch { if (t != null) { if (ReferenceEquals(_open, t)) _open = null; t.Dispose(); } throw; }   // its timers must not keep ticking
             }
             catch (Exception ex) { FlareAI.Core.Diagnostics.Log("toast", ex); }
         }

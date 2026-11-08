@@ -232,7 +232,7 @@ namespace FlareAI.Flare
                 var same = topicPanel != null && topicPanel.HasResults && SamePath(topicPanel.TopicPath, adapter.SourcePath);
                 // The fresh check, less what the pane leaves out (ignored, exempt, fixed by hand), plus the AI issues the pane already holds.
                 var listed = ReportCount.Listed(lint, adapter.SourcePath, FindingsPanel.SharedDismissals, same ? topicPanel.MarkedFixed() : null);
-                var ai = same ? topicPanel.OpenIssues().Count(f => f.Layer == "ai") : 0;
+                var ai = same ? topicPanel.ListedIssues().Count(f => f.Layer == "ai") : 0;
                 var total = listed.Count + ai;
                 if (total == 0) return;
                 var errors = listed.Count(f => f.Severity == "error");
@@ -295,6 +295,9 @@ namespace FlareAI.Flare
         {
             try
             {
+                // Flare raises CompileStart from its build, which may not be the UI thread: the pane, the toast and the timer below are.
+                var form = _owner();
+                if (form != null && form.IsHandleCreated && form.InvokeRequired) { form.BeginInvoke((Action)(() => OnCompileStart(anyProjectPath))); return; }
                 if (!PluginSettings.Load().ReportBeforeBuild || string.IsNullOrEmpty(anyProjectPath)) return;
                 var files = ActionRunner.ProjectFiles(anyProjectPath);
                 if (files.Count == 0) return;
@@ -307,14 +310,15 @@ namespace FlareAI.Flare
                 {
                     // The pane is already checking the project: wait for it, and report its results. No second check.
                     var waited = 0;
-                    var wait = new Timer { Interval = 500 };
+                    if (_buildWait != null) { _buildWait.Stop(); _buildWait.Dispose(); }
+                    var wait = _buildWait = new Timer { Interval = 500 };
                     wait.Tick += (s, e) =>
                     {
                         waited += 500;
                         if (open.IsDisposed || waited > 600000) { wait.Stop(); wait.Dispose(); return; }
                         if (open.IsBusy) return;
                         wait.Stop(); wait.Dispose();
-                        ReportBuild(owner, open.OpenIssues());
+                        ReportBuild(owner, open.ListedIssues());
                     };
                     wait.Start();
                     return;
@@ -332,6 +336,14 @@ namespace FlareAI.Flare
                 worker.RunWorkerAsync();
             }
             catch (Exception ex) { Diagnostics.Log("report before build", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the project before the build.", ex); }
+        }
+
+        private Timer _buildWait;
+
+        /// <summary>Plugin unload: stops waiting for a pane check to report the build.</summary>
+        public void Stop()
+        {
+            if (_buildWait != null) { try { _buildWait.Stop(); _buildWait.Dispose(); } catch (Exception) { } _buildWait = null; }
         }
 
         /// <summary>The build notice for these issues (the ones the pane will list). With none left it says nothing.</summary>
@@ -356,7 +368,7 @@ namespace FlareAI.Flare
             {
                 var panel = slot == PaneSlot.Topic ? PanelHost.TopicPanel : PanelHost.ProjectPanel;
                 var current = panel != null && panel.HasResults && (slot == PaneSlot.Project || SamePath(panel.TopicPath, topicPath));
-                if (current && (panel.IsBusy || panel.OpenIssues().Count == expected) && PanelHost.ShowExisting(slot, _owner())) return;
+                if (current && ReportCount.CanShowExisting(panel.ListedIssues().Count, expected, panel.IsBusy) && PanelHost.ShowExisting(slot, _owner())) return;
             }
             catch (Exception ex) { Diagnostics.Log("show issues", ex); }
             if (slot == PaneSlot.Topic) _lintTopic(); else _lintProject();

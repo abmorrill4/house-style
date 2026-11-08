@@ -102,6 +102,7 @@ namespace FlareAI.Flare
             try { _host.GetCompilerContext().CompileComplete -= OnCompileComplete; } catch (Exception) { }
             try { _host.GetCompilerContext().CompileStart -= OnCompileStart; } catch (Exception) { }
             try { if (_dispatcher != null) _dispatcher.UnhandledException -= OnDispatcherException; } catch (Exception) { }
+            try { if (_editor != null) _editor.Stop(); } catch (Exception) { }
             _style = null;
             try { _host.Dispose(); } catch (Exception ex) { Diagnostics.Log("Stop", ex); }
             _activated = false;

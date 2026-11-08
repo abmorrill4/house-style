@@ -431,6 +431,25 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
+        public void SwitchingByFileToByRuleAndBack_KeepsTheSameIssueSelected()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var issues = Items(list).Where(IsIssue).ToList();
+                var wanted = issues[2];   // the third issue, not the first of its rule
+                Select(list, wanted);
+                var tag = wanted.Tag;
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By rule").Checked = true;
+                Pump(null, 300);
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked = true;
+                Pump(null, 300);
+                var on = Items(All(panel).OfType<ListView>().Single()).Where(i => i.Selected).ToList();
+                Assert.Single(on);
+                Assert.Same(tag, on[0].Tag);
+            });
+        }
+
+        [Fact]
         public void SwitchingFromByRuleToByFile_KeepsAnIssueOfTheSelectedRule()
         {
             WithProject(false, (panel, list) =>

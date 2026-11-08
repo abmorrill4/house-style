@@ -191,6 +191,15 @@ namespace FlareAI.Flare.UI
         /// <summary>The findings the writer marked fixed by hand, which a fresh check does not list again.</summary>
         public List<StyleFinding> MarkedFixed() { return _session.Findings.Where(f => f.MarkedFixed).ToList(); }
 
+        /// <summary>
+        /// The issues the pane lists once its filters are cleared, by the definition a notice counts with: open, not exempt,
+        /// not ignored, not fixed by hand. Holds whether or not the session keeps exempt rows in its list.
+        /// </summary>
+        public List<StyleFinding> ListedIssues()
+        {
+            return ReportCount.Listed(OpenIssues().Where(f => !f.MarkedFixed), _doc.SourcePath, Dismissed);
+        }
+
         /// <summary>The open issues the pane lists once its filters are cleared (the tab count's issues): what a notice counts.</summary>
         public List<StyleFinding> OpenIssues()
         {
@@ -1992,6 +2001,7 @@ namespace FlareAI.Flare.UI
         /// </summary>
         public void ShowEveryIssue(bool remember = false)
         {
+            if (_session.WalkActive) return;   // Review One by One locks the filters: a notice does not change them under the walk
             _guidedSaved = null;
             _syncingFilter = true;
             try
@@ -2037,15 +2047,23 @@ namespace FlareAI.Flare.UI
             // The selected row follows the writer across the switch: its rule in By rule, an issue of the rule in By file.
             var onIssue = Current();
             var onRule = CurrentRule();
-            if (!byFile && onIssue != null) _lastRule = RuleBacklog.KeyOf(onIssue);
+            if (!byFile && onIssue != null) { _lastRule = RuleBacklog.KeyOf(onIssue); _viewIssue = onIssue; }   // remembered: By rule has no issue rows
             if (_session.FocusRule != null && !_session.IsWalking) _session.EndRuleReview();
             else Rebuild();
-            if (byFile && onRule != null) SelectFirstOfRule(onRule.Key);
+            if (byFile && onRule != null) SelectIssueOfRule(onRule.Key);
             // Focus stays on the View choice that was changed, so the arrow keys can switch back.
         }
 
-        private void SelectFirstOfRule(string key)
+        private StyleFinding _viewIssue;   // the issue that was selected in By file, put back when the view returns to it
+
+        /// <summary>Selects the issue that was selected before By rule, if it is still of this rule and listed; else the rule's first issue.</summary>
+        private void SelectIssueOfRule(string key)
         {
+            var wanted = _viewIssue;
+            _viewIssue = null;
+            if (wanted != null && RuleBacklog.KeyOf(wanted) == key)
+                foreach (ListViewItem item in _list.Items)
+                    if (ReferenceEquals(item.Tag, wanted)) { item.Selected = true; item.Focused = true; item.EnsureVisible(); return; }
             foreach (ListViewItem item in _list.Items)
             {
                 var f = item.Tag as StyleFinding;

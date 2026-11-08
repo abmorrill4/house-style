@@ -10,6 +10,12 @@ namespace FlareAI.Core.Actions
     /// </summary>
     public static class ReportCount
     {
+        /// <summary>
+        /// True when the pane's results can be shown as they are: the pane lists as many issues as the notice said (or is still
+        /// checking). The pane's count is made with <see cref="Listed"/> too, so it holds whether or not the pane keeps exempt rows.
+        /// </summary>
+        public static bool CanShowExisting(int paneListed, int noticeCount, bool paneBusy) { return paneBusy || paneListed == noticeCount; }
+
         /// <param name="marked">The pane's own findings: those it marked fixed (by hand) are not listed again, as the pane does.</param>
         public static List<StyleFinding> Listed(IEnumerable<StyleFinding> found, string anyPath, Dismissals dismissed, IEnumerable<StyleFinding> marked = null)
         {

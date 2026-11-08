@@ -57,6 +57,11 @@ $t2 = (Wait-PaneDone 120).pane.panel
 Assert-E2E ($t2.filter.level -eq "Suggestions") "a new topic report still has the Level the writer chose (Level: $($t2.filter.level))"
 Send-E2E click "Clear Filters" | Out-Null
 
+# The typed edits above are tracked changes, which a check of the saved file reads differently from the pane's live recheck.
+# A fresh project report makes the two agree, as they do after any normal save.
+Invoke-Ribbon "Lint Project"
+Wait-PaneDone 300 | Out-Null
+
 # A remembered Level does not hide the build notice's issues: Show Issues clears it.
 Send-E2E click "Project" | Out-Null
 Send-E2E paneType "Suggestions" -Extra @{ name = "Level" } | Out-Null
