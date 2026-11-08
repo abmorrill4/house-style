@@ -210,14 +210,7 @@ namespace FlareAI.Flare.UI
         /// <summary>Count of open issues for the bar: for a topic, all open; for a project, open and not skipped.</summary>
         public int OpenCount()
         {
-            if (IsProjectReport)
-            {
-                return _session.Open().FindAll(f => !_session.IsSkipped(f)).Count;
-            }
-            else
-            {
-                return _session.Open().Count;
-            }
+            return OpenIssues().Count;   // exempt rows stay listed but are not open
         }
 
         /// <summary>

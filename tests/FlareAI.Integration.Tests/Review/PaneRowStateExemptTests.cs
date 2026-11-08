@@ -205,6 +205,30 @@ namespace FlareAI.Integration.Tests.Review
             Assert.True(row.IsFixed && row.MarkedFixed);
         }
 
+
+        [Fact]
+        public void WithAnExemptRowListed_TheToastCountIsThePanesOpenCount_AndShowIssuesDoesNotRelint()
+        {
+            using (var fx = ReviewFixture.Scratch("<p>Send an e-mail to the team.</p><p>Please utilize the tool.</p>"))
+            {
+                var topic = fx.Session;
+                Lint(fx, topic);
+                var mail = MailRow(topic);
+                var before = topic.Open().Count;
+                topic.Select(mail);
+                topic.Exempt(mail, "Intended here.");
+                Assert.Contains(mail, topic.Findings);   // the exempt row stays listed
+                Assert.Equal(before - 1, topic.Open().Count);
+                // What a toast counts for a fresh check, and what the pane lists as open by the same definition.
+                var fresh = fx.Runner.Lint(fx.Runner.PickCheckBlocks(fx.Doc));
+                var toast = ReportCount.Listed(fresh, fx.Doc.SourcePath, null, topic.Findings.Where(f => f.MarkedFixed).ToList());
+                var pane = ReportCount.Listed(topic.Open().Where(f => !f.MarkedFixed), fx.Doc.SourcePath, null);
+                Assert.Equal(topic.Open().Count, pane.Count);
+                Assert.Equal(pane.Count, toast.Count);
+                Assert.True(ReportCount.CanShowExisting(pane.Count, toast.Count, false));   // Show Issues shows the pane as it is
+                Assert.StartsWith(topic.Open().Count + " issue", topic.Status.Replace("No issues found in this topic.", "0 issues"));
+            }
+        }
         [Fact]
         public void AnExemptRow_ExportsAsExempt()
         {
