@@ -227,10 +227,16 @@ namespace FlareAI.Flare
                 var lint = Lint(doc, out adapter);
                 if (lint == null) return;
                 state.Lint = lint;
-                if (lint.Count == 0) return;   // nothing to say
-                var errors = lint.Count(f => f.Severity == "error");
-                Toast.Show(_owner(), Plural.Of(lint.Count, "issue") + " in " + Path.GetFileName(adapter.SourcePath) + (errors > 0 ? " (" + Plural.Of(errors, "error") + ")" : "") + ". Saved anyway.",
-                           "Show Issues", _lintTopic);
+                // What the pane will list: ignored and exempt issues are not counted. Nothing left means nothing to say.
+                var topicPanel = PanelHost.TopicPanel;
+                var listed = topicPanel != null && topicPanel.HasResults && SamePath(topicPanel.TopicPath, adapter.SourcePath)
+                    ? topicPanel.OpenIssues()   // the results Show Issues will open
+                    : ReportCount.Listed(lint, adapter.SourcePath, FindingsPanel.SharedDismissals);
+                if (listed.Count == 0) return;
+                var errors = listed.Count(f => f.Severity == "error");
+                var topicPath = adapter.SourcePath;
+                Toast.Show(_owner(), Plural.Of(listed.Count, "issue") + " in " + Path.GetFileName(adapter.SourcePath) + (errors > 0 ? " (" + Plural.Of(errors, "error") + ")" : "") + ". Saved anyway.",
+                           "Show Issues", () => ShowIssues(PaneSlot.Topic, topicPath));
                 UpdateMarkers(doc);
             }
             catch (Exception ex) { Diagnostics.Log("check on save", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the topic you saved.", ex); }
@@ -299,16 +305,41 @@ namespace FlareAI.Flare
                 worker.RunWorkerCompleted += (s, e) =>
                 {
                     if (e.Error != null) { Diagnostics.Log("report before build", e.Error); ErrorReporter.Background(owner, "House Style couldn't lint the project before the build.", e.Error); return; }
-                    var found = (List<StyleFinding>)e.Result;
-                    if (found.Count == 0) { Toast.Show(owner, "Building. No issues found in the project's " + Plural.Of(files.Count, "file") + "."); return; }
+                    var raw = (List<StyleFinding>)e.Result;
+                    var projectPanel = PanelHost.ProjectPanel;
+                    var found = projectPanel != null && projectPanel.HasResults && projectPanel.OpenIssues().Count > 0
+                        ? projectPanel.OpenIssues()   // the results Show Issues will open
+                        : ReportCount.Listed(raw, anyProjectPath, FindingsPanel.SharedDismissals);
+                    if (found.Count == 0)
+                    {
+                        // Every issue ignored or exempt: nothing to report. A project with none at all says so.
+                        if (raw.Count == 0) Toast.Show(owner, "Building. No issues found in the project's " + Plural.Of(files.Count, "file") + ".");
+                        return;
+                    }
                     var inFiles = found.Select(f => f.DocumentPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
                     var errors = found.Count(f => f.Severity == "error");
                     Toast.Show(owner, "Building. " + Plural.Of(found.Count, "issue") + " in " + Plural.Of(inFiles, "file") + (errors > 0 ? ", " + Plural.Of(errors, "error") : "") + ".",
-                               "Show Issues", _lintProject);
+                               "Show Issues", () => ShowIssues(PaneSlot.Project, null));
                 };
                 worker.RunWorkerAsync();
             }
             catch (Exception ex) { Diagnostics.Log("report before build", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the project before the build.", ex); }
+        }
+
+        /// <summary>
+        /// A toast's Show Issues: the results already in the pane for that scope, at the right tab, with the filters cleared so the
+        /// toast's count is the list's. Checks only when the pane has no results for it yet (or shows another topic).
+        /// </summary>
+        private void ShowIssues(PaneSlot slot, string topicPath)
+        {
+            try
+            {
+                var panel = slot == PaneSlot.Topic ? PanelHost.TopicPanel : PanelHost.ProjectPanel;
+                var current = panel != null && (slot == PaneSlot.Project || SamePath(panel.TopicPath, topicPath));
+                if (current && PanelHost.ShowExisting(slot, _owner())) return;
+            }
+            catch (Exception ex) { Diagnostics.Log("show issues", ex); }
+            if (slot == PaneSlot.Topic) _lintTopic(); else _lintProject();
         }
 
         private static string SafePath(IDocument d) { try { return d.GetSourceUrl(); } catch (Exception) { return null; } }

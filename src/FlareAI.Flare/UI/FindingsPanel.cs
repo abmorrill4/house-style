@@ -73,6 +73,7 @@ namespace FlareAI.Flare.UI
         private string _lastReason;   // the reason of the last Ignore: I in a walk uses it (the reasons menu asks the first time only)
 
         private static readonly string SettingsDir = FlareAI.Core.Settings.PluginSettings.SettingsDirectory;
+        internal static Dismissals SharedDismissals { get { return Dismissed; } }
         private static readonly Dismissals Dismissed = Dismissals.Load(System.IO.Path.Combine(SettingsDir, "dismissed.json"));
         private readonly ReviewSession _session;   // the decisions; this pane renders them and forwards clicks
         private BackgroundWorker _worker;
@@ -119,8 +120,8 @@ namespace FlareAI.Flare.UI
         /// <summary>Set the tab counts and show or hide the bar. -1 for an absent slot. Bar visible only when both are >= 0.</summary>
         public void SetTabs(int topicCount, int projectCount)
         {
-            _tabTopic.Text = "This &Topic (" + topicCount + ")";
-            _tabProject.Text = "&Project (" + projectCount + ")";
+            _tabTopic.Text = "This Topic (" + topicCount + ")";
+            _tabProject.Text = "Project (" + projectCount + ")";
 
             var topicName = topicCount >= 0 ? "This Topic, " + Plural.Of(topicCount, "issue") : "This Topic";
             var projName = projectCount >= 0 ? "Project, " + Plural.Of(projectCount, "issue") : "Project";
@@ -181,6 +182,15 @@ namespace FlareAI.Flare.UI
         /// <summary>The pane slot shown: Topic or Project.</summary>
         public PaneSlot Slot { get { return IsProjectReport ? PaneSlot.Project : PaneSlot.Topic; } }
 
+        /// <summary>True once this pane has started a check, so its results (and marks) can be shown again as they are.</summary>
+        public bool HasResults { get { return _started; } }
+
+        /// <summary>The open issues the pane lists once its filters are cleared (the tab count's issues): what a notice counts.</summary>
+        public List<StyleFinding> OpenIssues()
+        {
+            return IsProjectReport ? _session.Open().FindAll(f => !_session.IsSkipped(f)) : _session.Open();
+        }
+
         /// <summary>Count of open issues for the bar: for a topic, all open; for a project, open and not skipped.</summary>
         public int OpenCount()
         {
@@ -234,7 +244,8 @@ namespace FlareAI.Flare.UI
             ReviewLevel savedLevel; ReviewSource savedSource;
             ReviewViewPrefs.Load(out savedLevel, out savedSource);
             _savedSource = savedSource;
-            _session.Filter = new ReviewFilter(savedLevel, files != null ? ReviewSource.RulesAndAi : savedSource);
+            // A project report always starts on All Levels; the remembered Level applies to topic reports.
+            _session.Filter = new ReviewFilter(files != null ? ReviewLevel.All : savedLevel, files != null ? ReviewSource.RulesAndAi : savedSource);
             _session.ListChanged += Rebuild;
             _session.SelectRequested += Select;
             _session.StatusChanged += text => _status.Text = text;
@@ -273,8 +284,8 @@ namespace FlareAI.Flare.UI
             _viewLabel = new Label { Text = "View:", AutoSize = true, Margin = new Padding(0, 6, 4, 0), Visible = files != null };
             _viewBar.Controls.Add(_viewLabel);
             var byFile = files != null && FlareAI.Core.Settings.PluginSettings.Load().ProjectViewByFile;
-            _byRule = new RadioButton { Text = "By &rule", AutoSize = true, Checked = !byFile, Margin = new Padding(0, 3, 8, 0) };
-            _byFile = new RadioButton { Text = "By &file", AutoSize = true, Checked = byFile, Margin = new Padding(0, 3, 12, 0) };
+            _byRule = new RadioButton { Text = "By rule", AutoSize = true, Checked = !byFile, Margin = new Padding(0, 3, 8, 0) };
+            _byFile = new RadioButton { Text = "By file", AutoSize = true, Checked = byFile, Margin = new Padding(0, 3, 12, 0) };
             _viewBar.Controls.Add(_byRule);
             _viewBar.Controls.Add(_byFile);
             _byRule.Visible = _byFile.Visible = files != null;
@@ -507,8 +518,8 @@ namespace FlareAI.Flare.UI
             foreach (var b in new[] { _tourNext, _tourSkip, _tourDone }) b.BackColor = SystemColors.Control;
             // Tab bar: This Topic and Project tabs
             _tabs = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Visible = false };
-            _tabTopic = new TabRadio { Text = "This &Topic", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 4, 0) };
-            _tabProject = new TabRadio { Text = "&Project", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
+            _tabTopic = new TabRadio { Text = "This Topic", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 4, 0) };
+            _tabProject = new TabRadio { Text = "Project", Appearance = Appearance.Button, AutoSize = true, Margin = new Padding(0, 3, 0, 0) };
             _tabs.Controls.Add(_tabTopic);
             _tabs.Controls.Add(_tabProject);
             _tabTopic.Click += (s, e) => { if (Slot != PaneSlot.Topic) { var h = TabRequested; if (h != null) h(PaneSlot.Topic); } };
@@ -1469,6 +1480,16 @@ namespace FlareAI.Flare.UI
         /// Brings the pane's window forward and puts the keyboard focus in the issues list, selecting the first row when
         /// none is. False when the focus didn't arrive (a modal dialog is open, say).
         /// </summary>
+        /// <summary>Puts the focus on the checked tab (This Topic or Project), as clicking it with the mouse does.</summary>
+        internal bool E2EFocusTab()
+        {
+            var form = FindForm();
+            if (form != null && form.CanFocus) form.Activate();
+            var tab = Slot == PaneSlot.Topic ? _tabTopic : _tabProject;
+            tab.Focus();
+            return tab.Focused;
+        }
+
         internal bool E2EFocusList()
         {
             var form = FindForm();
@@ -1949,11 +1970,18 @@ namespace FlareAI.Flare.UI
             var level = (ReviewLevel)Math.Max(0, _levelBox.SelectedIndex);
             if (_files == null) _savedSource = (ReviewSource)Math.Max(0, _sourceBox.SelectedIndex);
             _session.Filter = new ReviewFilter(level, _files != null ? ReviewSource.RulesAndAi : _savedSource);
-            ReviewViewPrefs.Save(level, _savedSource);
+            if (_files == null) ReviewViewPrefs.Save(level, _savedSource);   // a project report's Level is not remembered
             Diagnostics.Log("filter: " + _levelBox.Text + ", " + _sourceBox.Text);
         }
 
         private void ClearFilters()
+        {
+            ShowEveryIssue();
+            _levelBox.Focus();
+        }
+
+        /// <summary>Clears the Level and Source filters without moving focus (a toast's Show Issues, so its count matches the rows).</summary>
+        public void ShowEveryIssue()
         {
             _guidedSaved = null;
             _syncingFilter = true;
@@ -1965,8 +1993,7 @@ namespace FlareAI.Flare.UI
             finally { _syncingFilter = false; }
             if (_files == null) _savedSource = ReviewSource.RulesAndAi;
             _session.Filter = ReviewFilter.All;
-            ReviewViewPrefs.Save(ReviewLevel.All, _savedSource);
-            _levelBox.Focus();
+            if (_files == null) ReviewViewPrefs.Save(ReviewLevel.All, _savedSource);
         }
 
         /// <summary>The combos and Clear Filters show the session's filter; the combos are locked during a walk (and Source in a project).</summary>
@@ -1998,9 +2025,25 @@ namespace FlareAI.Flare.UI
             }
             catch (Exception ex) { Diagnostics.Log("save view", ex); }
             // A walk is kept across the switch: the strip hides (or shows again at the same place) and All Rules ends it.
+            // The selected row follows the writer across the switch: its rule in By rule, an issue of the rule in By file.
+            var onIssue = Current();
+            var onRule = CurrentRule();
+            if (!byFile && onIssue != null) _lastRule = RuleBacklog.KeyOf(onIssue);
             if (_session.FocusRule != null && !_session.IsWalking) _session.EndRuleReview();
             else Rebuild();
+            if (byFile && onRule != null) SelectFirstOfRule(onRule.Key);
             _list.Focus();
+        }
+
+        private void SelectFirstOfRule(string key)
+        {
+            foreach (ListViewItem item in _list.Items)
+            {
+                var f = item.Tag as StyleFinding;
+                if (f == null || RuleBacklog.KeyOf(f) != key) continue;
+                item.Selected = true; item.Focused = true; item.EnsureVisible();
+                return;
+            }
         }
 
         private void ReviewRule()

@@ -155,8 +155,8 @@ namespace FlareAI.Flare.UI
             _lintGuideStatus = c.Status(1);   // grows with its text (FitHeight)
             c.Note("Linting uses only the rules, with no AI and no cost. It never stops you from saving or building.", true);
             _live = c.Check("Lint my writing as I type", _settings.LiveCheck, true);
-            _onSave = c.Check("When I save a topic, tell me how many issues it has", _settings.CheckOnSave, true);
-            _beforeBuild = c.Check("When I start a build, lint the whole project", _settings.ReportBeforeBuild, true);
+            _onSave = c.Check("Check the topic when saving", _settings.CheckOnSave, true);
+            _beforeBuild = c.Check("Check the project before building", _settings.ReportBeforeBuild, true);
             _markers = c.Check("Mark paragraphs that have issues with a bar in the margin", _settings.ShowMarkers, true);
             c.Reflow();
             _lintGuideStatus.TextChanged += (s, e) => c.FitHeight(_lintGuideStatus);

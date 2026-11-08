@@ -24,7 +24,7 @@ The pane lists one row per rule, the most frequent first. Each row says how many
 - **Disable Rule…**: turns the rule off or changes its level. If you can't change your team's guide, this is **Request Rule Change…**.
 - **Skip**: hides the rule until the next lint. **Show Skipped Rules** brings skipped rules back.
 
-To list issues file by file instead, select **By file** (Alt+F). **By rule** (Alt+R) goes back. The pane remembers your choice.
+To list issues file by file instead, select **By file**. **By rule** goes back. The pane remembers your choice.
 
 ## Go to an issue
 

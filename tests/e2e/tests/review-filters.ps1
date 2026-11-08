@@ -59,3 +59,9 @@ Send-E2E click "Clear Filters" | Out-Null
 Assert-E2E ((Get-E2EState).pane.panel.filter.source -eq "Rules and AI") "Clear Filters puts Source back to Rules and AI"
 
 Save-E2EScreenshot "review-filters"
+
+# A project report starts on All Levels even though a topic report's Level was set to Errors (#449).
+Send-E2E paneType "Errors" -Extra @{ name = "Level" } | Out-Null
+Invoke-Ribbon "Lint Project"
+$fresh = (Wait-PaneDone 300).pane.panel
+Assert-E2E ($fresh.filter.level -eq "All Levels") "a new project report starts on All Levels (Level: $($fresh.filter.level))"
