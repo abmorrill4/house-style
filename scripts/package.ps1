@@ -1,5 +1,6 @@
-# Builds Release and zips a tester-ready plugin folder into dist\HouseStyle-<version>.zip
-param([string]$Version = "0.1.0")
+# Builds Release into dist\stage, then zips it into dist\HouseStyle-<version>.zip with checksums.txt (zip.ps1).
+# -StageOnly stops after dist\stage: the release signs the stage first, then runs zip.ps1.
+param([string]$Version = "0.1.0", [switch]$StageOnly)
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo
@@ -26,21 +27,5 @@ Copy-Item "docs\README-INSTALL.md" -Destination "$repo\dist\stage\README-INSTALL
 Copy-Item "scripts\release\Install.ps1", "scripts\release\Install.cmd" -Destination "$repo\dist\stage"
 Copy-Item "LICENSE", "NOTICE.md" -Destination $stage
 
-$zip = Join-Path $repo "dist\HouseStyle-$Version.zip"
-Remove-Item $zip -Force -ErrorAction SilentlyContinue
-# Build the zip by hand: Compress-Archive in Windows PowerShell 5.1 writes backslash entry names, which some unzip tools mishandle.
-Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-$stageRoot = (Resolve-Path "$repo\dist\stage").Path.TrimEnd('\')
-$za = [System.IO.Compression.ZipFile]::Open($zip, [System.IO.Compression.ZipArchiveMode]::Create)
-try {
-    Get-ChildItem $stageRoot -Recurse -File | ForEach-Object {
-        $entry = $_.FullName.Substring($stageRoot.Length + 1).Replace('\', '/')
-        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, $_.FullName, $entry, [System.IO.Compression.CompressionLevel]::Optimal)
-    }
-} finally { $za.Dispose() }
-# Same format as the release's checksums.txt (sha256sum style), so a local test server can serve both.
-$sha = [Security.Cryptography.SHA256]::Create()
-$fs = [IO.File]::OpenRead($zip)
-try { $hash = ([BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '').ToLowerInvariant() } finally { $fs.Dispose(); $sha.Dispose() }
-Set-Content -Path (Join-Path $repo "dist\checksums.txt") -Value "$hash  $(Split-Path $zip -Leaf)" -Encoding Ascii
-Write-Host "Packaged: $zip"
+if ($StageOnly) { Write-Host "Staged: $repo\dist\stage"; return }
+& (Join-Path $PSScriptRoot "zip.ps1") -Version $Version
