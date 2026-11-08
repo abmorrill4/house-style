@@ -31,6 +31,8 @@ Assert-E2E (@($s.buttons | Where-Object { $_.text -eq "Clear Filters" }).Count -
 Invoke-Ribbon "Lint Project"
 Wait-PaneDone 300 | Out-Null
 Send-E2E click "By rule" | Out-Null
+# A project report starts on All Levels (#449), so pick Errors again here.
+Send-E2E paneType "Errors" -Extra @{ name = "Level" } | Out-Null
 $rules = @((Get-E2EState).pane.panel.rows)
 Assert-E2E ($rules.Count -ge 1) "By rule lists at least one rule under Level Errors"
 Assert-E2E (@($rules | Where-Object { -not $_.text.StartsWith($dot) }).Count -eq 0) "every rule row is an error under Level Errors"

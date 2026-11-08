@@ -57,7 +57,7 @@ function BodyLen { ((Send-E2E bodyXml).value.xml).Length }
 Invoke-Ribbon "Lint Project"
 Wait-PaneDone 300 | Out-Null
 Send-E2E click "By file" | Out-Null
-$phrases = 'How long does a payee take', 'Who can see a payee', 'Only the account owner', 'Contact your bank', 'people they share access with', 'If the user deletes', 'appear within a few', 'Bill pay questions'
+$phrases = 'How long does a payee take', 'Who can see a payee', 'Only the account owner', 'Contact your bank', 'people they share access with', 'If the user deletes', 'within a few minutes', 'Bill pay questions'
 $i = 0
 foreach ($k in 'r', 'f', 'p', 't', 'R', 'F', 'P', 'T') {
     Send-E2E open $faq | Out-Null; Start-Sleep -Milliseconds 800
