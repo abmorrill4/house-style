@@ -118,7 +118,7 @@ Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exem
 Assert-E2E ((Rows)[0].text -like "*Exempt*") "the row is marked Exempt again"
 Save-E2EScreenshot "ignore-exempt-exempt-row"
 $items = Send-E2E rowMenu "Remove Exemption" -Extra @{ index = 0 }
-Assert-E2E (($items.value | Out-String) -match "Remove Exemption") "Remove Exemption is in the exempt row's menu"
+Assert-E2E ((($items.value | Out-String) -match "Remove Exemption")) "Remove Exemption is in the exempt row's menu"
 Wait-Until { $r = (Rows)[0]; if ($r -and $r.text -notlike "*Exempt*") { $r } } 15 "the row to be open again" | Out-Null
 Assert-E2E (@(Rows).Count -eq $rows0.Count) "the same rows are listed after Remove Exemption"
 Assert-E2E (-not @((Get-E2EState).pane.buttons | Where-Object { $_.text -like "Exemptions (*" }).Count) "the Exemptions button is gone with no exemptions left"

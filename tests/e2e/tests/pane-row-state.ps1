@@ -58,7 +58,7 @@ $t = Row-Of $other
 Assert-E2E ($t.Count -ge 1 -and $t[0].text -like "*$check*") "the topic row is fixed after Mark as Fixed in Project (rows: $(($t.text) -join ' | '))"
 $ti = [array]::FindIndex([object[]](Rows), [Predicate[object]]{ param($r) $r.excerpt -eq $other })
 $items = Send-E2E rowMenu "Reopen Issue" -Extra @{ index = $ti }
-Assert-E2E (($items.value | Out-String) -match "Reopen Issue") "Reopen Issue is in the menu of a row marked as fixed"
+Assert-E2E ((($items.value | Out-String) -match "Reopen Issue")) "Reopen Issue is in the menu of a row marked as fixed"
 Wait-Until { $t = Row-Of $other; if ($t.Count -ge 1 -and $t[0].text -notlike "*$check*") { $t } } 15 "the topic row to be open again" | Out-Null
 Assert-E2E ((Panel).status -like "*Reopened.*") "the status line says Reopened (status: $((Panel).status))"
 Send-E2E click "Project" | Out-Null
