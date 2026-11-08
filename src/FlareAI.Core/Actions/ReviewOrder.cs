@@ -43,12 +43,15 @@ namespace FlareAI.Core.Actions
                     continue;
                 }
                 XmlText run = null; int start = 0;
-                var found = doc != null && FindingLocator.TryLocate(doc, f, out run, out start);
-                var block = found ? TextRuns.BlockOf(run) : f.Block;
+                var textFound = doc != null && FindingLocator.TryLocate(doc, f, out run, out start);
+                XmlElement image = null;
+                // An image issue is placed where its anchor text was, as before. It is stale only when the image is gone.
+                var found = f.ImageSrc != null ? doc != null && FindingLocator.TryLocateImage(doc, f, out image) : textFound;
+                var block = textFound ? TextRuns.BlockOf(run) : image != null ? TextRuns.BlockOf(image) : f.Block;
                 int bi, ri;
                 f.Section = block != null && heading.ContainsKey(block) ? heading[block] : "";
                 f.Order = block != null && index.TryGetValue(block, out bi)
-                    ? bi * 100000000L + (found && runOrder.TryGetValue(run, out ri) ? ri * 10000L + start : 0)
+                    ? bi * 100000000L + (textFound && runOrder.TryGetValue(run, out ri) ? ri * 10000L + start : 0)
                     : long.MaxValue / 4;
                 f.IsStale = (!found && !f.IsFixed) || f.ContextChanged;
             }

@@ -150,3 +150,20 @@ IRibbonComboBox combo = group.AddRibbonCombobox(new RibbonMenuData { ... });
   once, which is not what the "variables crash on Redo" note above would predict. The earlier crash was seen for a variable
   inserted or replaced inside an existing element. Until that is probed (bare variable inside an existing `p`, redo after save and
   reopen, redo from the toolbar), the plugin still refuses any `MadCap:` element in an insert.
+
+## Selecting an image (verified Flare 22, 2026-11-08, tests/e2e/tests/alt-text-goto-image.ps1)
+- `IDocument.Select(XmlNode)` does nothing for an `img`: the selection stays where it was.
+- In `GetCursorPosition()` / `SetCursorPosition()` an image, a paragraph boundary and the break between blocks take no room. `Select(string)`
+  leaves the position at the start of the text it found, so the position of an image is the start of the text after it (or the end of the
+  text before it). Spaces between the image and that text, and a tracked deletion near it, did not move the position.
+- `Select(string)` searches on from the current selection, so text that is already selected is passed over. Go back to the top first
+  (`SetSelectionLength(0)`, `SetCursorPosition(0)`) when the search fails.
+- `SetSelectionLength(1)` at the image's position selects the next character, not the image. A selection that runs from the character
+  before the image to the one after it (`SetCursorPosition(at - 1)`, `SetSelectionLength(2)`) reports `#text, img, #text` from
+  `GetXmlNodeList()` and shows the image highlighted. This works across a paragraph boundary, so an image alone in its paragraph works too.
+- An image with nothing before it (first in the topic) or nothing after it (last) is never reported: a selection that starts at it or
+  ends at it lists only the text. A collapsed caret at it, `SetSelectionLength(-1)` and `Select(parent)` did not report it either
+  (`SetSelectionLength(-1)` selects the whole topic). Go To selects the text beside the image in that case.
+- Flare may return its own copy of an element in `GetXmlNodeList()`, so compare an image by its `src` as well as by reference.
+- `FlareDocumentAdapter.SelectNode` and `ImageSelection` (Core) do this: they work out where the image is from the text beside it, try
+  selections from that place outwards (a few characters either way) until the image is reported, and select the text beside it when none is.

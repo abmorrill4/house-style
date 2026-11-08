@@ -1085,8 +1085,7 @@ namespace FlareAI.Core.Actions
         /// <summary>The block that currently holds the finding's text (blocks are replaced by edits), or null.</summary>
         public XmlNode LocateBlock(IDocumentAdapter doc, StyleFinding f)
         {
-            XmlText run; int start;
-            return FindingLocator.TryLocate(doc.Document, f, out run, out start) ? TextRuns.BlockOf(run) : null;
+            return FindingLocator.LocateBlock(doc.Document, f);
         }
 
         /// <summary>Lint + review in one call (the UI runs the two phases separately to show lint results first).</summary>
@@ -1100,9 +1099,14 @@ namespace FlareAI.Core.Actions
             return all;
         }
 
-        /// <summary>Selects the finding's text in the editor. False when the text is no longer in the topic.</summary>
+        /// <summary>Selects the finding's text in the editor, or its image for an image finding. False when it is no longer in the topic.</summary>
         public bool GoTo(IDocumentAdapter doc, StyleFinding f)
         {
+            if (f.ImageSrc != null)
+            {
+                XmlElement img;
+                return FindingLocator.TryLocateImage(doc.Document, f, out img) && doc.SelectNode(img);
+            }
             XmlText run; int start;
             return FindingLocator.TryLocate(doc.Document, f, out run, out start) && doc.SelectText(run, start, f.Excerpt.Length);
         }

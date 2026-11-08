@@ -123,7 +123,7 @@ namespace FlareAI.Core.Style
                     {
                         var alt = el.GetAttribute("alt");
                         if (alt.Trim().Length == 0 && el.GetAttribute("role") != "presentation")
-                            Add(found, el, "Structure.AltText", "error", "This image has no alt text: describe what it shows (or mark it decorative) for screen readers.");
+                            AddImage(found, el, "This image has no alt text: describe what it shows (or mark it decorative) for screen readers.");
                     }
                     else if (name.Length == 2 && name[0] == 'h' && char.IsDigit(name[1]))
                     {
@@ -189,10 +189,11 @@ namespace FlareAI.Core.Style
                 var order = new List<XmlNode>();
                 Walk(block, order);
                 var at = order.IndexOf(el);
+                var editable = new HashSet<XmlNode>(TextRuns.Of(new List<XmlNode> { block }));   // not text in a pending deletion, which no check can find again
                 foreach (var n in order)
                 {
                     var t = n as XmlText;
-                    if (t == null || t.Value.Trim().Length == 0) continue;
+                    if (t == null || t.Value.Trim().Length == 0 || !editable.Contains(t)) continue;
                     if (order.IndexOf(n) < at || run == null) run = t;
                     if (order.IndexOf(n) > at) break;
                 }
@@ -206,6 +207,85 @@ namespace FlareAI.Core.Style
             Set(f, rule, severity, message);
             found.Add(f);
         }
+
+        /// <summary>
+        /// A missing alt text issue is about the image: it is named by its file name, Go To selects the image, and the card
+        /// shows its file name and any title or caption. The text next to the image still anchors the issue for the checks
+        /// that follow text (ignore, exempt),, so a topic with no text at all has no issue, as before.
+        /// </summary>
+        private static void AddImage(List<StyleFinding> found, XmlElement img, string message)
+        {
+            var before = found.Count;
+            Add(found, img, "Structure.AltText", "error", message);
+            if (found.Count == before) return;   // a topic with no text at all has nothing to anchor an issue on, as before
+            var f = found[found.Count - 1];
+            var src = img.GetAttribute("src");
+            var name = FileName(src);
+            var same = 0; var index = 0; var all = 0;
+            foreach (var other in FindingLocator.ImagesOf(img.OwnerDocument))
+            {
+                if (other == img) { index = same; }
+                if (other.GetAttribute("src") == src) same++;
+                if (string.Equals(FileName(other.GetAttribute("src")), name, StringComparison.OrdinalIgnoreCase)) all++;
+            }
+            f.ImageSrc = src;
+            f.ImageIndex = index;
+            f.ImageDetail = Detail(img);
+            f.Title = name == null ? "Alt text for an image" : "Alt text for \"" + name + "\"";
+            if (all > 1)
+            {
+                var words = Words(TextRuns.BlockOf(img));
+                f.Title += words.Length > 0 ? " in \"" + words + "\"" : " (image " + (index + 1) + " of " + same + ")";
+            }
+        }
+
+        /// <summary>The file name of an image path as written (the part after the last slash, without a query), or null when there is none.</summary>
+        public static string FileName(string src)
+        {
+            if (string.IsNullOrEmpty(src)) return null;
+            var s = src;
+            var cut = s.IndexOfAny(new[] { '?', '#' });
+            if (cut >= 0) s = s.Substring(0, cut);
+            s = s.Substring(s.LastIndexOfAny(new[] { '/', '\\' }) + 1);
+            try { s = Uri.UnescapeDataString(s); } catch (UriFormatException) { }
+            return s.Length == 0 ? null : s;
+        }
+
+        private static string Words(XmlNode block)
+        {
+            if (block == null) return "";
+            var text = Regex.Replace(block.InnerText, @"\s+", " ").Trim();
+            if (text.Length <= 30) return text;
+            var cut = text.LastIndexOf(' ', 30);
+            return text.Substring(0, cut > 10 ? cut : 30).TrimEnd(',', ';', '.') + "...";
+        }
+
+        /// <summary>The image's title attribute, else the text of a caption next to it (a figcaption, or a paragraph styled as a caption), else null.</summary>
+        private static string Detail(XmlElement img)
+        {
+            var title = Regex.Replace(img.GetAttribute("title"), @"\s+", " ").Trim();
+            if (title.Length > 0) return title;
+            for (XmlNode p = img.ParentNode; p != null && p.NodeType == XmlNodeType.Element && p.LocalName != "body"; p = p.ParentNode)
+            {
+                if (p.LocalName == "figure")
+                {
+                    var cap = p.SelectSingleNode("*[local-name()='figcaption']");
+                    if (cap != null) return Squash(cap.InnerText);
+                }
+            }
+            var block = TextRuns.BlockOf(img);
+            if (block == null) return null;
+            foreach (var forward in new[] { true, false })
+            {
+                var e = forward ? block.NextSibling : block.PreviousSibling;
+                while (e != null && e.NodeType != XmlNodeType.Element) e = forward ? e.NextSibling : e.PreviousSibling;
+                var el = e as XmlElement;
+                if (el != null && el.GetAttribute("class").IndexOf("caption", StringComparison.OrdinalIgnoreCase) >= 0 && Squash(el.InnerText).Length > 0) return Squash(el.InnerText);
+            }
+            return null;
+        }
+
+        private static string Squash(string s) { return Regex.Replace(s ?? "", @"\s+", " ").Trim(); }
 
         private static void Set(StyleFinding f, string rule, string severity, string message)
         {

@@ -2311,7 +2311,7 @@ namespace FlareAI.Flare.UI
             {
                 case "variable": return "Use variable " + f.Variable + " for \"" + f.Excerpt + "\"";
                 case "restructure": return "Rewrite \"" + Shorten(f.Excerpt, 48) + "\"";
-                case "manual": return FlareAI.Core.Style.RuleWording.FromName(f.Rule) + " in \"" + Shorten(f.Excerpt, 36) + "\"";
+                case "manual": return f.Title ?? FlareAI.Core.Style.RuleWording.FromName(f.Rule) + " in \"" + Shorten(f.Excerpt, 36) + "\"";
                 default: return ChangeText.Row(f.Excerpt, f.Replacement);
             }
         }
@@ -2454,6 +2454,20 @@ namespace FlareAI.Flare.UI
             // What: the words around it, and the change marked.
             if (!string.IsNullOrEmpty(f.Before)) DiffView.Segments(_cardDiff, new List<DiffSegment> { new DiffSegment { Kind = DiffKind.Same, Text = "…" + f.Before } }, true);
             if (f.Replacement != null) DiffView.Segments(_cardDiff, ChangeText.Diff(f.Excerpt, f.Replacement), false);
+            else if (f.ImageSrc != null)
+            {
+                // An image: its file name, then its title or caption, in place of the text next to it.
+                _cardDiff.SelectionStart = _cardDiff.TextLength;
+                _cardDiff.SelectionBackColor = Color.FromArgb(255, 242, 204);
+                _cardDiff.SelectionFont = new Font(_cardDiff.Font, FontStyle.Bold);
+                _cardDiff.AppendText(FlareAI.Core.Style.StructureCheck.FileName(f.ImageSrc) ?? "Image");
+                if (!string.IsNullOrEmpty(f.ImageDetail))
+                {
+                    _cardDiff.SelectionBackColor = _cardDiff.BackColor;
+                    _cardDiff.SelectionFont = _cardDiff.Font;
+                    _cardDiff.AppendText("\n" + f.ImageDetail);
+                }
+            }
             else
             {
                 _cardDiff.SelectionStart = _cardDiff.TextLength;
@@ -2537,8 +2551,9 @@ namespace FlareAI.Flare.UI
         private void SuggestAltText(StyleFinding f)
         {
             var block = _runner.LocateBlock(_doc, f) ?? f.Block;
-            var img = AltText.MissingIn(block);
-            if (img == null) { _status.Text = "That image already has alt text, or it's gone. Lint the paragraph again."; return; }
+            XmlElement img;
+            if (!FlareAI.Core.Style.FindingLocator.TryLocateImage(_doc.Document, f, out img)) img = AltText.MissingIn(block);
+            if (img == null || img.GetAttribute("alt").Trim().Length > 0) { _status.Text = "That image already has alt text, or it's gone. Lint the paragraph again."; return; }
             var inside = false;
             for (XmlNode n = img; n != null && !inside; n = n.ParentNode) inside = n == block;
             if (!inside) block = img.ParentNode; // the finding sits on the text next to an image-only paragraph
@@ -2563,7 +2578,7 @@ namespace FlareAI.Flare.UI
                 if (string.IsNullOrEmpty(alt)) return;
                 try
                 {
-                    AltText.Apply(_doc, block, src, alt.Trim());
+                    AltText.Apply(_doc, block, src, alt.Trim(), img);
                     _session.AltTextApplied(f, suggestion, alt.Trim());
                 }
                 catch (Exception ex) { Diagnostics.Log("Alt text apply", ex); _status.Text = "Couldn't add the alt text. " + ex.Message; }

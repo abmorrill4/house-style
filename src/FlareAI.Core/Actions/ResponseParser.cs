@@ -39,6 +39,14 @@ namespace FlareAI.Core.Actions
         /// <summary>File the finding lives in when it is not the checked topic (a snippet); null = the topic.</summary>
         public string DocumentPath { get; set; }
         public bool IsFixed { get; set; }
+        /// <summary>The issue's own heading in the list when it has one, such as Alt text for "logo.png"; null means the rule's name plus the excerpt.</summary>
+        public string Title { get; set; }
+        /// <summary>The image the finding is about, as its src is written in the topic; null for a finding about text.</summary>
+        public string ImageSrc { get; set; }
+        /// <summary>Which image with that src it is (0 is the first one in the topic), for a topic that uses one file twice.</summary>
+        public int ImageIndex { get; set; }
+        /// <summary>The image's title or caption text, when it has one.</summary>
+        public string ImageDetail { get; set; }
         /// <summary>
         /// Set when the text is a typed copy of this project variable's value. Not one-click: Flare 22 cannot redo a
         /// plugin-inserted variable (it crashes), so the author selects the text (Go to) and uses Insert ▸ Variable.

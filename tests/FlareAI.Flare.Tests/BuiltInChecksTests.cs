@@ -208,6 +208,8 @@ namespace FlareAI.Flare.Tests
                 _xml.LoadXml(xhtml);
             }
 
+            public int GetCursorPosition() { throw new NotSupportedException(); }
+            public void SetCursorPosition(int position) { throw new NotSupportedException(); }
             public string GetSourceUrl() { return "Content/Topic.htm"; }
             public XmlDocument GetXmlDocument() { return _xml; }
             public ISelection Selection { get { return null; } }

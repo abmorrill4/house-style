@@ -30,6 +30,7 @@ namespace B3.PluginAPIKit
         event global::System.Windows.Forms.FormClosingEventHandler Closing;
         event global::System.EventHandler ContentChanged;
         void EndOperation();
+        int GetCursorPosition();
         string GetSourceUrl();
         global::System.Collections.Generic.List<global::System.Windows.Forms.ToolStripItem> GetUserPendingContextMenuItems();
         global::System.Xml.XmlDocument GetXmlDocument();
@@ -40,6 +41,7 @@ namespace B3.PluginAPIKit
         void ReplaceDocumentNode(global::System.Xml.XmlNode @targetNode, global::System.Xml.XmlNode @newNode, bool @trackChange);
         bool Save();
         event global::System.EventHandler Saved;
+        void SetCursorPosition(int @position);
         void Select(string @searchString);
         void Select(global::System.Xml.XmlNode @node);
         global::B3.PluginAPIKit.ISelection Selection { get; }
@@ -111,6 +113,7 @@ namespace B3.PluginAPIKit
         string GetText();
         global::System.Collections.Generic.IList<global::System.Xml.XmlNode> GetXmlNodeList();
         bool ReplaceText(string @replaceString);
+        void SetSelectionLength(int @length);
         bool TrackChange { get; set; }
     }
     public partial interface IToolStripMenuItem
