@@ -219,7 +219,6 @@ jobs:
       contents: write   # the release and its tag
       actions: write    # start pages.yml
     env:
-      GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.build.outputs.version }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
@@ -248,10 +247,12 @@ jobs:
 
       - name: Remove an old draft of this tag
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:VERSION"
-          $drafts = gh api "repos/$env:GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.draft and .tag_name == `"$tag`") | .id"
-          foreach ($id in @($drafts)) { if ($id) { gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$id" } }
+          $all = gh api "repos/$env:GITHUB_REPOSITORY/releases" --paginate --slurp | ConvertFrom-Json
+          foreach ($page in $all) { foreach ($r in $page) { if ($r.draft -and $r.tag_name -eq $tag) { gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$($r.id)" } } }
 
       - name: Verify
         shell: powershell   # Windows PowerShell 5.1: the same .NET Framework the plugin runs on
@@ -274,6 +275,8 @@ jobs:
 
       - name: Draft, publish
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:VERSION"
           $files = "dist/HouseStyle-$env:VERSION.zip", "dist/checksums.txt", "dist/checksums.txt.sig"
@@ -286,13 +289,17 @@ jobs:
       - name: Refresh the site
         if: ${{ inputs.dry_run != true }}
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh workflow run pages.yml --ref main
 
       - name: Delete the draft
         # A dry run, or a failure before publishing. A published release is never a draft, so it is left alone.
         if: ${{ always() }}
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:VERSION"
-          $drafts = gh api "repos/$env:GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.draft and .tag_name == `"$tag`") | .id"
-          foreach ($id in @($drafts)) { if ($id) { gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$id" } }
+          $all = gh api "repos/$env:GITHUB_REPOSITORY/releases" --paginate --slurp | ConvertFrom-Json
+          foreach ($page in $all) { foreach ($r in $page) { if ($r.draft -and $r.tag_name -eq $tag) { gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/$($r.id)" } } }
