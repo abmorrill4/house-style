@@ -195,6 +195,65 @@ namespace FlareAI.Core.Tests.Update
         }
 
         [Fact]
+        public void Signatures_EveryFlareAiPeFileIsChecked()
+        {
+            using (var t = new TempDir())
+            {
+                FakePlugin.Write(t["new"], "0.9.0");
+                var stager = new UpdateStager(new UpdateLayout(t["HouseStyle"]), new ZipExtractor());
+
+                // Only the updater is bad: Flare.dll alone looks fine, so the old check missed it.
+                stager.CheckSignature = p => p.EndsWith("FlareAI.Updater.exe") ? SignatureStatus.Invalid : SignatureStatus.Valid;
+                Assert.Contains("not valid", Assert.Throws<UpdateException>(() => stager.Validate(t["new"], "0.9.0")).Message);
+
+                // Signed in part: refused, and nothing on the installed side is needed to say so.
+                stager.CheckSignature = p => p.EndsWith("FlareAI.Updater.exe") ? SignatureStatus.Unsigned : SignatureStatus.Valid;
+                Assert.Contains("partly signed", Assert.Throws<UpdateException>(() => stager.Validate(t["new"], "0.9.0")).Message);
+                stager.CheckSignature = p => p.EndsWith("FlareAI.Core.dll") ? SignatureStatus.Unsigned : SignatureStatus.Valid;
+                Assert.Contains("partly signed", Assert.Throws<UpdateException>(() => stager.Validate(t["new"], "0.9.0")).Message);
+
+                // Fully signed passes, and an unsigned update to an unsigned install still passes.
+                stager.CheckSignature = p => SignatureStatus.Valid;
+                stager.Validate(t["new"], "0.9.0");
+                stager.CheckSignature = p => SignatureStatus.Unsigned;
+                stager.Validate(t["new"], "0.9.0");
+            }
+        }
+
+        [Fact]
+        public void PeFiles_AreTheFlareAiDllsAndExes_AndNothingElse()
+        {
+            using (var t = new TempDir())
+            {
+                FakePlugin.Write(t["p"], "0.9.0");
+                File.WriteAllText(Path.Combine(t["p"], "FlareAI.Updater.exe.config"), "x");
+                File.WriteAllText(Path.Combine(t["p"], "FlareAI.Flare.dll.config"), "x");
+                File.WriteAllText(Path.Combine(t["p"], "FlareAI.Flare.pdb"), "x");
+                File.WriteAllText(Path.Combine(t["p"], "Other.dll"), "x");
+                Directory.CreateDirectory(Path.Combine(t["p"], "sub"));
+                File.WriteAllText(Path.Combine(t["p"], "sub", "FlareAI.Sub.dll"), "x");
+                var names = Array.ConvertAll(UpdateStager.PeFiles(t["p"]), Path.GetFileName);
+                Assert.Equal(new[] { "FlareAI.Core.dll", "FlareAI.Flare.dll", "FlareAI.Updater.exe" }, names);
+            }
+        }
+
+        [Fact]
+        public void UpdateCheck_IgnoresExtraReleaseAssets()
+        {
+            // The release also carries an installer exe; the updater still takes the zip, checksums and signature only.
+            var json = @"{ ""tag_name"": ""v0.9.0"", ""html_url"": ""https://github.com/x"", ""assets"": [
+                { ""name"": ""HouseStyle-Setup.exe"", ""size"": 5, ""browser_download_url"": ""https://github.com/x/HouseStyle-Setup.exe"" },
+                { ""name"": ""checksums.txt"", ""size"": 5, ""browser_download_url"": ""https://github.com/x/checksums.txt"" },
+                { ""name"": ""HouseStyle-0.9.0.zip"", ""size"": 7, ""browser_download_url"": ""https://github.com/x/HouseStyle-0.9.0.zip"" },
+                { ""name"": ""checksums.txt.sig"", ""size"": 5, ""browser_download_url"": ""https://github.com/x/checksums.txt.sig"" } ] }";
+            var r = UpdateCheck.Parse(json);
+            Assert.NotNull(r);
+            Assert.Equal("HouseStyle-0.9.0.zip", r.ZipName);
+            Assert.EndsWith("/checksums.txt", r.ChecksumsUrl);
+            Assert.EndsWith("/checksums.txt.sig", r.SignatureUrl);
+        }
+
+        [Fact]
         public void Authenticode_UnsignedFileIsUnsigned()
         {
             using (var t = new TempDir())

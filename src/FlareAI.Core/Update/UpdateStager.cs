@@ -25,8 +25,8 @@ namespace FlareAI.Core.Update
     /// <summary>
     /// Downloads a release into <c>staged\</c>, proves it is the file House Style published, and unpacks it:
     /// <c>checksums.txt</c> must carry a valid signature by the release key (<see cref="UpdateSigning"/>), and the
-    /// SHA-256 of the zip must match it; when the new FlareAI.Flare.dll is signed its
-    /// Authenticode signature must verify, and when the running plugin is signed the new one must be too. The payload
+    /// SHA-256 of the zip must match it; when any FlareAI.* dll or exe is signed all of them
+    /// must verify, and when the running plugin is signed the new one must be too. The payload
     /// must look like the plugin (FlareAI.Flare.dll of the announced version, FlareAI.Core.dll, the updater).
     /// Anything wrong: the download is deleted and an <see cref="UpdateException"/> says why.
     /// </summary>
@@ -113,12 +113,30 @@ namespace FlareAI.Core.Update
             var inZip = UpdateLayout.VersionIn(payload);
             if (SemVer.Compare(inZip, version) != 0) throw new UpdateException("The update says it is " + version + " but contains " + (inZip ?? "an unknown version") + ".");
 
-            var dll = Path.Combine(payload, "FlareAI.Flare.dll");
-            var sig = CheckSignature(dll);
-            if (sig == SignatureStatus.Invalid) throw new UpdateException("The update's digital signature is not valid, so it was discarded.");
-            if (sig == SignatureStatus.Unsigned && RunningPluginDir != null &&
+            // Every FlareAI.* PE file counts (the release signs them all, and the updater exe is what runs after Flare closes).
+            // Any Invalid one refuses the update. If any is signed all must be; all unsigned is refused when the installed plugin is signed.
+            var statuses = new System.Collections.Generic.List<SignatureStatus>();
+            foreach (var pe in PeFiles(payload)) statuses.Add(CheckSignature(pe));
+            if (statuses.Contains(SignatureStatus.Invalid)) throw new UpdateException("The update's digital signature is not valid, so it was discarded.");
+            if (statuses.Contains(SignatureStatus.Valid) && statuses.Contains(SignatureStatus.Unsigned))
+                throw new UpdateException("The update is only partly signed, so it was discarded.");
+            if (!statuses.Contains(SignatureStatus.Valid) && RunningPluginDir != null &&
                 CheckSignature(Path.Combine(RunningPluginDir, "FlareAI.Flare.dll")) == SignatureStatus.Valid)
                 throw new UpdateException("The update is not signed but the installed version is, so it was discarded.");
+        }
+
+        /// <summary>The FlareAI.*.dll and FlareAI.*.exe files directly in <paramref name="payload"/>: the set the release signs (scripts/release/Get-SignFiles.ps1).</summary>
+        public static string[] PeFiles(string payload)
+        {
+            var list = new System.Collections.Generic.List<string>();
+            // Extension compared exactly: a "*.dll" pattern also matches longer extensions such as .dll.config.
+            foreach (var f in Directory.GetFiles(payload, "FlareAI.*"))
+            {
+                var ext = Path.GetExtension(f);
+                if (string.Equals(ext, ".dll", StringComparison.OrdinalIgnoreCase) || string.Equals(ext, ".exe", StringComparison.OrdinalIgnoreCase)) list.Add(f);
+            }
+            list.Sort(StringComparer.OrdinalIgnoreCase);
+            return list.ToArray();
         }
 
         public const string ManifestName = ".manifest";
@@ -228,7 +246,7 @@ namespace FlareAI.Core.Update
 
     public enum SignatureStatus { Unsigned, Valid, Invalid }
 
-    /// <summary>Authenticode check of a file with WinVerifyTrust (no revocation check over the network).</summary>
+    /// <summary>Authenticode check of a file with WinVerifyTrust (no revocation check).</summary>
     public static class Authenticode
     {
         public static SignatureStatus Check(string path)
@@ -254,7 +272,7 @@ namespace FlareAI.Core.Update
                     dwUnionChoice = 1,         // WTD_CHOICE_FILE
                     pFile = pFile,
                     dwStateAction = 0,
-                    dwProvFlags = 0x00000040   // WTD_CACHE_ONLY_URL_RETRIEVAL: no network
+                    dwProvFlags = 0x00000040   // WTD_CACHE_ONLY_URL_RETRIEVAL. Tested 2026-11-08: no effect on the result, online or offline. Revocation is off (above), and the signature embeds its chain.
                 };
                 var action = new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");   // WINTRUST_ACTION_GENERIC_VERIFY_V2
                 return WinVerifyTrust(new IntPtr(-1), ref action, ref data);
