@@ -80,14 +80,18 @@ Send-E2E dialogType "The product name is always written this way." -Extra @{ tit
 Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
 $after = @((Get-E2EState).pane.panel.rows)
-Assert-E2E ($after.Count -eq $before.Count - 1) "the exempt text left the rows ($($before.Count) before, $($after.Count) after)"
+Assert-E2E ($after.Count -eq $before.Count) "the exempt row stays in the list ($($before.Count) before, $($after.Count) after)"
+Assert-E2E ($after[0].text -like "*Exempt*") "the exempt row is marked Exempt (row: $($after[0].text))"
+Assert-E2E ((Get-E2EState).pane.panel.status -like "*exempt*") "the status line says the issue is exempt"
+$openCount = @($after | Where-Object { $_.text -notlike "*Exempt*" -and $_.excerpt }).Count
+Assert-E2E ($openCount -eq $before.Count - 1) "the open count dropped by one"
 
 # Re-lint: the exempt text is still gone, and the pane counts one exemption.
 Invoke-Ribbon "Lint Topic"
 Wait-PaneDone 300 | Out-Null
 $s = (Get-E2EState).pane
 Assert-E2E (@($s.buttons | Where-Object { $_.text -eq "Exemptions (1)" }).Count -eq 1) "Exemptions (1) appears after re-lint (buttons: $($s.buttons.text -join ' | '))"
-Assert-E2E (@($s.panel.rows).Count -eq $after.Count) "the exempt text is still gone after re-lint ($($after.Count) rows, got $(@($s.panel.rows).Count))"
+Assert-E2E (@($s.panel.rows).Count -eq $before.Count - 1) "a new lint leaves the exempt text out, as before ($($before.Count - 1) rows, got $(@($s.panel.rows).Count))"
 
 # Remove Exemption: the text is flagged again on the next lint.
 Send-E2E click "Exemptions" -NoWait   # a dialog: the click answers when it closes
@@ -103,3 +107,18 @@ Wait-PaneDone 300 | Out-Null
 $back = @((Get-E2EState).pane.panel.rows)
 Assert-E2E ($back.Count -eq $before.Count) "removing the exemption brings the issue back ($($before.Count) rows before, $($back.Count) now)"
 
+
+# Remove Exemption from the row menu: exempt row 0 again, then reopen it from its own menu (#448).
+$rows0 = Rows
+Send-E2E rowMenu "Exempt This Text" -Extra @{ index = 0 } -NoWait
+Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" } } 15 "the Exempt This Text dialog" | Out-Null
+Send-E2E dialogType "Intended here." -Extra @{ title = "Exempt This Text"; name = "Why is this text exempt?" } | Out-Null
+Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
+Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
+Assert-E2E ((Rows)[0].text -like "*Exempt*") "the row is marked Exempt again"
+Save-E2EScreenshot "ignore-exempt-exempt-row"
+$items = Send-E2E rowMenu "Remove Exemption" -Extra @{ index = 0 }
+Assert-E2E (($items.value | Out-String) -match "Remove Exemption") "Remove Exemption is in the exempt row's menu"
+Wait-Until { $r = (Rows)[0]; if ($r -and $r.text -notlike "*Exempt*") { $r } } 15 "the row to be open again" | Out-Null
+Assert-E2E (@(Rows).Count -eq $rows0.Count) "the same rows are listed after Remove Exemption"
+Assert-E2E (-not @((Get-E2EState).pane.buttons | Where-Object { $_.text -like "Exemptions (*" }).Count) "the Exemptions button is gone with no exemptions left"

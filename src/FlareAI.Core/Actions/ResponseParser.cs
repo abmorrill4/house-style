@@ -68,6 +68,10 @@ namespace FlareAI.Core.Actions
         [Newtonsoft.Json.JsonIgnore] public bool FixedByEdit { get; set; }
         /// <summary>The writer chose Mark as Fixed. No check takes it back; only Lint Again does.</summary>
         [Newtonsoft.Json.JsonIgnore] public bool MarkedFixed { get; set; }
+        /// <summary>The writer exempted this text. The row stays in the list, marked Exempt, and counts as not open.</summary>
+        [Newtonsoft.Json.JsonIgnore] public bool IsExempt { get; set; }
+        /// <summary>The row's state the other tab last saw (see ReviewSession.Peer).</summary>
+        [Newtonsoft.Json.JsonIgnore] public int SyncedState { get; set; }
         /// <summary>How often the excerpt was in its paragraph at the last check; -1 when not recorded.</summary>
         [Newtonsoft.Json.JsonIgnore] public int Seen { get; set; } = -1;
         /// <summary>How often the excerpt was in the file's body at the last check; -1 when not recorded.</summary>

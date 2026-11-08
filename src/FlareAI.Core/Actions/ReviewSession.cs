@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Xml;
 using FlareAI.Core.Editing;
@@ -261,6 +262,7 @@ namespace FlareAI.Core.Actions
                 try { Record(f, DomOf(f, addDoms), addTexts); }
                 catch (Exception ex) { Diagnostics.Log("record baseline: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
             }
+            AdoptFromPeer(added);
             Sort();
             if (_rememberScope != null && RememberedRule == null) RememberFromLint();
         }
@@ -340,6 +342,80 @@ namespace FlareAI.Core.Actions
                 : a.Order.CompareTo(b.Order));
             var h = ListChanged;
             if (h != null) h();
+            SyncPeer();
+        }
+
+        // ---- one state per issue across the This Topic and Project tabs ---------------------------
+
+        /// <summary>The other tab's session (This Topic when this is Project, and the other way round), or null.</summary>
+        public ReviewSession Peer { get; set; }
+        private bool _syncing;
+
+        private static int StateOf(StyleFinding f)
+        {
+            return (f.IsFixed ? 1 : 0) | (f.FixedByEdit ? 2 : 0) | (f.MarkedFixed ? 4 : 0) | (f.IsExempt ? 8 : 0);
+        }
+
+        private static void CopyState(StyleFinding from, StyleFinding to)
+        {
+            to.IsFixed = from.IsFixed; to.FixedByEdit = from.FixedByEdit; to.MarkedFixed = from.MarkedFixed; to.IsExempt = from.IsExempt;
+            if (from.IsFixed) { to.IsStale = false; to.ContextChanged = false; }
+            to.SyncedState = from.SyncedState = StateOf(from);
+        }
+
+        /// <summary>The same issue in a session's list: same file, rule and flagged text with its surroundings.</summary>
+        private bool Matches(StyleFinding mine, ReviewSession other, StyleFinding theirs)
+        {
+            if (string.IsNullOrEmpty(mine.Excerpt) || mine.Source == "ai" || theirs.Source == "ai") return false;
+            return (mine.RuleId ?? mine.Rule) == (theirs.RuleId ?? theirs.Rule) && HandFixes.ContextKey(mine) == HandFixes.ContextKey(theirs)
+                   && HandFixes.SamePath(FilePathOf(mine), other.FilePathOf(theirs));
+        }
+
+        /// <summary>Carries rows whose state changed here to the matching rows of the other tab, one row for each.</summary>
+        private void SyncPeer()
+        {
+            var other = Peer;
+            if (other == null || _syncing || other == this) return;
+            _syncing = true;
+            try
+            {
+                var changed = false;
+                foreach (var f in _findings.ToArray())
+                {
+                    var state = StateOf(f);
+                    if (f.SyncedState == state) continue;
+                    f.SyncedState = state;
+                    var m = other._findings.Find(x => StateOf(x) != state && other.Matches(x, this, f));
+                    if (m == null) continue;
+                    CopyState(f, m);
+                    changed = true;
+                }
+                if (changed) other.PeerChanged();
+            }
+            catch (Exception ex) { Diagnostics.Log("sync tabs", ex); }
+            finally { _syncing = false; }
+        }
+
+        private void PeerChanged()
+        {
+            Sort();
+            if (_findings.Count > 0) Status = Summary();
+        }
+
+        /// <summary>New rows take the state of rows the other tab already has for the same issue.</summary>
+        private void AdoptFromPeer(List<StyleFinding> added)
+        {
+            var other = Peer;
+            if (other == null) return;
+            var claimed = new HashSet<StyleFinding>();
+            foreach (var f in added)
+            {
+                var m = other._findings.Find(x => StateOf(x) != 0 && !claimed.Contains(x) && other.Matches(x, this, f));
+                if (m == null) { f.SyncedState = StateOf(f); continue; }
+                claimed.Add(m);
+                f.IsFixed = m.IsFixed; f.FixedByEdit = m.FixedByEdit; f.MarkedFixed = m.MarkedFixed; f.IsExempt = m.IsExempt;
+                f.SyncedState = StateOf(f);
+            }
         }
 
         /// <summary>Suggestions not yet applied whose text is still there.</summary>
@@ -714,6 +790,27 @@ namespace FlareAI.Core.Actions
             Sort();
             Next();
             Status = Summary() + "  Marked as fixed.";
+        }
+
+        /// <summary>True for a row the writer marked as fixed by hand (and not exempted).</summary>
+        public bool CanReopen(StyleFinding f) { return f != null && f.IsFixed && f.MarkedFixed && !f.IsExempt; }
+
+        /// <summary>Reopen Issue: a row marked as fixed by hand is open again, in the same place. Does nothing on any other row.</summary>
+        public void ReopenCurrent()
+        {
+            var f = Current;
+            if (!CanReopen(f)) return;
+            f.IsFixed = false; f.MarkedFixed = false; f.FixedByEdit = false;
+            RecheckAfterReopen();
+            Sort();
+            Status = Summary() + "  Reopened.";
+        }
+
+        /// <summary>Text changed while the row was marked: the check finds it fixed by typing now.</summary>
+        private void RecheckAfterReopen()
+        {
+            try { var marked = new List<StyleFinding>(); int reopened; CheckEdits(null, null, marked, out reopened); }
+            catch (Exception ex) { Diagnostics.Log("recheck after reopen", ex); }
         }
 
         /// <summary>Starts or stops telling House Style's own writes from the writer's edits.</summary>
@@ -1370,7 +1467,15 @@ namespace FlareAI.Core.Actions
         }
 
         /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>
-        public int ExemptHidden { get { return _exemptIdentities.Count; } }
+        public int ExemptHidden
+        {
+            get
+            {
+                var all = new HashSet<string>(_exemptIdentities, StringComparer.Ordinal);
+                foreach (var r in _findings) if (r.IsExempt) { var id = IdentityOf(r); if (id != null) all.Add(id); }
+                return all.Count;
+            }
+        }
 
         /// <summary>The status line's tail: "1 issue is exempt." or "2 issues are exempt."; empty when none are.</summary>
         public string ExemptTail
@@ -1421,12 +1526,77 @@ namespace FlareAI.Core.Actions
                 return;
             }
             RefreshExemptions();
-            _exemptIdentities.Add(ExemptIdentity(topic, key, f));
-            var next = NextAfter(f);
-            _findings.Remove(f);
+            var id = ExemptIdentity(topic, key, f);
+            foreach (var r in _findings)
+                if (!r.IsFixed && r.Source != "ai" && IdentityOf(r) == id)
+                {
+                    r.IsFixed = true; r.IsExempt = true; r.MarkedFixed = false; r.FixedByEdit = false; r.IsStale = false; r.ContextChanged = false;
+                }
             Sort();
-            Select(next);
-            Status = Summary() + "  Exempted. It stays hidden for this text for everyone on this project.";
+            Select(NextAfter(f));
+            Status = Summary() + "  Exempted. Later lints skip this text for everyone on this project.";
+        }
+
+        private string IdentityOf(StyleFinding f)
+        {
+            var key = ExemptRuleKey(f);
+            var topic = key == null ? null : Exemptions.TopicPathFor(FilePathOf(f));
+            return topic == null ? null : ExemptIdentity(topic, key, f);
+        }
+
+        /// <summary>True for an exempt row.</summary>
+        public bool CanRemoveExemption(StyleFinding f) { return f != null && f.IsExempt; }
+
+        /// <summary>Remove Exemption: takes the text off the project's list and reopens every row that shows it as exempt.</summary>
+        public void RemoveExemptionCurrent()
+        {
+            var f = Current;
+            if (!CanRemoveExemption(f)) return;
+            var id = IdentityOf(f);
+            var key = ExemptRuleKey(f);
+            var topic = Exemptions.TopicPathFor(FilePathOf(f));
+            try
+            {
+                RefreshExemptions();
+                var entry = _exemptions == null ? null : _exemptions.Entries.FirstOrDefault(e =>
+                    string.Equals(e.Topic, Exemptions.Clean(topic), StringComparison.OrdinalIgnoreCase) && e.Rule == Exemptions.Clean(key)
+                    && e.Text == Exemptions.Clean(f.Excerpt) && e.Before == Exemptions.Clean(f.Before ?? ""));
+                if (entry != null) Exemptions.Remove(_doc.SourcePath, entry);
+            }
+            catch (GuideWriteException ex)
+            {
+                Diagnostics.Log("Remove exemption", ex);
+                _host.ShowError("House Style couldn't remove this exemption in " + ex.Target + ".",
+                                ex.Message + Environment.NewLine + Environment.NewLine + "Nothing was changed. The issue is still exempt.", ex, "Remove Exemption");
+                Status = Summary() + "  The exemption was not removed.";
+                return;
+            }
+            RefreshExemptions();
+            ReopenExempt(id);
+            Status = Summary() + "  The exemption is removed. The issue is open again.";
+        }
+
+        /// <summary>Exemptions was edited elsewhere: rows whose text is no longer exempt are open again.</summary>
+        public void SyncExemptions()
+        {
+            RefreshExemptions();
+            var gone = new HashSet<string>();
+            foreach (var r in _findings)
+            {
+                if (!r.IsExempt) continue;
+                var key = ExemptRuleKey(r);
+                var topic = key == null ? null : Exemptions.TopicPathFor(FilePathOf(r));
+                if (topic == null || !Exemptions.Covers(_exemptions, topic, key, r.Excerpt, r.Before ?? "")) gone.Add(IdentityOf(r) ?? "");
+            }
+            foreach (var id in gone) ReopenExempt(id);
+        }
+
+        private void ReopenExempt(string id)
+        {
+            foreach (var r in _findings)
+                if (r.IsExempt && (IdentityOf(r) ?? "") == id) { r.IsFixed = false; r.IsExempt = false; }
+            RecheckAfterReopen();
+            Sort();
         }
 
         internal static string ExemptRuleKey(StyleFinding f)

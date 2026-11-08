@@ -38,6 +38,7 @@ namespace FlareAI.Flare.UI
         private readonly Label _cardHead;
         private readonly RichTextBox _cardDiff;
         private readonly CardTextBox _cardWhy;   // shown in full: the card grows or scrolls, the box never does
+        private Button _reopen;   // Reopen Issue on a row marked as fixed, Remove Exemption on an exempt row
         private readonly Button _accept, _changeAll, _goTo, _openFile, _reject, _edit, _refine, _reanalyze, _rule, _legend;
         // getting started: the guided first lint's hint strip, the checklist in the empty state, and the focused first Lint Project
         private readonly LinkLabel _checklist;
@@ -384,6 +385,7 @@ namespace FlareAI.Flare.UI
             _goTo = Btn(actions, "Go To", (s, e) => _session.GoToCurrent());
             _openFile = Btn(actions, "Open File", (s, e) => _session.OpenFileOfCurrent());
             _reject = Btn(actions, "Ignore ▾", (s, e) => _rejectMenu.Show(_reject, new Point(0, _reject.Height)));
+            _reopen = Btn(actions, "Reopen Issue", (s, e) => ReopenCurrent()); _reopen.Visible = false;
             _edit = Btn(actions, "Edit…", (s, e) => _session.Edit());
             _refine = Btn(actions, "Rewrite…", (s, e) => Refine());
             _reanalyze = Btn(actions, "Lint Paragraph", (s, e) => Reanalyze());
@@ -1213,6 +1215,10 @@ namespace FlareAI.Flare.UI
             var report = menu.Items.Add(ReportFalsePositiveLabel, null, (s, e) => Safe.Run("Report False Positive", ReportFalsePositive));
             var exempt = menu.Items.Add(ExemptLabel, null, (s, e) => Safe.Run("Exempt", ExemptSelectedHere));
             exempt.ToolTipText = exempt.AccessibleDescription = ExemptTip;
+            var reopen = menu.Items.Add("Reopen Issue", null, (s, e) => Safe.Run("Reopen Issue", ReopenCurrent));
+            reopen.AccessibleName = "Reopen Issue";
+            var unexempt = menu.Items.Add("Remove Exemption", null, (s, e) => Safe.Run("Remove Exemption", ReopenCurrent));
+            unexempt.AccessibleName = "Remove Exemption";
             menu.Opening += (s, e) =>
             {
                 var p = _e2eMenuPoint ?? _list.PointToClient(Cursor.Position);
@@ -1225,7 +1231,9 @@ namespace FlareAI.Flare.UI
                 markFixed.Enabled = !f.IsFixed;
                 open.Enabled = _session.FilePathOf(f) != null;
                 report.Enabled = !string.IsNullOrEmpty(f.Excerpt);
-                exempt.Visible = _session.CanExempt(f);
+                exempt.Visible = !f.IsExempt && _session.CanExempt(f);
+                reopen.Visible = _session.CanReopen(f);
+                unexempt.Visible = _session.CanRemoveExemption(f);
                 var folder = _files != null && f.DocumentPath != null ? LintExclusions.EntryFor(f.DocumentPath, true) : null;
                 exSep.Visible = exFile.Visible = _files != null && f.DocumentPath != null;
                 exFolder.Visible = folder != null;
@@ -1290,6 +1298,7 @@ namespace FlareAI.Flare.UI
         {
             using (var f = new ExemptionsForm(_doc.SourcePath, RuleTitle)) f.ShowDialog(FindForm());
             UpdateExemptions();
+            _session.SyncExemptions();
         }
 
         private void UpdateExemptions()
@@ -1305,6 +1314,17 @@ namespace FlareAI.Flare.UI
             _session.ExemptSelected();
             UpdateExemptions();
         }
+
+        /// <summary>Reopen Issue on a row marked as fixed, Remove Exemption on an exempt row.</summary>
+        private void ReopenCurrent()
+        {
+            var f = Current();
+            if (f != null && f.IsExempt) { _session.RemoveExemptionCurrent(); UpdateExemptions(); }
+            else _session.ReopenCurrent();
+        }
+
+        /// <summary>The other tab's panel (This Topic when this is Project, and the other way round), so a row has one state in both.</summary>
+        internal void SetPeer(FindingsPanel other) { _session.Peer = other == null ? null : other._session; }
 
         /// <summary>The rule's display title for the Exemptions list; null when the rule isn't known.</summary>
         private string RuleTitle(string ruleId)
@@ -2301,7 +2321,7 @@ namespace FlareAI.Flare.UI
 
         private static string ProposalText(StyleFinding f)
         {
-            var mark = f.IsFixed ? "✓ " : f.IsStale ? "⚠ " : "";
+            var mark = f.IsExempt ? "⊘ Exempt  " : f.IsFixed ? "✓ " : f.IsStale ? "⚠ " : "";
             return mark + ProposalBody(f);
         }
 
@@ -2446,7 +2466,7 @@ namespace FlareAI.Flare.UI
                 : f.DocumentPath.EndsWith(".flsnp", StringComparison.OrdinalIgnoreCase)
                     ? "In snippet " + System.IO.Path.GetFileName(f.DocumentPath) + ", used in " + UsesLabel(_session.SnippetUses(f.DocumentPath)) + ". A change here changes all of them."
                     : "In " + System.IO.Path.GetFileName(f.DocumentPath);
-            _cardHead.Text = A11y.SeverityLabel(f.Severity) + "  ·  " + LayerLabel(f) + "  ·  " + KindLabel(f) + (f.IsFixed ? (f.FixedByEdit || f.MarkedFixed ? "  ·  fixed" : "  ·  changed") : f.IsStale ? "  ·  text changed" : "")
+            _cardHead.Text = A11y.SeverityLabel(f.Severity) + "  ·  " + LayerLabel(f) + "  ·  " + KindLabel(f) + (f.IsExempt ? "  ·  exempt" : f.IsFixed ? (f.FixedByEdit || f.MarkedFixed ? "  ·  fixed" : "  ·  changed") : f.IsStale ? "  ·  text changed" : "")
                              + (where.Length > 0 ? "\n" + where : "");
 
             _list.AccessibleDescription = (_cardHead.Text + ". " + f.Suggestion).Replace("\n", " ") + (ByFileRows ? " " + HeadingHelp : "");   // what a screen reader says for the selected row
@@ -2772,6 +2792,8 @@ namespace FlareAI.Flare.UI
             _changeAll.Visible = sameRule > 1;   // only when there is more than one of this issue (a narrow pane has no room for a dead button)
             _changeAll.Text = sameRule > 1 ? "Change All (" + sameRule + ")" : "Change All";
             _reject.Enabled = f != null && !f.IsFixed;
+            _reopen.Visible = _session.CanReopen(f) || _session.CanRemoveExemption(f);
+            _reopen.Text = f != null && f.IsExempt ? "Remove Exemption" : "Reopen Issue";
             _edit.Enabled = open && f.Kind != "variable" && f.Kind != "manual";
             _refine.Enabled = open && !_reviewing && !_rulesOnly;
             _reanalyze.Enabled = f != null && f.DocumentPath == null && !_reviewing && _files == null && !_rulesOnly;
