@@ -394,5 +394,94 @@ namespace FlareAI.Flare.Tests
                     Bad = "Please note that the fee is waived.", Good = "The fee is waived." } };
             }
         }
+
+        // ---- #446: typing in the topic must never reach the pane's View or tab choices ---------------------------------
+
+        [Fact]
+        public void TheViewAndTabChoices_HaveNoLetterShortcut()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var radios = All(panel).OfType<RadioButton>().ToList();
+                Assert.Contains(radios, r => r.Text == "By rule");
+                Assert.Contains(radios, r => r.Text == "By file");
+                Assert.Contains(radios, r => (r.Text ?? "").StartsWith("This Topic"));
+                Assert.Contains(radios, r => (r.Text ?? "").StartsWith("Project"));
+                Assert.All(radios, r => Assert.DoesNotContain("&", r.Text ?? ""));
+                Assert.All(radios, r => Assert.False(r.UseMnemonic && (r.Text ?? "").Contains("&")));
+                panel.SetTabs(2, 5);
+                Assert.All(All(panel).OfType<RadioButton>(), r => Assert.DoesNotContain("&", r.Text ?? ""));
+            });
+        }
+
+        [Fact]
+        public void SwitchingView_KeepsTheSelectedRuleAndTheViewSetting()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var issue = Items(list).First(IsIssue);
+                Select(list, issue);
+                var byRule = All(panel).OfType<RadioButton>().Single(r => r.Text == "By rule");
+                byRule.Checked = true;
+                Pump(null, 300);
+                Assert.True(FlareAI.Core.Settings.PluginSettings.Load().ProjectViewByFile == false);
+                var rule = Items(list).Single(i => i.Selected);
+                Assert.Equal(FlareAI.Core.Actions.RuleBacklog.KeyOf((StyleFinding)issue.Tag), ((BacklogRule)rule.Tag).Key);
+            });
+        }
+
+        [Fact]
+        public void SwitchingByFileToByRuleAndBack_KeepsTheSameIssueSelected()
+        {
+            WithProject(true, (panel, list) =>
+            {
+                var issues = Items(list).Where(IsIssue).ToList();
+                var wanted = issues[2];   // the third issue, not the first of its rule
+                Select(list, wanted);
+                var tag = wanted.Tag;
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By rule").Checked = true;
+                Pump(null, 300);
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked = true;
+                Pump(null, 300);
+                var on = Items(All(panel).OfType<ListView>().Single()).Where(i => i.Selected).ToList();
+                Assert.Single(on);
+                Assert.Same(tag, on[0].Tag);
+            });
+        }
+
+        [Fact]
+        public void SwitchingFromByRuleToByFile_KeepsAnIssueOfTheSelectedRule()
+        {
+            WithProject(false, (panel, list) =>
+            {
+                var rule = Items(list).First(i => i.Tag is BacklogRule);
+                Select(list, rule);
+                var key = ((BacklogRule)rule.Tag).Key;
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked = true;
+                Pump(null, 300);
+                var on = Items(panel.Controls.Count > 0 ? All(panel).OfType<ListView>().Single() : list).Where(i => i.Selected).ToList();
+                Assert.Single(on);
+                Assert.Equal(key, FlareAI.Core.Actions.RuleBacklog.KeyOf((StyleFinding)on[0].Tag));
+                Assert.True(All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked);
+            });
+        }
+
+        // ---- #449: a project report always starts on All Levels --------------------------------------------------------
+
+        [Fact]
+        public void AProjectReport_StartsOnAllLevels_WhateverLevelWasSaved()
+        {
+            FlareAI.Core.Actions.ReviewViewPrefs.Save(ReviewLevel.Suggestions, ReviewSource.RulesAndAi);
+            WithProject(true, (panel, list) =>
+            {
+                var level = All(panel).OfType<ComboBox>().Single(c => c.AccessibleName == "Level");
+                Assert.Equal(0, level.SelectedIndex);
+                level.SelectedIndex = 2;   // the writer narrows this report: the choice is not remembered for the next one
+                Pump(null, 200);
+                ReviewLevel saved; ReviewSource src;
+                FlareAI.Core.Actions.ReviewViewPrefs.Load(out saved, out src);
+                Assert.Equal(ReviewLevel.Suggestions, saved);
+            });
+        }
     }
 }

@@ -227,10 +227,18 @@ namespace FlareAI.Flare
                 var lint = Lint(doc, out adapter);
                 if (lint == null) return;
                 state.Lint = lint;
-                if (lint.Count == 0) return;   // nothing to say
-                var errors = lint.Count(f => f.Severity == "error");
-                Toast.Show(_owner(), Plural.Of(lint.Count, "issue") + " in " + Path.GetFileName(adapter.SourcePath) + (errors > 0 ? " (" + Plural.Of(errors, "error") + ")" : "") + ". Saved anyway.",
-                           "Show Issues", _lintTopic);
+                // What the pane will list: ignored and exempt issues are not counted. Nothing left means nothing to say.
+                var topicPanel = PanelHost.TopicPanel;
+                var same = topicPanel != null && topicPanel.HasResults && SamePath(topicPanel.TopicPath, adapter.SourcePath);
+                // The fresh check, less what the pane leaves out (ignored, exempt, fixed by hand), plus the AI issues the pane already holds.
+                var listed = ReportCount.Listed(lint, adapter.SourcePath, FindingsPanel.SharedDismissals, same ? topicPanel.MarkedFixed() : null);
+                var ai = same ? topicPanel.ListedIssues().Count(f => f.Layer == "ai") : 0;
+                var total = listed.Count + ai;
+                if (total == 0) return;
+                var errors = listed.Count(f => f.Severity == "error");
+                var topicPath = adapter.SourcePath;
+                Toast.Show(_owner(), Plural.Of(total, "issue") + " in " + Path.GetFileName(adapter.SourcePath) + (errors > 0 ? " (" + Plural.Of(errors, "error") + ")" : "") + ". Saved anyway.",
+                           "Show Issues", () => ShowIssues(PaneSlot.Topic, topicPath, total));
                 UpdateMarkers(doc);
             }
             catch (Exception ex) { Diagnostics.Log("check on save", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the topic you saved.", ex); }
@@ -287,6 +295,9 @@ namespace FlareAI.Flare
         {
             try
             {
+                // Flare raises CompileStart from its build, which may not be the UI thread: the pane, the toast and the timer below are.
+                var form = _owner();
+                if (form != null && form.IsHandleCreated && form.InvokeRequired) { form.BeginInvoke((Action)(() => OnCompileStart(anyProjectPath))); return; }
                 if (!PluginSettings.Load().ReportBeforeBuild || string.IsNullOrEmpty(anyProjectPath)) return;
                 var files = ActionRunner.ProjectFiles(anyProjectPath);
                 if (files.Count == 0) return;
@@ -294,21 +305,73 @@ namespace FlareAI.Flare
                 var runner = activeDoc == null ? null : _lintRunner(new FlareDocumentAdapter(activeDoc));
                 if (runner == null) return;
                 var owner = _owner();
+                var open = PanelHost.ProjectPanel;
+                if (open != null && open.IsBusy)
+                {
+                    // The pane is already checking the project: wait for it, and report its results. No second check.
+                    var waited = 0;
+                    if (_buildWait != null) { _buildWait.Stop(); _buildWait.Dispose(); }
+                    var wait = _buildWait = new Timer { Interval = 500 };
+                    wait.Tick += (s, e) =>
+                    {
+                        waited += 500;
+                        if (open.IsDisposed || waited > 600000) { wait.Stop(); wait.Dispose(); return; }
+                        if (open.IsBusy) return;
+                        wait.Stop(); wait.Dispose();
+                        ReportBuild(owner, open.ListedIssues());
+                    };
+                    wait.Start();
+                    return;
+                }
                 var worker = new System.ComponentModel.BackgroundWorker();
                 worker.DoWork += (s, e) => e.Result = runner.LintFiles(files);
                 worker.RunWorkerCompleted += (s, e) =>
                 {
                     if (e.Error != null) { Diagnostics.Log("report before build", e.Error); ErrorReporter.Background(owner, "House Style couldn't lint the project before the build.", e.Error); return; }
-                    var found = (List<StyleFinding>)e.Result;
-                    if (found.Count == 0) { Toast.Show(owner, "Building. No issues found in the project's " + Plural.Of(files.Count, "file") + "."); return; }
-                    var inFiles = found.Select(f => f.DocumentPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-                    var errors = found.Count(f => f.Severity == "error");
-                    Toast.Show(owner, "Building. " + Plural.Of(found.Count, "issue") + " in " + Plural.Of(inFiles, "file") + (errors > 0 ? ", " + Plural.Of(errors, "error") : "") + ".",
-                               "Show Issues", _lintProject);
+                    var panel = PanelHost.ProjectPanel;
+                    var found = ReportCount.Listed((List<StyleFinding>)e.Result, anyProjectPath, FindingsPanel.SharedDismissals,
+                                                   panel != null && panel.HasResults ? panel.MarkedFixed() : null);
+                    ReportBuild(owner, found);
                 };
                 worker.RunWorkerAsync();
             }
             catch (Exception ex) { Diagnostics.Log("report before build", ex); ErrorReporter.Background(_owner(), "House Style couldn't lint the project before the build.", ex); }
+        }
+
+        private Timer _buildWait;
+
+        /// <summary>Plugin unload: stops waiting for a pane check to report the build.</summary>
+        public void Stop()
+        {
+            if (_buildWait != null) { try { _buildWait.Stop(); _buildWait.Dispose(); } catch (Exception) { } _buildWait = null; }
+        }
+
+        /// <summary>The build notice for these issues (the ones the pane will list). With none left it says nothing.</summary>
+        private void ReportBuild(Form owner, List<StyleFinding> found)
+        {
+            if (found.Count == 0) return;
+            var inFiles = found.Select(f => f.DocumentPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            var errors = found.Count(f => f.Severity == "error");
+            var count = found.Count;
+            Toast.Show(owner, "Building. " + Plural.Of(count, "issue") + " in " + Plural.Of(inFiles, "file") + (errors > 0 ? ", " + Plural.Of(errors, "error") : "") + ".",
+                       "Show Issues", () => ShowIssues(PaneSlot.Project, null, count));
+        }
+
+        /// <summary>
+        /// A toast's Show Issues: the results already in the pane for that scope, at the right tab, with the filters cleared so the
+        /// toast's count is the list's. Checks only when the pane has no results for it, shows another topic, or would list a
+        /// different number of issues than the toast said.
+        /// </summary>
+        private void ShowIssues(PaneSlot slot, string topicPath, int expected)
+        {
+            try
+            {
+                var panel = slot == PaneSlot.Topic ? PanelHost.TopicPanel : PanelHost.ProjectPanel;
+                var current = panel != null && panel.HasResults && (slot == PaneSlot.Project || SamePath(panel.TopicPath, topicPath));
+                if (current && ReportCount.CanShowExisting(panel.ListedIssues().Count, expected, panel.IsBusy) && PanelHost.ShowExisting(slot, _owner())) return;
+            }
+            catch (Exception ex) { Diagnostics.Log("show issues", ex); }
+            if (slot == PaneSlot.Topic) _lintTopic(); else _lintProject();
         }
 
         private static string SafePath(IDocument d) { try { return d.GetSourceUrl(); } catch (Exception) { return null; } }

@@ -91,7 +91,7 @@ header row, "click here", typed phone numbers and URLs). One shared snippet (`Le
 | C5 | Select an issue in a file that isn't open, **Go To**. | The file opens with the text selected. |
 | C6 | Right-click an issue. | **Go To**, **Open File**, **Copy File Path**, **Report False Positive…**. |
 | C7 | Change an issue in another file, switch to it, press Ctrl+Z, and return to the pane. | The issue is back. |
-| C8 | **By file** (Alt+F), then **By rule** (Alt+R). | The list switches; the choice is remembered next time. |
+| C8 | **By file**, then **By rule**. | The list switches; the choice is remembered next time. |
 
 ## R. Rules
 

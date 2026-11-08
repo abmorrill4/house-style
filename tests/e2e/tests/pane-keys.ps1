@@ -46,3 +46,26 @@ if ($open -gt 0) {
 
 try { Send-E2E paneType "x" -Extra @{ name = "No such box" } | Out-Null; $err = "" } catch { $err = $_.Exception.Message }
 Assert-E2E ($err -like "*No box named No such box*") "paneType on a missing box fails with No box named (got: $err)"
+
+# Plain letters typed in the topic never switch the pane's View or tab, and always reach the topic (#446).
+# r, R, f and F used to hit the View radios' letter shortcuts, so the pane switched and took the keys.
+Add-Type -AssemblyName System.Windows.Forms
+$faq = Join-Path $run.Project "Content\billpay\faq.htm"
+function Panel { (Get-E2EState).pane.panel }
+function View { $r = @((Get-E2EState).pane.panel.rows); if (@($r | Where-Object { $_.heading -or $_.file }).Count) { "file" } else { "rule" } }
+function BodyLen { ((Send-E2E bodyXml).value.xml).Length }
+Invoke-Ribbon "Lint Project"
+Wait-PaneDone 300 | Out-Null
+Send-E2E click "By file" | Out-Null
+$phrases = 'How long does a payee take', 'Who can see a payee', 'Only the account owner', 'Contact your bank', 'people they share access with', 'If the user deletes', 'appear within a few', 'Bill pay questions'
+$i = 0
+foreach ($k in 'r', 'f', 'p', 't', 'R', 'F', 'P', 'T') {
+    Send-E2E open $faq | Out-Null; Start-Sleep -Milliseconds 800
+    Send-E2E select $phrases[$i++] | Out-Null; Start-Sleep -Milliseconds 600
+    $before = BodyLen
+    [System.Windows.Forms.SendKeys]::SendWait($k); Start-Sleep -Milliseconds 1200
+    Assert-E2E ((View) -eq "file") "typing '$k' in the topic left the pane in By file (view: $(View))"
+    Assert-E2E ((Panel).tab -eq "project") "typing '$k' in the topic left the Project tab shown"
+    Assert-E2E ((BodyLen) -ne $before) "typing '$k' reached the topic (body length $before -> $(BodyLen))"
+}
+Save-E2EScreenshot "pane-keys-4-typing"
