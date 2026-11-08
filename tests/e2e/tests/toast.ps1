@@ -8,10 +8,11 @@ function Rows { @((Panel).rows) }
 function Toast { (Send-E2E toast).value }
 $faq = Join-Path $run.Project "Content\billpay\faq.htm"
 
+# Lint Project needs a topic open to know which project to check (it says "Open a topic in the project first" otherwise).
+Send-E2E open $faq | Out-Null
 Invoke-Ribbon "Lint Project"
 $proj = (Wait-PaneDone 300).pane.panel
 Assert-E2E ($proj.tab -eq "project") "Lint Project shows the project tab"
-Send-E2E open $faq | Out-Null
 Send-E2E replace "Most changes to a payee appear" -Extra @{ text = "Most changes to a payee utilize the queue and appear" } | Out-Null
 Send-E2E save | Out-Null
 $t = Wait-Until { $x = Toast; if ($x.text -like "*Saved anyway*" -and $x.open) { $x } } 30 "the save notice"
