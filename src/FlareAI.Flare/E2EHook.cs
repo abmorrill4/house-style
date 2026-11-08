@@ -157,8 +157,8 @@ namespace FlareAI.Flare
                 case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
                 case "insertVariable": { string err; var ok = Active().TryInsertVariable(arg, out err); return new { ok, error = err }; }
                 case "bodyXml": return new { xml = FlareAI.Core.Editing.BlockSelector.FindBody(Active().Document).InnerXml };   // the live body, to compare before and after undo and redo
-                case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false);   // new blocks after the body block holding "after"; one tracked operation
-                case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true);       // the same without the refusal: only for the control that proves a crash is seen
+                case "insertBlocks": return InsertBlocks(Active(), arg, (string)c["after"], false, c["first"] != null);   // new blocks after the body block holding "after"; one tracked operation
+                case "insertRaw": return InsertBlocks(Active(), arg, (string)c["after"], true, c["first"] != null);       // the same without the refusal: only for the control that proves a crash is seen
                 case "replace": Replace(Active(), arg, (string)c["text"]); return null;
                 case "select": Select(Active(), arg); return null;
                 case "save": return new { saved = Active().SaveAsWriter() };                   // as Ctrl+S: not marked as the plugin's own save
@@ -212,17 +212,20 @@ namespace FlareAI.Flare
             throw new InvalidOperationException("No body block with the text " + contains);
         }
 
-        private static object InsertBlocks(FlareDocumentAdapter a, string xml, string after, bool raw)
+        private static object InsertBlocks(FlareDocumentAdapter a, string xml, string after, bool raw, bool first = false)
         {
             var body = FlareAI.Core.Editing.BlockSelector.FindBody(a.Document);
             if (body == null) throw new InvalidOperationException("No body in the topic.");
-            System.Xml.XmlNode anchor = null;
-            foreach (System.Xml.XmlNode n in body.ChildNodes)
-                if (n.NodeType == System.Xml.XmlNodeType.Element && n.InnerText.Contains(after)) { anchor = n; break; }
-            if (anchor == null) throw new InvalidOperationException("No body block with the text " + after);
             var index = 0;
-            for (var n = body.FirstChild; n != anchor; n = n.NextSibling) index++;
-            index++;
+            if (!first)
+            {
+                System.Xml.XmlNode anchor = null;
+                foreach (System.Xml.XmlNode n in body.ChildNodes)
+                    if (n.NodeType == System.Xml.XmlNodeType.Element && n.InnerText.Contains(after)) { anchor = n; break; }
+                if (anchor == null) throw new InvalidOperationException("No body block with the text " + after);
+                for (var n = body.FirstChild; n != anchor; n = n.NextSibling) index++;
+                index++;
+            }
             var frag = a.Document.CreateDocumentFragment();
             frag.InnerXml = xml;
             var nodes = new List<System.Xml.XmlNode>();
@@ -487,7 +490,8 @@ namespace FlareAI.Flare
                 if (a == null) return null;
                 var selection = a.SelectionText ?? "";
                 var nodes = a.SelectionNodes.Take(20).Select(n => n.LocalName).ToList();   // what Flare says is selected: an image shows as "img"
-                return new { path = a.SourcePath, selection = selection.Length > TextLimit ? selection.Substring(0, TextLimit) : selection, selectionNodes = nodes };
+                var images = a.SelectionNodes.OfType<System.Xml.XmlElement>().Where(n => n.LocalName == "img").Select(n => n.GetAttribute("src")).ToList();
+                return new { path = a.SourcePath, selection = selection.Length > TextLimit ? selection.Substring(0, TextLimit) : selection, selectionNodes = nodes, selectionImages = images };
             }
             catch (Exception ex) { Diagnostics.Log("E2E editor state", ex); return null; }
         }

@@ -189,10 +189,11 @@ namespace FlareAI.Core.Style
                 var order = new List<XmlNode>();
                 Walk(block, order);
                 var at = order.IndexOf(el);
+                var editable = new HashSet<XmlNode>(TextRuns.Of(new List<XmlNode> { block }));   // not text in a pending deletion, which no check can find again
                 foreach (var n in order)
                 {
                     var t = n as XmlText;
-                    if (t == null || t.Value.Trim().Length == 0) continue;
+                    if (t == null || t.Value.Trim().Length == 0 || !editable.Contains(t)) continue;
                     if (order.IndexOf(n) < at || run == null) run = t;
                     if (order.IndexOf(n) > at) break;
                 }
@@ -210,20 +211,14 @@ namespace FlareAI.Core.Style
         /// <summary>
         /// A missing alt text issue is about the image: it is named by its file name, Go To selects the image, and the card
         /// shows its file name and any title or caption. The text next to the image still anchors the issue for the checks
-        /// that follow text (ignore, exempt), and an image alone in the topic anchors on its file name.
+        /// that follow text (ignore, exempt),, so a topic with no text at all has no issue, as before.
         /// </summary>
         private static void AddImage(List<StyleFinding> found, XmlElement img, string message)
         {
             var before = found.Count;
             Add(found, img, "Structure.AltText", "error", message);
-            StyleFinding f;
-            if (found.Count > before) f = found[found.Count - 1];
-            else
-            {
-                f = new StyleFinding { Excerpt = FileName(img.GetAttribute("src")) ?? "image", Before = "", Block = TextRuns.BlockOf(img) };
-                Set(f, "Structure.AltText", "error", message);
-                found.Add(f);
-            }
+            if (found.Count == before) return;   // a topic with no text at all has nothing to anchor an issue on, as before
+            var f = found[found.Count - 1];
             var src = img.GetAttribute("src");
             var name = FileName(src);
             var same = 0; var index = 0; var all = 0;

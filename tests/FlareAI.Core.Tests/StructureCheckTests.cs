@@ -90,10 +90,10 @@ namespace FlareAI.Core.Tests
             Assert.NotNull(FlareAI.Core.Actions.AltText.MissingIn(f.Block));
         }
 
-        private static XmlDocument Page(string body)
+        private static XmlDocument Page(string body, string head = "")
         {
             var doc = new XmlDocument { PreserveWhitespace = true };
-            doc.LoadXml("<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>t</title></head><body>" + body + "</body></html>");
+            doc.LoadXml("<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>t</title>" + head + "</head><body>" + body + "</body></html>");
             return doc;
         }
 
@@ -136,13 +136,135 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void ImageInATopicWithNoText_IsStillFlagged()
+        public void ImageInATopicWithNoText_HasNoIssue_AsBefore()
         {
+            // There is no text for the issue to anchor on, and the counts must not change with this wording and location fix.
             var doc = Page("<p><img src=\"only.png\" /></p>");
+            Assert.DoesNotContain(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+        }
+
+        [Fact]
+        public void ImageInsideALink_IsLocatedWhereItAppears()
+        {
+            var doc = Page("<p>Open <a href=\"x.htm\"><img src=\"Images/open.png\" /></a> to start.</p>");
             var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
-            Assert.Equal("Alt text for \"only.png\"", f.Title);
+            Assert.Equal("Alt text for \"open.png\"", f.Title);
             XmlElement img;
             Assert.True(FindingLocator.TryLocateImage(doc, f, out img));
+            Assert.Equal("a", img.ParentNode.LocalName);
+        }
+
+        [Fact]
+        public void ImageWithNoPathOrAnEmptyOne_IsStillNamedSomehow()
+        {
+            var doc = Page("<p>Here <img /> and here <img src=\"\" /> and a broken one <img src=\"..\\..\\missing\\gone%20now.png?v=2\" />.</p>");
+            var found = StructureCheck.Of(BlocksOf(doc)).Where(x => x.Rule == "Structure.AltText").ToList();
+            Assert.Equal(3, found.Count);
+            Assert.StartsWith("Alt text for an image", found[0].Title);
+            Assert.StartsWith("Alt text for an image", found[1].Title);
+            Assert.Equal("Alt text for \"gone now.png\"", found[2].Title);
+        }
+
+        [Fact]
+        public void TwoImagesInOneParagraph_EachIsLocated_AndKeepsItsOwnTitle()
+        {
+            var doc = Page("<p>Click <img src=\"a.png\" /> then <img src=\"b.png\" title=\"Save\" /> to finish.</p>");
+            var found = StructureCheck.Of(BlocksOf(doc)).Where(x => x.Rule == "Structure.AltText").ToList();
+            Assert.Equal(2, found.Count);
+            Assert.Equal("Alt text for \"a.png\"", found[0].Title);
+            Assert.Equal("Alt text for \"b.png\"", found[1].Title);
+            Assert.Equal("Save", found[1].ImageDetail);
+            XmlElement img;
+            Assert.True(FindingLocator.TryLocateImage(doc, found[1], out img));
+            Assert.Equal("b.png", img.GetAttribute("src"));
+        }
+
+        [Fact]
+        public void TrackedChangesAroundTheImage_DontMoveTheIssue_AndDeletedTextIsNotAnAnchor()
+        {
+            var head = "<MadCap:changeData><MadCap:RemoveChange MadCap:id=\"7\" /></MadCap:changeData>";
+            var doc = Page("<p>Kept words <span MadCap:changes=\"7\">deleted words</span> <img src=\"t.png\" /> <span MadCap:changes=\"7\">more deleted</span> after.</p>", head);
+            var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            Assert.Equal("Alt text for \"t.png\"", f.Title);
+            Assert.Equal("Kept words", f.Excerpt.Trim());
+            var img = doc.SelectSingleNode("//*[local-name()='img']");
+            Assert.Equal("after.", FlareAI.Core.Editing.ImageSelection.NeighborRun(doc, img, true).Value.Trim());
+            Assert.Equal("Kept words", FlareAI.Core.Editing.ImageSelection.NeighborRun(doc, img, false).Value.Trim());
+        }
+
+        [Fact]
+        public void ImageIssueIsListedWhereItsAnchorTextWas()
+        {
+            var doc = Page("<h1>T</h1><p>Hello there. <img src=\"i.png\" /> Then more words.</p>");
+            var image = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            var textOnly = new FlareAI.Core.Actions.StyleFinding { Source = image.Source, Rule = "x", Excerpt = image.Excerpt, Before = image.Before, Block = image.Block };
+            FlareAI.Core.Actions.ReviewOrder.Annotate(doc, new[] { image, textOnly });
+            Assert.Equal(textOnly.Order, image.Order);
+            Assert.False(image.IsStale);
+        }
+
+        [Fact]
+        public void ImageIssue_IsStaleOnlyWhenTheImageIsGone()
+        {
+            var doc = Page("<p>Hello there. <img src=\"i.png\" /> Then more words.</p>");
+            var image = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            var img = doc.SelectSingleNode("//*[local-name()='img']");
+            img.ParentNode.RemoveChild(img);
+            FlareAI.Core.Actions.ReviewOrder.Annotate(doc, new[] { image });
+            Assert.True(image.IsStale);
+        }
+
+        /// <summary>A model of Flare: an image takes no room in its positions, and it reports the image for a selection that touches it.</summary>
+        private static Func<int, int, bool> FlareAt(int imageAt, List<int[]> asked)
+        {
+            return (start, length) =>
+            {
+                asked.Add(new[] { start, length });
+                return length == 0 ? start == imageAt : start <= imageAt && imageAt <= start + length;
+            };
+        }
+
+        [Theory]
+        [InlineData(true, true)]
+        [InlineData(true, false)]   // the image is last
+        [InlineData(false, true)]   // the image is first
+        public void SelectingAnImage_FindsItEvenWhenFlaresPositionsAreOff(bool hasPrevious, bool hasNext)
+        {
+            for (var error = -ImageSelectionReach; error <= ImageSelectionReach; error++)
+            {
+                var asked = new List<int[]>();
+                var flare = FlareAt(100 + error, asked);
+                Assert.True(FlareAI.Core.Editing.ImageSelection.TrySelect(FlareAI.Core.Editing.ImageSelection.Candidates(hasPrevious, hasNext, 100), flare), "error " + error);
+            }
+        }
+
+        private const int ImageSelectionReach = FlareAI.Core.Editing.ImageSelection.Reach;
+
+        [Fact]
+        public void SelectingAnImage_FallsBackToTheTextBesideIt_WhenFlareNeverReportsTheImage()
+        {
+            var besideAsked = 0;
+            var r = FlareAI.Core.Editing.ImageSelection.Select(FlareAI.Core.Editing.ImageSelection.Candidates(false, true, 0), (s, l) => false, () => { besideAsked++; return true; });
+            Assert.Equal(FlareAI.Core.Editing.ImageSelection.Result.Beside, r);
+            Assert.Equal(1, besideAsked);
+            Assert.Equal(FlareAI.Core.Editing.ImageSelection.Result.None, FlareAI.Core.Editing.ImageSelection.Select(FlareAI.Core.Editing.ImageSelection.Candidates(true, false, 5), (s, l) => false, () => false));
+            // When Flare does report it, the text beside it is left alone.
+            besideAsked = 0;
+            Assert.Equal(FlareAI.Core.Editing.ImageSelection.Result.Image, FlareAI.Core.Editing.ImageSelection.Select(FlareAI.Core.Editing.ImageSelection.Candidates(true, true, 9), (s, l) => true, () => { besideAsked++; return true; }));
+            Assert.Equal(0, besideAsked);
+        }
+
+        [Fact]
+        public void SelectingAnImage_TriesTheBestSelectionFirst_AndGivesUpWhenFlareNeverReportsIt()
+        {
+            var asked = new List<int[]>();
+            Assert.True(FlareAI.Core.Editing.ImageSelection.TrySelect(FlareAI.Core.Editing.ImageSelection.Candidates(true, true, 100), FlareAt(100, asked)));
+            Assert.Equal(new[] { 99, 2 }, asked.Single());   // the character before it through the one after it
+            asked.Clear();
+            Assert.True(FlareAI.Core.Editing.ImageSelection.TrySelect(FlareAI.Core.Editing.ImageSelection.Candidates(false, true, 100), FlareAt(100, asked)));
+            Assert.Equal(new[] { 100, 1 }, asked.Single());   // first in the topic
+            Assert.False(FlareAI.Core.Editing.ImageSelection.TrySelect(FlareAI.Core.Editing.ImageSelection.Candidates(true, true, 100), (s, l) => false));
+            Assert.DoesNotContain(FlareAI.Core.Editing.ImageSelection.Candidates(true, true, 0), t => t[0] < 0);
         }
 
         [Fact]
@@ -162,10 +284,10 @@ namespace FlareAI.Core.Tests
         [Fact]
         public void SameFileTwice_IsLocatedByPlace()
         {
-            var doc = Page("<p><img src=\"x.png\" /></p><p><img src=\"x.png\" /></p>");
+            var doc = Page("<p>One <img src=\"x.png\" /></p><p>Two <img src=\"x.png\" /></p>");
             var found = StructureCheck.Of(BlocksOf(doc)).Where(x => x.Rule == "Structure.AltText").ToList();
             Assert.Equal(2, found.Count);
-            Assert.Equal("Alt text for \"x.png\" (image 1 of 2)", found[0].Title);
+            Assert.Equal("Alt text for \"x.png\" in \"One\"", found[0].Title);
             XmlElement img;
             Assert.True(FindingLocator.TryLocateImage(doc, found[1], out img));
             Assert.Same(doc.SelectNodes("//*[local-name()='img']")[1], img);

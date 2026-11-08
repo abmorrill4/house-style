@@ -233,20 +233,35 @@ namespace FlareAI.Flare
         }
 
         /// <summary>
+        /// <see cref="SelectText"/>, and once more from the top of the topic when it fails: the search goes on from the selection, so text
+        /// that is already selected (a second Go To to the same image) is passed over and not found.
+        /// </summary>
+        private bool SelectAnchor(XmlText run, int start, int length)
+        {
+            if (SelectText(run, start, length)) return true;
+            _doc.Selection.SetSelectionLength(0);
+            _doc.SetCursorPosition(0);
+            return SelectText(run, start, length);
+        }
+
+        /// <summary>
         /// Select an image. <c>Select(XmlNode)</c> doesn't select one (verified Flare 22), and in Flare's text positions an image takes
-        /// no room, so a selection can't hold only the image. This selects the image with the character before it and the one after
-        /// it, which Flare reports with the image among the selected nodes. It finds the place by selecting the text beside the image
-        /// (<see cref="SelectText"/>), which also gives that text's position. An image at the end of a paragraph, or alone in one, takes
-        /// the character on its one side, and failing that Flare's caret is put where the image is.
+        /// no room, so a selection can't hold only the image. This finds the text beside the image with <see cref="SelectText"/>, which
+        /// leaves Flare's position at that text, works out where the image is, and tries selections there (see <see cref="ImageSelection"/>)
+        /// until Flare reports the image among the selected nodes.
         /// </summary>
         public bool SelectNode(XmlNode node)
         {
             try
             {
                 if (node == null || node.ParentNode == null) return false;
-                var next = NeighborRun(node, true);
-                var previous = NeighborRun(node, false);
-                if (next == null && previous == null) return false;
+                var next = ImageSelection.NeighborRun(Document, node, true);
+                var previous = ImageSelection.NeighborRun(Document, node, false);
+                if (next == null && previous == null)
+                {
+                    _doc.Select(node.ParentNode);
+                    return SelectedImage(node);
+                }
                 _doc.Select(node.ParentNode);   // the caret goes to the start of the paragraph, so the search below finds the text after it first
                 int s, l;
                 if (previous != null && next != null)
@@ -254,33 +269,38 @@ namespace FlareAI.Flare
                     // An image alone in its paragraph doesn't move the caret: start from the text before it.
                     int ps, pl;
                     TextRuns.UniqueSpan(previous.Value, Math.Max(0, previous.Value.Length - 40), Math.Min(previous.Value.Length, 40), out ps, out pl);
-                    SelectText(previous, ps, pl);
+                    SelectAnchor(previous, ps, pl);
                 }
                 int at;   // where the image is, in Flare's text positions
                 if (next != null)
                 {
                     TextRuns.UniqueSpan(next.Value, 0, Math.Min(next.Value.Length, 40), out s, out l);
-                    if (!SelectText(next, s, l)) return false;
+                    if (!SelectAnchor(next, s, l)) return false;
                     at = _doc.GetCursorPosition() - s;
                 }
                 else
                 {
                     TextRuns.UniqueSpan(previous.Value, Math.Max(0, previous.Value.Length - 40), Math.Min(previous.Value.Length, 40), out s, out l);
-                    if (!SelectText(previous, s, l)) return false;
+                    if (!SelectAnchor(previous, s, l)) return false;
                     at = _doc.GetCursorPosition() - s + previous.Value.Length;
                 }
-                var tries = new List<int[]>();
-                if (previous != null && next != null) tries.Add(new[] { at - 1, 2 });
-                if (previous != null) tries.Add(new[] { at - 1, 1 });
-                if (next != null) tries.Add(new[] { at, 1 });
-                tries.Add(new[] { at, 0 });
-                foreach (var t in tries)
+                // Flare reports no image for a selection when nothing is before it, or nothing after it (an image first or last in the
+                // topic). The text beside the image is as close as a selection gets, so select that.
+                return ImageSelection.Select(ImageSelection.Candidates(previous != null, next != null, at), (start, length) =>
                 {
-                    _doc.SetCursorPosition(t[0]);
-                    _doc.Selection.SetSelectionLength(t[1]);
-                    if (SelectedImage(node)) return true;
-                }
-                return false;
+                    _doc.SetCursorPosition(start);
+                    _doc.Selection.SetSelectionLength(length);
+                    return SelectedImage(node);
+                }, () =>
+                {
+                    int bs, bl;
+                    var run = next ?? previous;
+                    // The tries moved the caret: start the search for the text again as the first time.
+                    _doc.Select(node.ParentNode);
+                    if (next != null) TextRuns.UniqueSpan(next.Value, 0, Math.Min(next.Value.Length, 40), out bs, out bl);
+                    else TextRuns.UniqueSpan(previous.Value, Math.Max(0, previous.Value.Length - 40), Math.Min(previous.Value.Length, 40), out bs, out bl);
+                    return SelectAnchor(run, bs, bl);
+                }) != ImageSelection.Result.None;
             }
             catch (Exception ex)
             {
@@ -289,39 +309,19 @@ namespace FlareAI.Flare
             }
         }
 
-        /// <summary>The nearest text with words in it before or after the node, in document order (the images between have no text).</summary>
-        private XmlText NeighborRun(XmlNode node, bool forward)
-        {
-            var body = BlockSelector.FindBody(Document);
-            if (body == null) return null;
-            var runs = new HashSet<XmlNode>();
-            foreach (var r in TextRuns.Of(new List<XmlNode> { body })) runs.Add(r);
-            var order = new List<XmlNode>();
-            Flatten(body, order);
-            var i = order.IndexOf(node);
-            if (i < 0) return null;
-            for (var j = i + (forward ? 1 : -1); j >= 0 && j < order.Count; j += forward ? 1 : -1)
-            {
-                var t = order[j] as XmlText;
-                if (t != null && t.Value.Trim().Length > 0 && runs.Contains(t)) return t;
-            }
-            return null;
-        }
-
-        private static void Flatten(XmlNode n, List<XmlNode> order)
-        {
-            order.Add(n);
-            foreach (XmlNode c in n.ChildNodes) Flatten(c, order);
-        }
-
+        /// <summary>True when Flare lists the image among the selected nodes. Flare may hand back its own copy of the element, so the same file counts too.</summary>
         private bool SelectedImage(XmlNode node)
         {
             var sel = _doc.Selection;
             var nodes = sel == null ? null : sel.GetXmlNodeList();
             if (nodes == null) return false;
-            foreach (var n in nodes) if (n == node) return true;
-            // Not the image itself: only text or something else is selected, so say so rather than pretend.
-            Diagnostics.Log("SelectNode: the selection doesn't hold the image (" + nodes.Count + " nodes)");
+            var src = node is XmlElement ? ((XmlElement)node).GetAttribute("src") : null;
+            foreach (var n in nodes)
+            {
+                if (n == node) return true;
+                var e = n as XmlElement;
+                if (e != null && e.LocalName == node.LocalName && e.GetAttribute("src") == src) return true;
+            }
             return false;
         }
 
