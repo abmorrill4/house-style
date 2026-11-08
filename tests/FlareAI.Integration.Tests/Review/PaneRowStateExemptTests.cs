@@ -91,7 +91,8 @@ namespace FlareAI.Integration.Tests.Review
                 topic.Exempt(t, "Intended here.");
                 Assert.All(topic.Findings.Where(f => f.RuleId == EMail), f => Assert.True(f.IsExempt));
                 Assert.All(project.Findings.Where(f => f.RuleId == EMail), f => Assert.True(f.IsExempt));
-                Assert.Equal(1, topic.ExemptHidden);
+                Assert.Equal(2, topic.ExemptHidden);   // two rows are listed as Exempt
+                Assert.Equal("2 issues are exempt.", topic.ExemptTail);
                 topic.Select(MailRow(topic, 1));
                 topic.RemoveExemptionCurrent();
                 Assert.All(topic.Findings.Where(f => f.RuleId == EMail), f => Assert.False(f.IsFixed));
@@ -209,6 +210,94 @@ namespace FlareAI.Integration.Tests.Review
         {
             Assert.Equal("Exempt", FlareAI.Core.Output.IssueExport.StatusOf(true, false, false, true));
             Assert.Equal("Changed", FlareAI.Core.Output.IssueExport.StatusOf(true, false, false));
+        }
+
+        [Fact]
+        public void RemovingTheExemptionInTheDialog_AfterLintAgain_ClearsTheStatusAndTheCount()
+        {
+            using (var fx = ReviewFixture.Scratch(Mail))
+            {
+                var topic = fx.Session;
+                Lint(fx, topic);
+                var t = MailRow(topic);
+                topic.Select(t);
+                topic.Exempt(t, "Intended here.");
+                Lint(fx, topic);   // Lint Again: no exempt row is left, only the hidden text
+                Assert.Equal("1 issue is exempt.", topic.ExemptTail);
+                Exemptions.Remove(fx.Doc.SourcePath, Exemptions.Load(fx.Doc.SourcePath).Entries.Single());
+                topic.SyncExemptions();   // what the pane does when the Exemptions dialog closes
+                Assert.Equal("", topic.ExemptTail);
+                Assert.DoesNotContain("exempt.", topic.Status);
+                Assert.Equal(0, topic.ExemptionEntries);
+            }
+        }
+
+        [Fact]
+        public void RemovingTheExemptionInOneTabsDialog_ReachesTheOtherTabsRowsAndHiddenText()
+        {
+            using (var fx = ReviewFixture.Scratch(Mail))
+            {
+                var topic = fx.Session; var project = fx.NewSession(true);
+                Pair(topic, project);
+                Lint(fx, topic); Lint(fx, project);
+                var t = MailRow(topic);
+                topic.Select(t);
+                topic.Exempt(t, "Intended here.");
+                Assert.True(MailRow(project).IsExempt);
+                Lint(fx, topic);   // this tab has no row now, the Project tab still lists it as Exempt
+                Exemptions.Remove(fx.Doc.SourcePath, Exemptions.Load(fx.Doc.SourcePath).Entries.Single());
+                topic.SyncExemptions();
+                Assert.False(MailRow(project).IsExempt || MailRow(project).IsFixed);
+                Assert.Equal("", project.ExemptTail);
+                Assert.DoesNotContain("exempt.", project.Status);
+            }
+        }
+
+        [Fact]
+        public void RemovingTheExemptionInTheDialog_ReachesTheOtherTabsHiddenText()
+        {
+            using (var fx = ReviewFixture.Scratch(Mail))
+            {
+                var topic = fx.Session; var project = fx.NewSession(true);
+                Pair(topic, project);
+                Lint(fx, topic);
+                var t = MailRow(topic);
+                topic.Select(t);
+                topic.Exempt(t, "Intended here.");
+                Lint(fx, project);   // the Project tab hides the exempt text and has no row for it
+                Assert.Equal("1 issue is exempt.", project.ExemptTail);
+                Exemptions.Remove(fx.Doc.SourcePath, Exemptions.Load(fx.Doc.SourcePath).Entries.Single());
+                topic.SyncExemptions();
+                Assert.Equal("", project.ExemptTail);
+                Assert.DoesNotContain("exempt.", project.Status);
+            }
+        }
+
+        [Fact]
+        public void LintAgain_ClearsAMarkAsFixed_InBothTabs()
+        {
+            var t = Both();
+            t.Topic.Select(t.T); t.Topic.MarkFixed();
+            Assert.True(t.P.IsFixed && t.P.MarkedFixed);
+            t.Topic.Clear();   // Lint Again in This Topic
+            var row = Find(t.Doc, "utilize", "use");
+            t.Topic.Add(new[] { row });
+            Assert.False(row.IsFixed);
+            Assert.False(t.P.IsFixed || t.P.MarkedFixed);   // the mark does not come back, and goes from the other tab too
+            Assert.Equal(1, t.Project.Open().Count);
+        }
+
+        [Fact]
+        public void AFixThatTheOtherTabWrote_IsCheckedHereToo_SoUndoReopensTheRow()
+        {
+            var t = Both();
+            t.Topic.Select(t.T);
+            t.Topic.Accept();
+            Assert.True(t.P.IsFixed && t.P.Written);
+            t.Doc.Undo();   // Ctrl+Z in the editor
+            t.Project.RecheckApplied();
+            Assert.False(t.P.IsFixed);
+            Assert.Equal(1, t.Project.Open().Count);
         }
     }
 }

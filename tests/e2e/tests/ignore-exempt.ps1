@@ -102,6 +102,8 @@ Send-E2E dialogSelect -Extra @{ title = "Exemptions"; index = 0 } | Out-Null
 Send-E2E dialogClick "Remove Exemption" -Extra @{ title = "Exemptions" } | Out-Null
 Send-E2E dialogClick "Close" -Extra @{ title = "Exemptions" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exemptions*" }) } 10 "Exemptions to close" | Out-Null
+Assert-E2E ((Get-E2EState).pane.panel.status -notmatch "is exempt\.|are exempt\.") "removing the exemption in the dialog clears the exempt count in the status (status: $((Get-E2EState).pane.panel.status))"
+Assert-E2E (-not @((Get-E2EState).pane.buttons | Where-Object { $_.text -like "Exemptions (*" }).Count) "the Exemptions button goes with the last exemption"
 
 Invoke-Ribbon "Lint Topic"
 Wait-PaneDone 300 | Out-Null

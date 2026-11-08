@@ -66,7 +66,7 @@ namespace FlareAI.Core.Actions
         [Newtonsoft.Json.JsonIgnore] public bool Written { get; set; }
         /// <summary>The writer's edit removed this text (a check found it). A later check can take it back (Ctrl+Z).</summary>
         [Newtonsoft.Json.JsonIgnore] public bool FixedByEdit { get; set; }
-        /// <summary>The writer chose Mark as Fixed. No check takes it back; only Lint Again does.</summary>
+        /// <summary>The writer chose Mark as Fixed. No check takes it back; only Lint Again does, in both tabs.</summary>
         [Newtonsoft.Json.JsonIgnore] public bool MarkedFixed { get; set; }
         /// <summary>The writer exempted this text. The row stays in the list, marked Exempt, and counts as not open.</summary>
         [Newtonsoft.Json.JsonIgnore] public bool IsExempt { get; set; }

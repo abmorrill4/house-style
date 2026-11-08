@@ -1305,7 +1305,7 @@ namespace FlareAI.Flare.UI
         private void UpdateExemptions()
         {
             if (_exemptions == null) return;
-            var n = Exemptions.Load(_doc.SourcePath).Entries.Count;
+            var n = _session.ExemptionEntries;
             _exemptions.Visible = n > 0;
             _exemptions.Text = "Exemptions (" + n + ")";
         }

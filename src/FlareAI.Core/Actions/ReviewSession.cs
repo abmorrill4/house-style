@@ -63,7 +63,11 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _ignoredAi;
         private List<KeyValuePair<string, string>> _ignoredAiTexts;
         private ExemptionList _exemptions;
-        private readonly Dictionary<string, string[]> _exemptIdentities = new Dictionary<string, string[]>(StringComparer.Ordinal);   // identity to topic, rule, text, context
+        private sealed class HiddenText { public string[] Parts; public int Count; }
+        /// <summary>The exempt findings a lint hid, by identity (topic, rule, text, context): where each came from and how many.</summary>
+        private readonly Dictionary<string, HiddenText> _exemptIdentities = new Dictionary<string, HiddenText>(StringComparer.Ordinal);
+        private long _exemptStamp = -1;
+        private bool _hadAdds, _relint;
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
@@ -207,6 +211,7 @@ namespace FlareAI.Core.Actions
             if (!protect && _rememberScope != null && RememberedRule == null) ForgetWalkIn(_rememberScope);
             _rememberScope = RememberScope();
             RememberedRule = null;
+            _relint = _hadAdds;   // a second check in this session (Lint Again): see AdoptFromPeer
             _findings.Clear();
             DropIgnored(f => true);
             _skippedRules.Clear();
@@ -233,7 +238,9 @@ namespace FlareAI.Core.Actions
                 var topic = key == null ? null : Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
                 if (topic != null && Exemptions.Covers(_exemptions, topic, key, f.Excerpt, f.Before ?? ""))
                 {
-                    _exemptIdentities[ExemptIdentity(topic, key, f)] = new[] { topic, key, f.Excerpt, f.Before ?? "" };
+                    HiddenText hidden; var hid = ExemptIdentity(topic, key, f);
+                    if (!_exemptIdentities.TryGetValue(hid, out hidden)) _exemptIdentities[hid] = hidden = new HiddenText { Parts = new[] { topic, key, f.Excerpt, f.Before ?? "" } };
+                    hidden.Count++;
                     continue;
                 }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
@@ -263,6 +270,7 @@ namespace FlareAI.Core.Actions
                 catch (Exception ex) { Diagnostics.Log("record baseline: " + (f.DocumentPath ?? "") + " " + ex.GetType().Name); }
             }
             AdoptFromPeer(added);
+            if (added.Count > 0) _hadAdds = true;
             Sort();
             if (_rememberScope != null && RememberedRule == null) RememberFromLint();
         }
@@ -360,6 +368,8 @@ namespace FlareAI.Core.Actions
         {
             to.IsFixed = from.IsFixed; to.FixedByEdit = from.FixedByEdit; to.MarkedFixed = from.MarkedFixed; to.IsExempt = from.IsExempt;
             if (from.IsFixed) { to.IsStale = false; to.ContextChanged = false; }
+            // A fix the other tab wrote is checked here too, so undoing it in the editor reopens this row as well.
+            to.Written = from.IsFixed && !from.FixedByEdit && !from.MarkedFixed && !from.IsExempt && from.Written;
             to.SyncedState = from.SyncedState = StateOf(from);
         }
 
@@ -402,7 +412,12 @@ namespace FlareAI.Core.Actions
             if (_findings.Count > 0) Status = Summary();
         }
 
-        /// <summary>New rows take the Marked as Fixed state of the same issue in the other tab. A Change or typed fix is not carried to a row a fresh lint just found, because that row's text is still in the topic.</summary>
+        /// <summary>
+        /// The first check in this session takes the Marked as Fixed state of the same issue in the other tab, so a row has one
+        /// state in both. A Change or typed fix is not carried to a row a fresh lint just found, because that row's text is still in
+        /// the topic. Lint Again is the writer starting over: the new rows are open and the other tab's marks on the same issues
+        /// are cleared with them, so a cleared mark is not brought back.
+        /// </summary>
         private void AdoptFromPeer(List<StyleFinding> added)
         {
             var other = Peer;
@@ -413,6 +428,7 @@ namespace FlareAI.Core.Actions
                 var m = other._findings.Find(x => x.IsFixed && x.MarkedFixed && !x.IsExempt && !claimed.Contains(x) && other.Matches(x, this, f));
                 if (m == null) { f.SyncedState = StateOf(f); continue; }
                 claimed.Add(m);
+                if (_relint) { f.SyncedState = StateOf(m); continue; }   // this row is open and the other is marked: the next sync opens it there
                 f.IsFixed = m.IsFixed; f.FixedByEdit = m.FixedByEdit; f.MarkedFixed = m.MarkedFixed; f.IsExempt = m.IsExempt;
                 f.SyncedState = StateOf(f);
             }
@@ -1466,23 +1482,44 @@ namespace FlareAI.Core.Actions
             return new RestoreResult(back.Count, saved);
         }
 
-        /// <summary>How many findings the project's exemptions are hiding right now. Derived from the identity set, never counted up.</summary>
+        /// <summary>
+        /// How many issues the project's exemptions cover in this list: each row marked Exempt, plus the findings a lint hid that
+        /// have no row (Lint Again drops the rows). Derived, never counted up.
+        /// </summary>
         public int ExemptHidden
         {
             get
             {
-                RefreshExemptions(true);
-                foreach (var gone in _exemptIdentities.Where(kv => !Exemptions.Covers(_exemptions, kv.Value[0], kv.Value[1], kv.Value[2], kv.Value[3])).Select(kv => kv.Key).ToList()) _exemptIdentities.Remove(gone);
-                var all = new HashSet<string>(_exemptIdentities.Keys, StringComparer.Ordinal);
-                foreach (var r in _findings) if (r.IsExempt) { var id = IdentityOf(r); if (id != null) all.Add(id); }
-                return all.Count;
+                RefreshExemptions();
+                foreach (var gone in _exemptIdentities.Where(kv => !Exemptions.Covers(_exemptions, kv.Value.Parts[0], kv.Value.Parts[1], kv.Value.Parts[2], kv.Value.Parts[3])).Select(kv => kv.Key).ToList()) _exemptIdentities.Remove(gone);
+                var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var r in _findings)
+                {
+                    if (!r.IsExempt) continue;
+                    var id = IdentityOf(r) ?? "";
+                    int n; rows.TryGetValue(id, out n); rows[id] = n + 1;
+                }
+                var total = 0;
+                foreach (var kv in rows) { HiddenText h; total += _exemptIdentities.TryGetValue(kv.Key, out h) ? Math.Max(kv.Value, h.Count) : kv.Value; }
+                foreach (var kv in _exemptIdentities) if (!rows.ContainsKey(kv.Key)) total += kv.Value.Count;
+                return total;
             }
         }
 
         /// <summary>The status line's tail: "1 issue is exempt." or "2 issues are exempt."; empty when none are.</summary>
         public string ExemptTail
         {
-            get { return ExemptHidden > 0 ? Plural.Of(ExemptHidden, "issue") + (ExemptHidden == 1 ? " is" : " are") + " exempt." : ""; }
+            get
+            {
+                var n = ExemptHidden;
+                return n > 0 ? Plural.Of(n, "issue") + (n == 1 ? " is" : " are") + " exempt." : "";
+            }
+        }
+
+        /// <summary>How many exemptions the project's list holds (the Exemptions button's count).</summary>
+        public int ExemptionEntries
+        {
+            get { RefreshExemptions(); return _exemptions == null ? 0 : _exemptions.Entries.Count; }
         }
 
         /// <summary>True when the finding has text to exempt, in a topic inside a Flare project's Content, under a rule that can be named.</summary>
@@ -1575,11 +1612,19 @@ namespace FlareAI.Core.Actions
             }
             RefreshExemptions(true);
             ReopenExempt(id);
+            if (Peer != null && Peer != this) Peer.SyncExemptionsHere();   // its hidden text, button and status
             Status = Summary() + "  The exemption is removed. The issue is open again.";
         }
 
-        /// <summary>Exemptions was edited elsewhere: rows whose text is no longer exempt are open again.</summary>
+        /// <summary>Exemptions was edited elsewhere (the dialog): rows and hidden text no longer exempt are open again, here and in the other tab.</summary>
         public void SyncExemptions()
+        {
+            SyncExemptionsHere();
+            var other = Peer;
+            if (other != null && other != this) other.SyncExemptionsHere();
+        }
+
+        private void SyncExemptionsHere()
         {
             RefreshExemptions(true);
             var gone = new HashSet<string>();
@@ -1591,6 +1636,9 @@ namespace FlareAI.Core.Actions
                 if (topic == null || !Exemptions.Covers(_exemptions, topic, key, r.Excerpt, r.Before ?? "")) gone.Add(IdentityOf(r) ?? "");
             }
             foreach (var id in gone) ReopenExempt(id);
+            Sort();   // the button and the counts follow, even when only hidden text went
+            var tail = ExemptTail;
+            Status = Summary() + (tail.Length > 0 ? "  " + tail : "");
         }
 
         private void ReopenExempt(string id)
@@ -1613,7 +1661,7 @@ namespace FlareAI.Core.Actions
             return topic.ToLowerInvariant() + "|" + key + "|" + Exemptions.Clean(f.Excerpt) + "|" + Exemptions.Clean(f.Before ?? "");
         }
 
-        /// <summary>Loads the project's list when none is cached or the file changed since it was read.</summary>
+        /// <summary>Loads the project's list when none is cached or the file changed (time or size) since it was read; otherwise only looks at the file.</summary>
         private void RefreshExemptions(bool force = false)
         {
             var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
@@ -1621,9 +1669,9 @@ namespace FlareAI.Core.Actions
             if (root != null)
             {
                 var file = Exemptions.FileFor(root);
-                if (System.IO.File.Exists(file)) stamp = new System.IO.FileInfo(file).LastWriteTimeUtc.Ticks;
+                if (System.IO.File.Exists(file)) { var info = new System.IO.FileInfo(file); stamp = info.LastWriteTimeUtc.Ticks * 31 + info.Length; }
             }
-            if (force || _exemptions == null || _exemptions.Stamp != stamp) _exemptions = Exemptions.Load(_doc.SourcePath);
+            if (force || _exemptions == null || _exemptStamp != stamp) { _exemptions = Exemptions.Load(_doc.SourcePath); _exemptStamp = stamp; }
         }
 
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>
