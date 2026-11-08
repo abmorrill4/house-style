@@ -89,6 +89,25 @@ namespace FlareAI.Core.Tests
 
         private string TopicText() { return BlockSelector.FindBody(_topic.Document).InnerText; }
 
+        // ---- a toast counts what the pane lists (#449) ----
+
+        [Fact]
+        public void TheToastCount_EqualsThePanesCount_WhenAnIssueIsExempt()
+        {
+            var found = new List<StyleFinding>
+            {
+                Find(_topic, "utilize", "use", ruleId: "plain-words.utilize", documentPath: _topicPath),
+                Find(_topic, "utilize", "use", occurrence: 1, ruleId: "plain-words.menu", documentPath: _topicPath)
+            };
+            Exemptions.Add(_topicPath, Exemptions.TopicPathFor(_topicPath), "plain-words.menu", found[1].Excerpt, found[1].Before ?? "", "Reason", "ana", DateTime.UtcNow.Date);
+            var s = Session();
+            s.Add(found);
+            var dismissed = Dismissals.Load(Path.Combine(_root, "dismissed.json"));
+            var toast = ReportCount.Listed(found, _topicPath, dismissed);
+            Assert.Single(toast);
+            Assert.Equal(s.Open().Count, toast.Count);
+        }
+
         // ---- fixed by hand ------------------------------------------------------------------------
 
         private static XmlText FirstRun(FakeDocumentAdapter doc, int paragraph)

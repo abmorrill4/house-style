@@ -67,7 +67,7 @@ namespace FlareAI.Flare.UI
         {
             var panel = Slots.Get(slot);
             if (panel == null || panel.IsDisposed || !panel.HasResults) return false;
-            panel.ShowEveryIssue();
+            panel.ShowEveryIssue(false);
             if (Slots.IsOpen) ShowSlot(slot, flareMainForm);
             else
             {

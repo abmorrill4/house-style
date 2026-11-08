@@ -33,11 +33,29 @@ Wait-Until { $x = Toast; if ($x.open) { $x } } 30 "the save notice again" | Out-
 Send-E2E toastClose | Out-Null
 Assert-E2E (-not (Toast).open) "closing the notice hides it"
 
+# Esc closes it too, when Flare is the active window.
+Send-E2E save | Out-Null
+Wait-Until { $x = Toast; if ($x.open) { $x } } 30 "the save notice for Esc" | Out-Null
+[System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep -Milliseconds 600
+Assert-E2E (-not (Toast).open) "Esc closes the notice"
+
 # It also goes by itself within 8 seconds.
 Send-E2E save | Out-Null
 Wait-Until { $x = Toast; if ($x.open) { $x } } 30 "the save notice a third time" | Out-Null
 $gone = Wait-Until { if (-not (Toast).open) { $true } } 12 "the notice to go by itself"
 Assert-E2E $gone "the notice went by itself"
+
+# Show Issues does not wipe the writer's remembered Level.
+Send-E2E click "This Topic" | Out-Null
+Send-E2E paneType "Suggestions" -Extra @{ name = "Level" } | Out-Null
+Send-E2E save | Out-Null
+Wait-Until { $x = Toast; if ($x.open) { $x } } 30 "the save notice for the Level check" | Out-Null
+Send-E2E toastClick | Out-Null
+Wait-Until { $p = Panel; if ($p -and $p.tab -eq "topic" -and $p.filter.level -eq "All Levels") { $p } } 30 "Show Issues to clear the Level" | Out-Null
+Invoke-Ribbon "Lint Topic"
+$t2 = (Wait-PaneDone 120).pane.panel
+Assert-E2E ($t2.filter.level -eq "Suggestions") "a new topic report still has the Level the writer chose (Level: $($t2.filter.level))"
+Send-E2E click "Clear Filters" | Out-Null
 
 # A remembered Level does not hide the build notice's issues: Show Issues clears it.
 Send-E2E click "Project" | Out-Null

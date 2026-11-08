@@ -98,13 +98,14 @@ namespace FlareAI.Flare.UI
             _timer.Tick += (s, e) => { _timer.Stop(); if (!IsDisposed) Close(); };
             _timer.Start();
             // The notice never takes focus, so Esc is read from the keyboard while Flare is the active window. Esc still reaches Flare.
-            var wasDown = (GetAsyncKeyState(0x1B) & 0x8000) != 0;
-            _keys = new Timer { Interval = 80 };
+            GetAsyncKeyState(0x1B);   // clears the "pressed since the last call" bit
+            _keys = new Timer { Interval = 30 };
             _keys.Tick += (s, e) =>
             {
-                var down = (GetAsyncKeyState(0x1B) & 0x8000) != 0;
-                if (down && !wasDown && !IsDisposed && InOurProcess()) Close();
-                wasDown = down;
+                // Bit 0 says Esc went down since the last call, which catches a tap shorter than the polling interval.
+                var state = GetAsyncKeyState(0x1B);
+                var pressed = (state & 1) != 0;
+                if (EscapeDismisses(pressed, false, !IsDisposed && Visible, pressed && InOurProcess())) Close();
             };
             _keys.Start();
             // Pause while the mouse is over the notice (any part of it), restart when it leaves.
@@ -112,6 +113,12 @@ namespace FlareAI.Flare.UI
             Click += (s, e) => Close();
             label.Click += (s, e) => { if (action != null) { Close(); action(); } };
             FormClosed += (s, e) => { _timer.Dispose(); _keys.Dispose(); };
+        }
+
+        /// <summary>Esc closes the notice only while it is showing, on the press itself (not while held), and when Flare is the active window.</summary>
+        internal static bool EscapeDismisses(bool escDown, bool wasDown, bool showing, bool flareActive)
+        {
+            return showing && escDown && !wasDown && flareActive;
         }
 
         private static bool InOurProcess()

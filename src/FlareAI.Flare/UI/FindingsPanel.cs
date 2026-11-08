@@ -185,6 +185,12 @@ namespace FlareAI.Flare.UI
         /// <summary>True once this pane has started a check, so its results (and marks) can be shown again as they are.</summary>
         public bool HasResults { get { return _started; } }
 
+        /// <summary>True while the pane is checking.</summary>
+        public bool IsBusy { get { return _reviewing; } }
+
+        /// <summary>The findings the writer marked fixed by hand, which a fresh check does not list again.</summary>
+        public List<StyleFinding> MarkedFixed() { return _session.Findings.Where(f => f.MarkedFixed).ToList(); }
+
         /// <summary>The open issues the pane lists once its filters are cleared (the tab count's issues): what a notice counts.</summary>
         public List<StyleFinding> OpenIssues()
         {
@@ -1976,12 +1982,15 @@ namespace FlareAI.Flare.UI
 
         private void ClearFilters()
         {
-            ShowEveryIssue();
+            ShowEveryIssue(true);
             _levelBox.Focus();
         }
 
-        /// <summary>Clears the Level and Source filters without moving focus (a toast's Show Issues, so its count matches the rows).</summary>
-        public void ShowEveryIssue()
+        /// <summary>
+        /// Clears the Level and Source filters without moving focus (a toast's Show Issues, so its count matches the rows).
+        /// Only Clear Filters changes the remembered choice: a toast leaves the writer's saved Level alone.
+        /// </summary>
+        public void ShowEveryIssue(bool remember = false)
         {
             _guidedSaved = null;
             _syncingFilter = true;
@@ -1991,9 +2000,9 @@ namespace FlareAI.Flare.UI
                 _sourceBox.SelectedIndex = 0;
             }
             finally { _syncingFilter = false; }
-            if (_files == null) _savedSource = ReviewSource.RulesAndAi;
+            if (remember && _files == null) _savedSource = ReviewSource.RulesAndAi;
             _session.Filter = ReviewFilter.All;
-            if (_files == null) ReviewViewPrefs.Save(ReviewLevel.All, _savedSource);
+            if (remember && _files == null) ReviewViewPrefs.Save(ReviewLevel.All, _savedSource);
         }
 
         /// <summary>The combos and Clear Filters show the session's filter; the combos are locked during a walk (and Source in a project).</summary>
@@ -2032,7 +2041,7 @@ namespace FlareAI.Flare.UI
             if (_session.FocusRule != null && !_session.IsWalking) _session.EndRuleReview();
             else Rebuild();
             if (byFile && onRule != null) SelectFirstOfRule(onRule.Key);
-            _list.Focus();
+            // Focus stays on the View choice that was changed, so the arrow keys can switch back.
         }
 
         private void SelectFirstOfRule(string key)

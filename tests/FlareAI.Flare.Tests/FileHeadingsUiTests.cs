@@ -430,6 +430,23 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        [Fact]
+        public void SwitchingFromByRuleToByFile_KeepsAnIssueOfTheSelectedRule()
+        {
+            WithProject(false, (panel, list) =>
+            {
+                var rule = Items(list).First(i => i.Tag is BacklogRule);
+                Select(list, rule);
+                var key = ((BacklogRule)rule.Tag).Key;
+                All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked = true;
+                Pump(null, 300);
+                var on = Items(panel.Controls.Count > 0 ? All(panel).OfType<ListView>().Single() : list).Where(i => i.Selected).ToList();
+                Assert.Single(on);
+                Assert.Equal(key, FlareAI.Core.Actions.RuleBacklog.KeyOf((StyleFinding)on[0].Tag));
+                Assert.True(All(panel).OfType<RadioButton>().Single(r => r.Text == "By file").Checked);
+            });
+        }
+
         // ---- #449: a project report always starts on All Levels --------------------------------------------------------
 
         [Fact]
