@@ -4,6 +4,7 @@
 # brings it back (#29). The finally block restores an ignored issue if the run stops while it is hidden.
 param($Fixture)
 $run = Start-FlareE2E -Fixture $Fixture -Force
+$ex = [string][char]0x2298 + " Exempt"   # the mark and word on an exempt row, which no rule text uses
 Add-Type -AssemblyName System.Windows.Forms
 function Keys([string]$k) { [System.Windows.Forms.SendKeys]::SendWait($k); Start-Sleep -Milliseconds 500 }
 function Rows { @((Get-E2EState).pane.panel.rows) }
@@ -81,9 +82,9 @@ Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
 $after = @((Get-E2EState).pane.panel.rows)
 Assert-E2E ($after.Count -eq $before.Count) "the exempt row stays in the list ($($before.Count) before, $($after.Count) after)"
-Assert-E2E ($after[0].text -like "*Exempt*") "the exempt row is marked Exempt (row: $($after[0].text))"
-Assert-E2E ((Get-E2EState).pane.panel.status -like "*exempt*") "the status line says the issue is exempt"
-$openCount = @($after | Where-Object { $_.text -notlike "*Exempt*" -and $_.excerpt }).Count
+Assert-E2E ($after[0].text -like "*$ex*") "the exempt row is marked Exempt (row: $($after[0].text))"
+Assert-E2E ((Get-E2EState).pane.panel.status -match "1 issue is exempt.") "the status line says 1 issue is exempt (status: $((Get-E2EState).pane.panel.status))"
+$openCount = @($after | Where-Object { $_.text -notlike "*$ex*" -and $_.excerpt }).Count
 Assert-E2E ($openCount -eq $before.Count - 1) "the open count dropped by one"
 
 # Re-lint: the exempt text is still gone, and the pane counts one exemption.
@@ -115,10 +116,19 @@ Wait-Until { (Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt Thi
 Send-E2E dialogType "Intended here." -Extra @{ title = "Exempt This Text"; name = "Why is this text exempt?" } | Out-Null
 Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
-Assert-E2E ((Rows)[0].text -like "*Exempt*") "the row is marked Exempt again"
+Assert-E2E ((Rows)[0].text -like "*$ex*") "the row is marked Exempt again"
+# A live check after an edit elsewhere keeps the row Exempt.
+$xml = (Send-E2E bodyXml).value.xml
+$anchor = $null
+foreach ($m in [regex]::Matches($xml, '<p[^>]*>([^<]{14,})')) { $txt = $m.Groups[1].Value; if ($txt -notlike "*$($rows0[0].excerpt)*") { $anchor = $txt.Substring(0, 14); break } }
+Assert-E2E ($null -ne $anchor) "a paragraph without the exempt text is left to edit"
+Send-E2E replace $anchor -Extra @{ text = $anchor + " quickly" } | Out-Null
+Start-Sleep -Seconds 5
+Assert-E2E ((Rows)[0].text -like "*$ex*") "the row is still Exempt after a live check"
 Save-E2EScreenshot "ignore-exempt-exempt-row"
 $items = Send-E2E rowMenu "Remove Exemption" -Extra @{ index = 0 }
 Assert-E2E ((($items.value | Out-String) -match "Remove Exemption")) "Remove Exemption is in the exempt row's menu"
-Wait-Until { $r = (Rows)[0]; if ($r -and $r.text -notlike "*Exempt*") { $r } } 15 "the row to be open again" | Out-Null
+Wait-Until { $r = (Rows)[0]; if ($r -and $r.text -notlike "*$ex*") { $r } } 15 "the row to be open again" | Out-Null
 Assert-E2E (@(Rows).Count -eq $rows0.Count) "the same rows are listed after Remove Exemption"
 Assert-E2E (-not @((Get-E2EState).pane.buttons | Where-Object { $_.text -like "Exemptions (*" }).Count) "the Exemptions button is gone with no exemptions left"
+Assert-E2E ((Get-E2EState).pane.panel.status -notmatch "is exempt\.|are exempt\.") "the status no longer says anything is exempt (status: $((Get-E2EState).pane.panel.status))"

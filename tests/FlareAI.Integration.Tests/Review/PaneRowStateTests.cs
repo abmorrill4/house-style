@@ -18,12 +18,12 @@ namespace FlareAI.Integration.Tests.Review
     [Collection("Logging")]
     public class PaneRowStateTests
     {
-        private static string Topic(string first)
+        internal static string Topic(string first)
         {
             return "<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head /><body><h1>Start</h1><p>" + first + "</p><p>Other paragraph.</p></body></html>";
         }
 
-        private static StyleFinding Find(FlareSimDocument doc, string text, string replacement, int occurrence = 0)
+        internal static StyleFinding Find(FlareSimDocument doc, string text, string replacement, int occurrence = 0)
         {
             var seen = 0;
             foreach (var run in TextRuns.Of(new List<XmlNode> { BlockSelector.FindBody(doc.Document) }))
@@ -38,7 +38,7 @@ namespace FlareAI.Integration.Tests.Review
             throw new InvalidOperationException("no " + text);
         }
 
-        private static ReviewSession Session(FlareSimDocument doc, bool project)
+        internal static ReviewSession Session(FlareSimDocument doc, bool project)
         {
             var style = new StyleEngine(new[] { Repo.StyleGuide }, Repo.StyleGuide);
             var runner = new ActionRunner(ScriptedLlmClient.NoFindings(), PromptBuilder.For(style, doc.SourcePath), 16000, style, doc.SourcePath);
@@ -51,16 +51,16 @@ namespace FlareAI.Integration.Tests.Review
             };
         }
 
-        private static void Pair(ReviewSession a, ReviewSession b) { a.Peer = b; b.Peer = a; }
+        internal static void Pair(ReviewSession a, ReviewSession b) { a.Peer = b; b.Peer = a; }
 
-        private sealed class Tabs
+        internal sealed class Tabs
         {
             public FlareSimDocument Doc;
             public ReviewSession Topic, Project;
             public StyleFinding T, P;
         }
 
-        private static Tabs Both(string text = "Please utilize the tool.")
+        internal static Tabs Both(string text = "Please utilize the tool.")
         {
             var doc = FlareSimDocument.FromXml(Topic(text));
             var t = new Tabs { Doc = doc, Topic = Session(doc, false), Project = Session(doc, true) };

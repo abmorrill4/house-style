@@ -263,6 +263,7 @@ namespace FlareAI.Flare.UI
             // A project report always starts on All Levels; the remembered Level applies to topic reports.
             _session.Filter = new ReviewFilter(files != null ? ReviewLevel.All : savedLevel, files != null ? ReviewSource.RulesAndAi : savedSource);
             _session.ListChanged += Rebuild;
+            _session.ListChanged += UpdateExemptions;   // an exemption added or removed in the other tab
             _session.SelectRequested += Select;
             _session.StatusChanged += text => _status.Text = text;
             _session.IgnoredChanged += OnIgnoredChanged;
@@ -1303,6 +1304,7 @@ namespace FlareAI.Flare.UI
 
         private void UpdateExemptions()
         {
+            if (_exemptions == null) return;
             var n = Exemptions.Load(_doc.SourcePath).Entries.Count;
             _exemptions.Visible = n > 0;
             _exemptions.Text = "Exemptions (" + n + ")";
@@ -2388,7 +2390,7 @@ namespace FlareAI.Flare.UI
                     Source = LayerLabel(f),
                     Text = f.Excerpt,
                     SuggestedText = f.Replacement,
-                    Status = FlareAI.Core.Output.IssueExport.StatusOf(f.IsFixed, f.IsStale, _session.IsSkipped(f)),
+                    Status = FlareAI.Core.Output.IssueExport.StatusOf(f.IsFixed, f.IsStale, _session.IsSkipped(f), f.IsExempt),
                     Path = f.DocumentPath
                 });
             }

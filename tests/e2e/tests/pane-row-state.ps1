@@ -4,6 +4,7 @@
 param($Fixture)
 $run = Start-FlareE2E -Fixture $Fixture -Force
 $check = [string][char]0x2713
+$ex = [string][char]0x2298 + " Exempt"   # the mark and word on an exempt row, which no rule text uses
 function Panel { (Get-E2EState).pane.panel }
 function Rows { @((Panel).rows) }
 function Wait-Tab([string]$Tab, [string]$What) { Wait-Until { $p = Panel; if ($p -and $p.tab -eq $Tab) { $p } } 20 $What }
@@ -76,16 +77,23 @@ Send-E2E dialogType "Intended here." -Extra @{ title = "Exempt This Text"; name 
 Send-E2E dialogClick "OK" -Extra @{ title = "Exempt This Text" } | Out-Null
 Wait-Until { -not ((Get-E2EState).dialogs | Where-Object { $_.title -like "*Exempt This Text*" }) } 15 "Exempt This Text to close" | Out-Null
 $t = Row-Of $other
-Assert-E2E ($t.Count -ge 1 -and $t[0].text -like "*Exempt*") "the topic row is marked Exempt (rows: $(($t.text) -join ' | '))"
+Assert-E2E ($t.Count -ge 1 -and $t[0].text -like "*$ex*") "the topic row is marked Exempt (rows: $(($t.text) -join ' | '))"
+# A live check after an edit elsewhere keeps the row Exempt.
+Send-E2E replace "within a few minutes" -Extra @{ text = "within a minute" } | Out-Null
+Start-Sleep -Seconds 4
+$t = Row-Of $other
+Assert-E2E ($t.Count -ge 1 -and $t[0].text -like "*$ex*") "the row is still Exempt after a live check (rows: $(($t.text) -join ' | '))"
 Send-E2E click "Project" | Out-Null
 Wait-Tab "project" "the Project tab" | Out-Null
 $r = @(Rows | Where-Object { $_.file -like "*billpay\faq.htm" -and $_.excerpt -eq $other })
-Assert-E2E ($r.Count -ge 1 -and $r[0].text -like "*Exempt*") "the Project row is marked Exempt too (rows: $(($r.text) -join ' | '))"
+Assert-E2E ($r.Count -ge 1 -and $r[0].text -like "*$ex*") "the Project row is marked Exempt too (rows: $(($r.text) -join ' | '))"
 Save-E2EScreenshot "pane-row-state-2-exempt"
 $ri = [array]::FindIndex([object[]](Rows), [Predicate[object]]{ param($x) $x.file -like "*billpay\faq.htm" -and $x.excerpt -eq $other })
 Send-E2E rowMenu "Remove Exemption" -Extra @{ index = $ri } | Out-Null
-Wait-Until { $r = @(Rows | Where-Object { $_.file -like "*billpay\faq.htm" -and $_.excerpt -eq $other }); if ($r.Count -ge 1 -and $r[0].text -notlike "*Exempt*") { $r } } 15 "the Project row to be open again" | Out-Null
+Wait-Until { $r = @(Rows | Where-Object { $_.file -like "*billpay\faq.htm" -and $_.excerpt -eq $other }); if ($r.Count -ge 1 -and $r[0].text -notlike "*$ex*") { $r } } 15 "the Project row to be open again" | Out-Null
 Send-E2E click "This Topic" | Out-Null
 Wait-Tab "topic" "the This Topic tab" | Out-Null
 $t = Row-Of $other
-Assert-E2E ($t.Count -ge 1 -and $t[0].text -notlike "*Exempt*" -and $t[0].text -notlike "*$check*") "the topic row is open again after Remove Exemption in Project"
+Assert-E2E ($t.Count -ge 1 -and $t[0].text -notlike "*$ex*" -and $t[0].text -notlike "*$check*") "the topic row is open again after Remove Exemption in Project"
+Assert-E2E ((Panel).status -notmatch "is exempt\.|are exempt\.") "the This Topic status no longer says anything is exempt (status: $((Panel).status))"
+Assert-E2E (-not @((Get-E2EState).pane.buttons | Where-Object { $_.text -like "Exemptions (*" }).Count) "the Exemptions button is gone with no exemptions left"

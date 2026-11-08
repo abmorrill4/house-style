@@ -63,7 +63,7 @@ namespace FlareAI.Core.Actions
         private HashSet<string> _ignoredAi;
         private List<KeyValuePair<string, string>> _ignoredAiTexts;
         private ExemptionList _exemptions;
-        private readonly HashSet<string> _exemptIdentities = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string[]> _exemptIdentities = new Dictionary<string, string[]>(StringComparer.Ordinal);   // identity to topic, rule, text, context
         private HashSet<string> _requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _skippedRules = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _walkedRules = new HashSet<string>(StringComparer.Ordinal);
@@ -233,7 +233,7 @@ namespace FlareAI.Core.Actions
                 var topic = key == null ? null : Exemptions.TopicPathFor(f.DocumentPath ?? _doc.SourcePath);
                 if (topic != null && Exemptions.Covers(_exemptions, topic, key, f.Excerpt, f.Before ?? ""))
                 {
-                    _exemptIdentities.Add(ExemptIdentity(topic, key, f));
+                    _exemptIdentities[ExemptIdentity(topic, key, f)] = new[] { topic, key, f.Excerpt, f.Before ?? "" };
                     continue;
                 }
                 if (f.Layer == "ai" && ignoredAi.Contains(f.Rule ?? "")) continue;
@@ -319,7 +319,7 @@ namespace FlareAI.Core.Actions
             _findings.RemoveAll(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);
             DropIgnored(f => f.Source != "ai" && f.DocumentPath == null && !f.IsFixed);   // the fresh lint parks them again, once
             var own = Exemptions.TopicPathFor(_doc.SourcePath);
-            if (own != null) _exemptIdentities.RemoveWhere(id => id.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal));
+            if (own != null) foreach (var id in _exemptIdentities.Keys.Where(k => k.StartsWith(own.ToLowerInvariant() + "|", StringComparison.Ordinal)).ToList()) _exemptIdentities.Remove(id);
             RefreshExemptions();
             Add(lint);
         }
@@ -402,7 +402,7 @@ namespace FlareAI.Core.Actions
             if (_findings.Count > 0) Status = Summary();
         }
 
-        /// <summary>New rows take the state of rows the other tab already has for the same issue.</summary>
+        /// <summary>New rows take the Marked as Fixed state of the same issue in the other tab. A Change or typed fix is not carried to a row a fresh lint just found, because that row's text is still in the topic.</summary>
         private void AdoptFromPeer(List<StyleFinding> added)
         {
             var other = Peer;
@@ -410,7 +410,7 @@ namespace FlareAI.Core.Actions
             var claimed = new HashSet<StyleFinding>();
             foreach (var f in added)
             {
-                var m = other._findings.Find(x => StateOf(x) != 0 && !claimed.Contains(x) && other.Matches(x, this, f));
+                var m = other._findings.Find(x => x.IsFixed && x.MarkedFixed && !x.IsExempt && !claimed.Contains(x) && other.Matches(x, this, f));
                 if (m == null) { f.SyncedState = StateOf(f); continue; }
                 claimed.Add(m);
                 f.IsFixed = m.IsFixed; f.FixedByEdit = m.FixedByEdit; f.MarkedFixed = m.MarkedFixed; f.IsExempt = m.IsExempt;
@@ -1471,7 +1471,9 @@ namespace FlareAI.Core.Actions
         {
             get
             {
-                var all = new HashSet<string>(_exemptIdentities, StringComparer.Ordinal);
+                RefreshExemptions(true);
+                foreach (var gone in _exemptIdentities.Where(kv => !Exemptions.Covers(_exemptions, kv.Value[0], kv.Value[1], kv.Value[2], kv.Value[3])).Select(kv => kv.Key).ToList()) _exemptIdentities.Remove(gone);
+                var all = new HashSet<string>(_exemptIdentities.Keys, StringComparer.Ordinal);
                 foreach (var r in _findings) if (r.IsExempt) { var id = IdentityOf(r); if (id != null) all.Add(id); }
                 return all.Count;
             }
@@ -1534,7 +1536,7 @@ namespace FlareAI.Core.Actions
                 }
             Sort();
             Select(NextAfter(f));
-            Status = Summary() + "  Exempted. Later lints skip this text for everyone on this project.";
+            Status = Summary() + "  Exempted. " + ExemptTail;
         }
 
         private string IdentityOf(StyleFinding f)
@@ -1571,7 +1573,7 @@ namespace FlareAI.Core.Actions
                 Status = Summary() + "  The exemption was not removed.";
                 return;
             }
-            RefreshExemptions();
+            RefreshExemptions(true);
             ReopenExempt(id);
             Status = Summary() + "  The exemption is removed. The issue is open again.";
         }
@@ -1579,7 +1581,7 @@ namespace FlareAI.Core.Actions
         /// <summary>Exemptions was edited elsewhere: rows whose text is no longer exempt are open again.</summary>
         public void SyncExemptions()
         {
-            RefreshExemptions();
+            RefreshExemptions(true);
             var gone = new HashSet<string>();
             foreach (var r in _findings)
             {
@@ -1595,6 +1597,7 @@ namespace FlareAI.Core.Actions
         {
             foreach (var r in _findings)
                 if (r.IsExempt && (IdentityOf(r) ?? "") == id) { r.IsFixed = false; r.IsExempt = false; }
+            _exemptIdentities.Remove(id);
             RecheckAfterReopen();
             Sort();
         }
@@ -1611,7 +1614,7 @@ namespace FlareAI.Core.Actions
         }
 
         /// <summary>Loads the project's list when none is cached or the file changed since it was read.</summary>
-        private void RefreshExemptions()
+        private void RefreshExemptions(bool force = false)
         {
             var root = StyleEngine.FlareProjectRoot(_doc.SourcePath);
             long stamp = 0;
@@ -1620,7 +1623,7 @@ namespace FlareAI.Core.Actions
                 var file = Exemptions.FileFor(root);
                 if (System.IO.File.Exists(file)) stamp = new System.IO.FileInfo(file).LastWriteTimeUtc.Ticks;
             }
-            if (_exemptions == null || _exemptions.Stamp != stamp) _exemptions = Exemptions.Load(_doc.SourcePath);
+            if (force || _exemptions == null || _exemptions.Stamp != stamp) _exemptions = Exemptions.Load(_doc.SourcePath);
         }
 
         /// <summary>Skip for now: the next suggestion, nothing recorded.</summary>
