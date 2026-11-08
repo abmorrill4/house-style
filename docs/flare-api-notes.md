@@ -150,3 +150,13 @@ IRibbonComboBox combo = group.AddRibbonCombobox(new RibbonMenuData { ... });
   once, which is not what the "variables crash on Redo" note above would predict. The earlier crash was seen for a variable
   inserted or replaced inside an existing element. Until that is probed (bare variable inside an existing `p`, redo after save and
   reopen, redo from the toolbar), the plugin still refuses any `MadCap:` element in an insert.
+
+## Selecting an image (verified Flare 22, 2026-11-08, tests/e2e/tests/alt-text-goto-image.ps1)
+- `IDocument.Select(XmlNode)` does nothing for an `img`: the selection stays where it was.
+- In `GetCursorPosition()` / `SetCursorPosition()` an image and a paragraph boundary take no room. `Select(string)` leaves the position
+  at the start of the text it found, so the position of an image is the start of the text after it (or the end of the text before it).
+- `SetSelectionLength(1)` at the image's position selects the next character, not the image. A selection that runs from the character
+  before the image to the one after it (`SetCursorPosition(at - 1)`, `SetSelectionLength(2)`) reports `#text, img, #text` from
+  `GetXmlNodeList()` and shows the image highlighted. `FlareDocumentAdapter.SelectNode` does that, and falls back to one side, then to
+  a collapsed caret at the image. An image alone in its paragraph has no text to search for, so it uses the nearest text in the topic.
+

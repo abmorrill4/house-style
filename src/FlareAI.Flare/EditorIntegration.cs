@@ -254,8 +254,7 @@ namespace FlareAI.Flare
                 var marks = new List<KeyValuePair<XmlNode, string>>();
                 foreach (var f in findings ?? new List<StyleFinding>())
                 {
-                    XmlText run; int start;
-                    var block = FindingLocator.TryLocate(adapter.Document, f, out run, out start) ? TextRuns.BlockOf(run) : f.Block;
+                    var block = FindingLocator.LocateBlock(adapter.Document, f) ?? f.Block;
                     if (block != null && block.OwnerDocument == adapter.Document) marks.Add(new KeyValuePair<XmlNode, string>(block, f.Severity));
                 }
                 var css = marks.Count == 0 ? null : MarkerCss.Css(marks);

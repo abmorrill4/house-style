@@ -92,10 +92,24 @@ namespace FlareAI.Core.Actions
         /// <summary>Sets the image's alt in a copy of its block and replaces the block as one tracked change (validated).</summary>
         public static void Apply(IDocumentAdapter doc, XmlNode block, string src, string alt)
         {
+            Apply(doc, block, src, alt, null);
+        }
+
+        /// <summary>As above, for the given image of the block (null: the first one with this src and no alt text).</summary>
+        public static void Apply(IDocumentAdapter doc, XmlNode block, string src, string alt, XmlElement original)
+        {
             var copy = block.CloneNode(true);
             XmlElement target = null;
+            // The nth missing one with this src, counted as in the original block (a paragraph can repeat one file).
+            var skip = 0;
+            if (original != null)
+                foreach (XmlElement o in block.SelectNodes("descendant-or-self::*[local-name()='img']"))
+                {
+                    if (o == original) break;
+                    if (o.GetAttribute("src") == src && o.GetAttribute("alt").Trim().Length == 0) skip++;
+                }
             foreach (XmlElement img in copy.SelectNodes("descendant-or-self::*[local-name()='img']"))
-                if (img.GetAttribute("src") == src && img.GetAttribute("alt").Trim().Length == 0) { target = img; break; }
+                if (img.GetAttribute("src") == src && img.GetAttribute("alt").Trim().Length == 0 && skip-- == 0) { target = img; break; }
             if (target == null) throw new InvalidOperationException("The image is no longer in the paragraph.");
             target.SetAttribute("alt", alt);
             var check = XhtmlValidator.Validate(new List<XmlNode> { block }, new List<XmlNode> { copy });

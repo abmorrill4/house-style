@@ -40,6 +40,9 @@ namespace FlareAI.Core.Editing
         /// <summary>Select a span of one text node in the editor so the author sees it. False if the editor could not.</summary>
         bool SelectText(XmlText run, int start, int length);
 
+        /// <summary>Select one element (an image) in the editor so the author sees it. False if the editor could not.</summary>
+        bool SelectNode(XmlNode node);
+
         /// <summary>
         /// Replaces the selection (or inserts at the caret) with the project variable "Set.Name", as one tracked, undoable
         /// change. False when the editor could not do it (nothing changed).

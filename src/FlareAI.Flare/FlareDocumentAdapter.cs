@@ -232,6 +232,99 @@ namespace FlareAI.Flare
             }
         }
 
+        /// <summary>
+        /// Select an image. <c>Select(XmlNode)</c> doesn't select one (verified Flare 22), and in Flare's text positions an image takes
+        /// no room, so a selection can't hold only the image. This selects the image with the character before it and the one after
+        /// it, which Flare reports with the image among the selected nodes. It finds the place by selecting the text beside the image
+        /// (<see cref="SelectText"/>), which also gives that text's position. An image at the end of a paragraph, or alone in one, takes
+        /// the character on its one side, and failing that Flare's caret is put where the image is.
+        /// </summary>
+        public bool SelectNode(XmlNode node)
+        {
+            try
+            {
+                if (node == null || node.ParentNode == null) return false;
+                var next = NeighborRun(node, true);
+                var previous = NeighborRun(node, false);
+                if (next == null && previous == null) return false;
+                _doc.Select(node.ParentNode);   // the caret goes to the start of the paragraph, so the search below finds the text after it first
+                int s, l;
+                if (previous != null && next != null)
+                {
+                    // An image alone in its paragraph doesn't move the caret: start from the text before it.
+                    int ps, pl;
+                    TextRuns.UniqueSpan(previous.Value, Math.Max(0, previous.Value.Length - 40), Math.Min(previous.Value.Length, 40), out ps, out pl);
+                    SelectText(previous, ps, pl);
+                }
+                int at;   // where the image is, in Flare's text positions
+                if (next != null)
+                {
+                    TextRuns.UniqueSpan(next.Value, 0, Math.Min(next.Value.Length, 40), out s, out l);
+                    if (!SelectText(next, s, l)) return false;
+                    at = _doc.GetCursorPosition() - s;
+                }
+                else
+                {
+                    TextRuns.UniqueSpan(previous.Value, Math.Max(0, previous.Value.Length - 40), Math.Min(previous.Value.Length, 40), out s, out l);
+                    if (!SelectText(previous, s, l)) return false;
+                    at = _doc.GetCursorPosition() - s + previous.Value.Length;
+                }
+                var tries = new List<int[]>();
+                if (previous != null && next != null) tries.Add(new[] { at - 1, 2 });
+                if (previous != null) tries.Add(new[] { at - 1, 1 });
+                if (next != null) tries.Add(new[] { at, 1 });
+                tries.Add(new[] { at, 0 });
+                foreach (var t in tries)
+                {
+                    _doc.SetCursorPosition(t[0]);
+                    _doc.Selection.SetSelectionLength(t[1]);
+                    if (SelectedImage(node)) return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log("SelectNode", ex);
+                return false;
+            }
+        }
+
+        /// <summary>The nearest text with words in it before or after the node, in document order (the images between have no text).</summary>
+        private XmlText NeighborRun(XmlNode node, bool forward)
+        {
+            var body = BlockSelector.FindBody(Document);
+            if (body == null) return null;
+            var runs = new HashSet<XmlNode>();
+            foreach (var r in TextRuns.Of(new List<XmlNode> { body })) runs.Add(r);
+            var order = new List<XmlNode>();
+            Flatten(body, order);
+            var i = order.IndexOf(node);
+            if (i < 0) return null;
+            for (var j = i + (forward ? 1 : -1); j >= 0 && j < order.Count; j += forward ? 1 : -1)
+            {
+                var t = order[j] as XmlText;
+                if (t != null && t.Value.Trim().Length > 0 && runs.Contains(t)) return t;
+            }
+            return null;
+        }
+
+        private static void Flatten(XmlNode n, List<XmlNode> order)
+        {
+            order.Add(n);
+            foreach (XmlNode c in n.ChildNodes) Flatten(c, order);
+        }
+
+        private bool SelectedImage(XmlNode node)
+        {
+            var sel = _doc.Selection;
+            var nodes = sel == null ? null : sel.GetXmlNodeList();
+            if (nodes == null) return false;
+            foreach (var n in nodes) if (n == node) return true;
+            // Not the image itself: only text or something else is selected, so say so rather than pretend.
+            Diagnostics.Log("SelectNode: the selection doesn't hold the image (" + nodes.Count + " nodes)");
+            return false;
+        }
+
         public void Edit(string operationName, Action body)
         {
             _doc.StartOperation(operationName);

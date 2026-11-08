@@ -104,6 +104,39 @@ namespace FlareAI.Core.Style
             return run != null;
         }
 
+        /// <summary>Every image in the topic's body, in document order.</summary>
+        public static List<XmlElement> ImagesOf(XmlDocument doc)
+        {
+            var list = new List<XmlElement>();
+            var body = doc == null ? null : BlockSelector.FindBody(doc);
+            if (body == null) return list;
+            foreach (XmlElement e in body.SelectNodes(".//*[local-name()='img']")) list.Add(e);
+            return list;
+        }
+
+        /// <summary>Finds the image an image finding is about in the current DOM (the same file, the same place among its repeats). False when it is gone.</summary>
+        public static bool TryLocateImage(XmlDocument doc, StyleFinding f, out XmlElement image)
+        {
+            image = null;
+            if (f == null || f.ImageSrc == null) return false;
+            var seen = 0;
+            foreach (var img in ImagesOf(doc))
+            {
+                if (img.GetAttribute("src") != f.ImageSrc) continue;
+                if (seen++ == f.ImageIndex) { image = img; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>The body-level block a finding is in now: the image's for an image finding, else the one holding its text. Null when it is gone.</summary>
+        public static XmlNode LocateBlock(XmlDocument doc, StyleFinding f)
+        {
+            XmlElement img;
+            if (f.ImageSrc != null) return TryLocateImage(doc, f, out img) ? TextRuns.BlockOf(img) : null;
+            XmlText run; int start;
+            return TryLocate(doc, f, out run, out start) ? TextRuns.BlockOf(run) : null;
+        }
+
         private static string Tail(string s)
         {
             return s.Length <= ContextChars ? s : s.Substring(s.Length - ContextChars);

@@ -144,6 +144,15 @@ namespace FlareAI.TestKit.Editor
             return true;
         }
 
+        public bool SelectNode(XmlNode node)
+        {
+            if (node == null || node.ParentNode == null) return false;
+            SelectedRun = null;
+            SelectionStart = 0; SelectionLength = 0; SelectionText = "";
+            SelectionNodes = new List<XmlNode> { node };
+            return true;
+        }
+
         public bool SelectText(XmlText run, int start, int length)
         {
             if (run == null || !Usable(run, start, length)) return false;

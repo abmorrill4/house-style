@@ -482,7 +482,8 @@ namespace FlareAI.Flare
                 var a = _active == null ? null : _active();
                 if (a == null) return null;
                 var selection = a.SelectionText ?? "";
-                return new { path = a.SourcePath, selection = selection.Length > TextLimit ? selection.Substring(0, TextLimit) : selection };
+                var nodes = a.SelectionNodes.Take(20).Select(n => n.LocalName).ToList();   // what Flare says is selected: an image shows as "img"
+                return new { path = a.SourcePath, selection = selection.Length > TextLimit ? selection.Substring(0, TextLimit) : selection, selectionNodes = nodes };
             }
             catch (Exception ex) { Diagnostics.Log("E2E editor state", ex); return null; }
         }

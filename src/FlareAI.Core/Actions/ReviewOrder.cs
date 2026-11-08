@@ -43,7 +43,19 @@ namespace FlareAI.Core.Actions
                     continue;
                 }
                 XmlText run = null; int start = 0;
-                var found = doc != null && FindingLocator.TryLocate(doc, f, out run, out start);
+                XmlElement image = null;
+                var found = doc != null && (f.ImageSrc != null ? FindingLocator.TryLocateImage(doc, f, out image) : FindingLocator.TryLocate(doc, f, out run, out start));
+                if (image != null)
+                {
+                    // An image sits where it is, not where the text next to it is.
+                    var ib = TextRuns.BlockOf(image);
+                    var before = 0; int bi0;
+                    foreach (var other in FindingLocator.ImagesOf(doc)) { if (other == image) break; if (TextRuns.BlockOf(other) == ib) before++; }
+                    f.Section = ib != null && heading.ContainsKey(ib) ? heading[ib] : "";
+                    f.Order = ib != null && index.TryGetValue(ib, out bi0) ? bi0 * 100000000L + before : long.MaxValue / 4;
+                    f.IsStale = f.ContextChanged;
+                    continue;
+                }
                 var block = found ? TextRuns.BlockOf(run) : f.Block;
                 int bi, ri;
                 f.Section = block != null && heading.ContainsKey(block) ? heading[block] : "";

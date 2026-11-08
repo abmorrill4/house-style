@@ -140,6 +140,7 @@ namespace FlareAI.Bench
             for (var i = 0; i < newNodes.Count; i++) parent.InsertBefore(newNodes[i], parent.ChildNodes[index + i]);
         }
         public bool SelectText(XmlText run, int start, int length) { return true; }
+        public bool SelectNode(XmlNode node) { return true; }
         public bool InsertVariable(string name) { return false; }
         public void Edit(string op, Action body) { body(); }
         public bool ReplaceSpan(XmlText run, int start, int length, string replacement)

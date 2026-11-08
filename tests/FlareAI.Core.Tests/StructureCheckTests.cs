@@ -90,6 +90,95 @@ namespace FlareAI.Core.Tests
             Assert.NotNull(FlareAI.Core.Actions.AltText.MissingIn(f.Block));
         }
 
+        private static XmlDocument Page(string body)
+        {
+            var doc = new XmlDocument { PreserveWhitespace = true };
+            doc.LoadXml("<html xmlns:MadCap=\"http://www.madcapsoftware.com/Schemas/MadCap.xsd\"><head><title>t</title></head><body>" + body + "</body></html>");
+            return doc;
+        }
+
+        private static List<XmlNode> BlocksOf(XmlDocument doc)
+        {
+            return doc.DocumentElement["body"].ChildNodes.Cast<XmlNode>().Where(n => n.NodeType == XmlNodeType.Element).ToList();
+        }
+
+        [Fact]
+        public void ImageWithNoAltText_IsNamedByItsFileName_AndLocatedOnTheImage()
+        {
+            var doc = Page("<h1>Pay bills</h1><p>Before the picture. <img src=\"../Images/Logo.png\" title=\"Company logo\" /> After.</p>");
+            var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            Assert.Equal("Alt text for \"Logo.png\"", f.Title);
+            Assert.Equal("Company logo", f.ImageDetail);
+            XmlElement img;
+            Assert.True(FindingLocator.TryLocateImage(doc, f, out img));
+            Assert.Equal("img", img.LocalName);
+            Directory.CreateDirectory(_temp);
+            var path = Path.Combine(_temp, "t.htm");
+            doc.Save(path);
+            var adapter = new FakeDocumentAdapter(path, true);
+            Assert.True(new FlareAI.Core.Actions.ActionRunner(null, null, 1024).GoTo(adapter, f));
+            Assert.Equal("img", adapter.LastSelectedNode.LocalName);
+            Assert.Equal("../Images/Logo.png", ((XmlElement)adapter.LastSelectedNode).GetAttribute("src"));
+        }
+
+        [Fact]
+        public void ImageAloneInItsParagraph_IsLocatedOnTheImage_WithItsCaption()
+        {
+            var doc = Page("<h1>Pay bills</h1><p>Open the list.</p><p><img src=\"Images/payee%20list.png\" /></p><p class=\"Caption\">The payee list</p>");
+            var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            Assert.Equal("Alt text for \"payee list.png\"", f.Title);
+            Assert.Equal("The payee list", f.ImageDetail);
+            XmlElement img;
+            Assert.True(FindingLocator.TryLocateImage(doc, f, out img));
+            Assert.Equal("p", img.ParentNode.LocalName);
+            Assert.Equal(img, doc.SelectSingleNode("//*[local-name()='img']"));
+            Assert.Same(img.ParentNode, FindingLocator.LocateBlock(doc, f));
+        }
+
+        [Fact]
+        public void ImageInATopicWithNoText_IsStillFlagged()
+        {
+            var doc = Page("<p><img src=\"only.png\" /></p>");
+            var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            Assert.Equal("Alt text for \"only.png\"", f.Title);
+            XmlElement img;
+            Assert.True(FindingLocator.TryLocateImage(doc, f, out img));
+        }
+
+        [Fact]
+        public void TwoImagesWithTheSameFileName_AreToldApart_AndEachIsLocated()
+        {
+            var doc = Page("<h1>Pay bills</h1><p>First, open the payee list from the home page. <img src=\"a/step.png\" /></p><p>Then add the payee. <img src=\"b/step.png\" /></p>");
+            var found = StructureCheck.Of(BlocksOf(doc)).Where(x => x.Rule == "Structure.AltText").ToList();
+            Assert.Equal(2, found.Count);
+            Assert.NotEqual(found[0].Title, found[1].Title);
+            Assert.StartsWith("Alt text for \"step.png\" in \"First, open the payee list", found[0].Title);
+            Assert.StartsWith("Alt text for \"step.png\" in \"Then add the payee", found[1].Title);
+            XmlElement second;
+            Assert.True(FindingLocator.TryLocateImage(doc, found[1], out second));
+            Assert.Equal("b/step.png", second.GetAttribute("src"));
+        }
+
+        [Fact]
+        public void SameFileTwice_IsLocatedByPlace()
+        {
+            var doc = Page("<p><img src=\"x.png\" /></p><p><img src=\"x.png\" /></p>");
+            var found = StructureCheck.Of(BlocksOf(doc)).Where(x => x.Rule == "Structure.AltText").ToList();
+            Assert.Equal(2, found.Count);
+            Assert.Equal("Alt text for \"x.png\" (image 1 of 2)", found[0].Title);
+            XmlElement img;
+            Assert.True(FindingLocator.TryLocateImage(doc, found[1], out img));
+            Assert.Same(doc.SelectNodes("//*[local-name()='img']")[1], img);
+        }
+
+        [Fact]
+        public void DecorativeImage_IsNotFlagged_AndAMissingFileIsNamedAsWritten()
+        {
+            var doc = Page("<p>Hello <img src=\"d.png\" role=\"presentation\" /> <img src=\"..\\Images\\gone.png\" /></p>");
+            var f = Assert.Single(StructureCheck.Of(BlocksOf(doc)), x => x.Rule == "Structure.AltText");
+            Assert.Equal("Alt text for \"gone.png\"", f.Title);
+        }
+
         [Fact]
         public void CodeIsLiteral_NotLinted_NotEditable()
         {

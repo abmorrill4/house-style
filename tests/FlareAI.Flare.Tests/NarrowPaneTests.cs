@@ -574,6 +574,7 @@ namespace FlareAI.Flare.Tests
                 if (h != null) h();
                 return ok;
             }
+            public bool SelectNode(System.Xml.XmlNode node) { return _inner.SelectNode(node); }
             public void Edit(string operationName, Action body) { _inner.Edit(operationName, body); }
             public bool ReplaceSpan(System.Xml.XmlText run, int start, int length, string replacement) { return _inner.ReplaceSpan(run, start, length, replacement); }
             public string VariableValue(string qualifiedName) { return _inner.VariableValue(qualifiedName); }

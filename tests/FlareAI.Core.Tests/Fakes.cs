@@ -72,6 +72,9 @@ namespace FlareAI.Core.Tests
         public bool InsertVariableResult = true;
         public bool InsertVariable(string name) { if (InsertVariableResult) InsertedVariables.Add(name); return InsertVariableResult; }
 
+        public XmlNode LastSelectedNode;
+        public bool SelectNode(XmlNode node) { LastSelectedNode = node; return node != null; }
+
         public bool SelectText(XmlText run, int start, int length)
         {
             LastSelected = run.Value.Substring(start, length);
