@@ -1,7 +1,7 @@
 # The signed release, started by hand: gh workflow run release.yml [-f version=x.y.z] [-f dry_run=true]
 # build (tests, unsigned stage) -> sign (Azure Artifact Signing of the FlareAI.* PE files and Install.ps1) -> package (zip, installer exe)
 # -> sign-exe -> rsa (signs checksums.txt with the update key) -> publish (verifies everything, then draft, publish, tag).
-# Only sign and rsa run in the "release" environment (main only). Publishing creates the tag, so a failed run burns no
+# Only sign, sign-exe and rsa run in the "release" environment (main only). Publishing creates the tag, so a failed run burns no
 # version. dry_run goes through the draft release, then deletes it: no tag, no published release.
 name: release
 on:

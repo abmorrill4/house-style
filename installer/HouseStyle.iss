@@ -51,5 +51,8 @@ begin
   if Exec(Ps, Args, ExpandConstant('{tmp}\HouseStyleSetup'), SW_SHOW, ewWaitUntilTerminated, Code) and (Code = 0) then
     MsgBox('House Style is installed. Start Flare and look for the House Style tab.', mbInformation, MB_OK)
   else
-    MsgBox('House Style was not installed. The message in the console window says why. Close Flare and run Setup again.', mbError, MB_OK);
+  begin
+    SuppressibleMsgBox('House Style was not installed. The message in the console window says why. Close Flare and run Setup again.', mbError, MB_OK, IDOK);
+    Abort;   // a silent run must not report success
+  end;
 end;
