@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-Besides the **House Style** tab and the issues pane, the plugin works where you type. None of these features ever stops you from typing, saving, or building, and each one can be turned off in **House Style > Settings**.
+Besides the **House Style** tab and the issues pane, the plugin works where you type. None of these features ever stops you from typing, saving, or building, and each one is on until you turn it off in **House Style > Settings**.
 
 ## Right-click menu
 
