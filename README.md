@@ -50,12 +50,11 @@ or settings that could hold a secret. You can see exactly what a report holds be
 asks GitHub for the latest release, with no text, key or identifier. Details:
 [Privacy](https://gethousestyle.com/privacy.html).
 
-## For IT
+## Command line
 
-- `Install.ps1 -Silent` installs with no questions. Exit code 0 means installed.
+- `Install.ps1 -Silent` installs with no questions, for scripts and tests. Exit code 0 means installed.
 - `Install.ps1 -Flare 21` picks a Flare version by folder number (22 is Flare 2026, 21 is Flare 2025).
-- `Install.ps1 -NoAutoUpdate`, or an `update-policy.json` file with `{"autoUpdate": false}` in the plugin folder,
-  turns updates off. Settings then shows "Set by your IT department".
+- Automatic updates are turned off in **Settings**.
 - Updates are downloaded from this repository's GitHub releases and checked against the release's SHA-256 checksum
   before they install.
 

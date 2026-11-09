@@ -81,7 +81,7 @@ namespace FlareAI.Core.Tests
         private static readonly string[][] RetiredAllowed =
         {
             new[] { @"PanelHost\.cs$", @"^FlareAI\.Findings$", "the pane's internal name in Flare's layout file, never shown" },
-            new[] { @"UpdateFlow\.cs$|SettingsForm\.cs$", @"updates|update-policy", "automatic updates are turned off, not a rule" },
+            new[] { @"UpdateFlow\.cs$|SettingsForm\.cs$", @"updates", "automatic updates are turned off, not a rule" },
             new[] { @"\.cs$", @"tracked change|Review tab", "Accept and Reject of Flare's tracked changes" },
         };
 

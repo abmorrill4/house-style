@@ -72,25 +72,9 @@ namespace FlareAI.Core.Tests
         }
 
         [Fact]
-        public void AutoUpdate_IsOnByDefault_TheSettingDecides_UnlessThePolicyFileDoes()
+        public void AutoUpdate_IsOnByDefault()
         {
             Assert.True(new PluginSettings().AutoUpdate);
-            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "flareai-policy-" + System.Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(dir);
-            try
-            {
-                // No policy file: the Settings check box decides, and it can be changed.
-                var off = FlareAI.Core.Update.UpdatePolicy.Resolve(false, dir);
-                Assert.False(off.Enabled);
-                Assert.False(off.FromPolicyFile);
-                Assert.True(FlareAI.Core.Update.UpdatePolicy.Resolve(true, dir).Enabled);
-                // A policy file: it decides, and the check box is read-only ("Set by your IT department").
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, FlareAI.Core.Update.UpdateLayout.PolicyFileName), "{\"autoUpdate\": false}");
-                var policy = FlareAI.Core.Update.UpdatePolicy.Resolve(true, dir);
-                Assert.False(policy.Enabled);
-                Assert.True(policy.FromPolicyFile);
-            }
-            finally { System.IO.Directory.Delete(dir, true); }
         }
 
         [Fact]

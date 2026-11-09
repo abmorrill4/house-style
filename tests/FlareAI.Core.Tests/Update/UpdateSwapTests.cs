@@ -93,7 +93,6 @@ namespace FlareAI.Core.Tests.Update
             using (var t = new TempDir())
             {
                 var layout = Installed(t);
-                File.WriteAllText(Path.Combine(layout.Current, UpdateLayout.PolicyFileName), "{\"autoUpdate\": true}");
                 StageReady(layout, "0.9.0");
 
                 var r = Swap(layout).Apply("0.9.0");
@@ -105,7 +104,6 @@ namespace FlareAI.Core.Tests.Update
                 Assert.Equal("0.9.0", UpdateLayout.VersionIn(layout.Current));
                 Assert.Equal("0.9.0", UpdateLayout.VersionIn(Plugins(t)));   // Flare sees it through its one link
                 Assert.Equal("0.8.0", UpdateLayout.VersionIn(layout.VersionDir("0.8.0")));   // rollback copy kept
-                Assert.True(File.Exists(Path.Combine(layout.Current, UpdateLayout.PolicyFileName)));   // IT policy carried over
                 Assert.False(Directory.Exists(layout.StagedDir("0.9.0")));
                 string why;
                 Assert.True(layout.Manages(Plugins(t), out why), why);
@@ -318,7 +316,7 @@ namespace FlareAI.Core.Tests.Update
                 Assert.True(layout.Manages(layout.Current, out why), why);
                 Assert.False(layout.NeedsRepair);
 
-                FakePlugin.Write(t["ProgramFiles\\Plugins\\FlareAI"], "0.8.0");   // -NoJunction copy
+                FakePlugin.Write(t["ProgramFiles\\Plugins\\FlareAI"], "0.8.0");   // an old all-users copy
                 Assert.False(layout.Manages(t["ProgramFiles\\Plugins\\FlareAI"], out why));
                 Assert.False(new UpdateLayout(t["Nobody"]).Manages(Plugins(t), out why));
 
@@ -338,7 +336,7 @@ namespace FlareAI.Core.Tests.Update
                 string why;
                 Assert.True(layout.NeedsRepair);
                 Assert.False(layout.Manages(Plugins(t), out why));
-                Assert.Contains("Install.cmd", why);
+                Assert.Contains("installer", why);
             }
         }
     }

@@ -37,7 +37,7 @@ namespace FlareAI.Core.Update
     /// (never a junction: see <see cref="UpdateLayout"/> on why Flare 2026 needs a single hop), so the swap is folder renames:
     /// <list type="number">
     /// <item>copy the verified payload (<c>staged\&lt;ver&gt;\FlareAI</c>, or a kept <c>versions\&lt;ver&gt;</c>) to
-    /// <c>current.new</c>, with the IT policy file from <c>current</c>;</item>
+    /// <c>current.new</c>;</item>
     /// <item>rename <c>current</c> to <c>current.old</c> (retried, then refused, while Flare still holds the files), then
     /// <c>current.new</c> to <c>current</c>;</item>
     /// <item>check that <c>current</c> holds the new version; if not, rename back (rollback);</item>
@@ -91,8 +91,6 @@ namespace FlareAI.Core.Update
                 if (source == null) throw new UpdateException("No downloaded update for " + version + " was found.");
                 UpdateStager.DeleteDir(Fresh);
                 CopyDir(source, Fresh);
-                var policy = Path.Combine(current, UpdateLayout.PolicyFileName);
-                if (File.Exists(policy)) File.Copy(policy, Path.Combine(Fresh, UpdateLayout.PolicyFileName), true);
 
                 // 2. Swap by renaming. The first rename fails while Flare still has the files open: nothing changes then.
                 Retry(() => Directory.Move(current, Old));
@@ -152,7 +150,7 @@ namespace FlareAI.Core.Update
             catch (Exception ex)
             {
                 Diagnostics.Log("Update rollback", ex);
-                throw new UpdateException("The update failed and the previous version couldn't be restored (" + ex.Message + "). Run Install.cmd from the download to repair House Style.", ex);
+                throw new UpdateException("The update failed and the previous version couldn't be restored (" + ex.Message + "). Download the latest installer and run it to repair House Style.", ex);
             }
             UpdateStager.DeleteDir(Fresh);
         }
