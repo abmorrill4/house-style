@@ -65,5 +65,23 @@
       "If you can't change your team's guide, the button says Request Rule Change instead.",
       "You ignored an issue and disabled a rule. Next, lint with the AI review."
     ]
+  },
+  {
+    "slug": "lint-topic-4",
+    "youtubeId": "_sX8uI9X38g",
+    "title": "Lint a topic with the AI review",
+    "duration": "1:42",
+    "summary": "Add the AI review, then check, change or steer its suggestions.",
+    "version": "0.3.21",
+    "flare": "2026",
+    "poster": "lint-topic-4.webp",
+    "transcript": [
+      "Add the AI review, and House Style also checks the wording of each paragraph. Select the arrow on Lint Topic, then Rules and AI Review. Rule issues appear at once, and the AI review takes a few seconds more. Stop AI Review ends it early and keeps what it found.",
+      "AI issues say AI where the rule's source goes. To see only them, choose AI Only in the source list.",
+      "When the AI finds text that breaks a rule in your guide, the source names both. Here it's your team's rule about naming the role. When the AI gives exact wording, Change makes it as a tracked change.",
+      "Some AI issues need a rewrite. Change opens it for you to check, and Change in the window makes it.",
+      "To steer the AI, select Rewrite and say what to keep or change. The AI rewrites the suggestion, and you decide again.",
+      "The pane shows what the AI cost this session. AI On, on the House Style tab, turns AI off for all linting. You linted with the AI review and acted on its suggestions. Next, lint a whole project."
+    ]
   }
 ]
