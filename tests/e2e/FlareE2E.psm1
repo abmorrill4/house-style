@@ -127,7 +127,8 @@ function Start-FlareE2E {
     # Setup already done and the tour already offered, so no first-run dialogs; AI per -Ai.
     $base = @{ AiOff = (-not $Ai); WriteDiagnostics = $true; LiveCheck = $false }
     if ($protectedKey) { $base.ProtectedApiKey = $protectedKey }
-    ($base + $Settings) | ConvertTo-Json | Set-Content (Join-Path $appdata "settings.json")
+    foreach ($k in $Settings.Keys) { $base[$k] = $Settings[$k] }   # -Settings wins, so a run can turn AI or linting as you type back on
+    $base | ConvertTo-Json | Set-Content (Join-Path $appdata "settings.json")
     @{ FirstStart = (Get-Date).ToUniversalTime().ToString("o"); TourOffered = $true; ChecklistHidden = $true; ProjectLinted = $true } | ConvertTo-Json | Set-Content (Join-Path $appdata "onboarding.json")
     # Flare loads a plugin only when it is turned on for this user.
     $key = "HKCU:\Software\MadCap Software\Flare\Plugins\House Style"
