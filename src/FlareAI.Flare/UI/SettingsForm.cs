@@ -25,7 +25,6 @@ namespace FlareAI.Flare.UI
         private readonly StackLayout.Block _modelNoteBlock;
         private readonly string _pluginDir;
         private readonly Func<string> _whyUpdatesOff;
-        private readonly FlareAI.Core.Update.UpdatePolicy _updatePolicy;
         private readonly RadioButton[] _choices;
         private readonly ComboBox _model, _fastModel, _deepModel;
         private readonly TextBox _baseUrl, _key, _timeout;
@@ -45,7 +44,7 @@ namespace FlareAI.Flare.UI
 
         private const string GatewayHint = "The address your admin gave you, e.g. https://gateway.example.com";
 
-        /// <param name="pluginDir">The plugin folder (where an IT department's update-policy.json lives), or null.</param>
+        /// <param name="pluginDir">The plugin folder (the folder House Style runs from), or null.</param>
         /// <param name="whyUpdatesOff">Why automatic updates are off now (<c>UpdateFlow.WhyOff</c>), null when they are on.</param>
         /// <param name="role">The role the ribbon was built for (the one in effect until Flare restarts).</param>
         /// <param name="exportLlm">Export for LLMs, from the Advanced tab (null hides the button).</param>
@@ -58,7 +57,6 @@ namespace FlareAI.Flare.UI
             _startRole = _settings.Role ?? role;
             _pluginDir = pluginDir;
             _whyUpdatesOff = whyUpdatesOff;
-            _updatePolicy = FlareAI.Core.Update.UpdatePolicy.Resolve(_settings.AutoUpdate, pluginDir);
 
             Text = "House Style — Settings";
             StartPosition = FormStartPosition.CenterParent;
@@ -181,8 +179,7 @@ namespace FlareAI.Flare.UI
             _autoReports = a.Check("Send error reports automatically", _settings.SendErrorReportsAutomatically);
             a.Note("House Style sends a report only when you choose Send, or by itself when this box is checked. Reports never include your topic text unless you type it in.");
             _llmExport = a.Check("After each HTML build, add LLM-ready Markdown and llms.txt to the output", _settings.LlmExportAfterBuild);
-            _autoUpdate = a.Check("Keep House Style up to date (checks GitHub once a day)", _updatePolicy.Enabled);
-            _autoUpdate.Enabled = !_updatePolicy.FromPolicyFile;   // the IT department's update-policy.json decides
+            _autoUpdate = a.Check("Keep House Style up to date (checks GitHub once a day)", _settings.AutoUpdate);
             _updateStatus = a.Status(1);
             _updateStatus.Left = a.LabelLeft + a.S(18); _updateStatus.Width = a.FullWidth - a.S(18);
             _autoUpdate.CheckedChanged += (s, e) => ShowUpdateStatus();
@@ -281,9 +278,7 @@ namespace FlareAI.Flare.UI
         {
             string why = null;
             try { why = _whyUpdatesOff == null ? null : _whyUpdatesOff(); } catch (Exception ex) { FlareAI.Core.Diagnostics.Log("update status", ex); }
-            if (_updatePolicy.FromPolicyFile)
-                _updateStatus.Text = "Set by your IT department. Automatic updates are " + (_updatePolicy.Enabled ? "on." : "off.");
-            else if (why != null && why.StartsWith("not available", StringComparison.OrdinalIgnoreCase))
+            if (why != null && why.StartsWith("not available", StringComparison.OrdinalIgnoreCase))
                 _updateStatus.Text = "Automatic updates are " + why + ".";
             else
                 _updateStatus.Text = _autoUpdate.Checked == _settings.AutoUpdate
@@ -617,7 +612,7 @@ namespace FlareAI.Flare.UI
             _settings.CheckOnSave = _onSave.Checked;
             _settings.ReportBeforeBuild = _beforeBuild.Checked;
             _settings.Role = (UserRole)Array.FindIndex(_roles, r => r.Checked);
-            if (!_updatePolicy.FromPolicyFile) _settings.AutoUpdate = _autoUpdate.Checked;
+            _settings.AutoUpdate = _autoUpdate.Checked;
             if (choice != AiChoice.None && _key.Text.Trim().Length > 0) _settings.SetApiKey(_key.Text.Trim());
             try
             {

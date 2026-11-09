@@ -63,33 +63,6 @@ namespace FlareAI.Core.Tests.Update
         }
 
         [Fact]
-        public void ElevatedStep_IgnoresTheTestEnvironment_AndRefusesAForeignLinkTarget()
-        {
-            if (PowerShell51 == null) return;
-            using (var t = new TempDir())
-            {
-                var flare = FakeFlare(t);
-                var local = t["local"];
-                var kit = t["unzipped"];
-                FakePlugin.Write(Path.Combine(kit, "FlareAI"), "0.8.0");
-                File.Copy(Script, Path.Combine(kit, "Install.ps1"));
-                // Elevated: the fake Flare from FLARE_ROOT must not be used, so nothing is installed.
-                var r = Install(kit, flare, local, "-Elevated");
-                Assert.NotEqual(0, r.Code);
-                Assert.False(Directory.Exists(Path.Combine(local, "HouseStyle", "current")), r.Output);
-                Assert.False(Directory.Exists(Path.Combine(flare, @"Flare.app\Plugins\FlareAI")), r.Output);
-
-                // A link target that is not a per-user install folder is refused before anything else happens.
-                var elsewhere = Path.Combine(t["elsewhere"], "current");
-                Directory.CreateDirectory(elsewhere);
-                File.WriteAllText(Path.Combine(elsewhere, "FlareAI.Flare.dll"), "");
-                r = Install(kit, flare, local, "-LinkTarget \"" + elsewhere + "\"");
-                Assert.NotEqual(0, r.Code);
-                Assert.Contains("Refusing to link", r.Output);
-            }
-        }
-
-        [Fact]
         public void ElevatedLinkCommand_IsSelfContained_ParsesAndRefusesOtherFolders()
         {
             if (PowerShell51 == null) return;
@@ -138,13 +111,12 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
             if (PowerShell51 == null) return;
             using (var t = new TempDir())
             {
-                // A fake Flare 99 outside Program Files (so no elevation), with an old copy install holding an IT policy.
+                // A fake Flare 99 outside Program Files (so no elevation).
                 var flare = t["MadCap Flare 99"];
                 Directory.CreateDirectory(Path.Combine(flare, "Flare.app"));
                 File.WriteAllText(Path.Combine(flare, "Flare.app", "Flare.exe"), "");
                 var plugins = Path.Combine(flare, @"Flare.app\Plugins\FlareAI");
                 FakePlugin.Write(plugins, "0.7.0");
-                File.WriteAllText(Path.Combine(plugins, UpdateLayout.PolicyFileName), "{\"autoUpdate\": false}");
 
                 var kit = t["unzipped"];
                 FakePlugin.Write(Path.Combine(kit, "FlareAI"), "0.8.0");
@@ -165,7 +137,6 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
                 Assert.True(Junction.IsLink(plugins), "Plugins\\FlareAI should be a link now");
                 AssertOneHop(plugins, layout);
                 Assert.Equal("0.8.0", UpdateLayout.VersionIn(plugins));
-                Assert.True(File.Exists(Path.Combine(layout.Current, UpdateLayout.PolicyFileName)), "IT policy carried over");
                 string why;
                 Assert.True(layout.Manages(plugins, out why), why);
 
@@ -178,7 +149,6 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
                 Assert.True(File.Exists(Path.Combine(layout.VersionDir("0.7.5"), "FlareAI.Flare.dll")), "re-install deleted a kept version");
                 Assert.Equal("0.8.0", UpdateLayout.VersionIn(layout.VersionDir("0.8.0")));   // the replaced copy, kept for rollback
                 Assert.True(File.Exists(Path.Combine(layout.Current, "StyleGuide", "rules.txt")));
-                Assert.True(File.Exists(Path.Combine(layout.Current, UpdateLayout.PolicyFileName)));
 
                 // The updater can take it from here.
                 FakePlugin.Write(Path.Combine(layout.StagedDir("0.9.0"), "FlareAI"), "0.9.0");
@@ -188,16 +158,6 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
                 Assert.True(swapped.Ok, swapped.Error);
                 AssertOneHop(plugins, layout);
                 Assert.Equal("0.9.0", UpdateLayout.VersionIn(plugins));
-
-                // -NoJunction over the per-user install: unlinks, never empties the per-user folder, and turns the plugin on too.
-                ForgetActivation();
-                var copy = Install(kit, flare, local, "-NoJunction");
-                Assert.True(copy.Code == 0, copy.Output);
-                Assert.Equal("True", Activated());
-                Assert.False(Junction.IsLink(plugins));
-                Assert.Equal("0.8.0", UpdateLayout.VersionIn(plugins));
-                Assert.True(File.Exists(Path.Combine(layout.Current, "FlareAI.Flare.dll")));
-                Assert.False(layout.Manages(plugins, out why));
             }
         }
 
@@ -214,7 +174,6 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
                 var local = t["Local"];
                 var layout = new UpdateLayout(Path.Combine(local, "HouseStyle"));
                 FakePlugin.Write(layout.VersionDir("0.7.0"), "0.7.0");
-                File.WriteAllText(Path.Combine(layout.VersionDir("0.7.0"), UpdateLayout.PolicyFileName), "{\"autoUpdate\": false}");
                 Junction.Create(layout.Current, layout.VersionDir("0.7.0"));
                 Directory.CreateDirectory(Path.GetDirectoryName(plugins));
                 Junction.Create(plugins, layout.Current);
@@ -230,9 +189,39 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
                 Assert.False(layout.NeedsRepair);
                 Assert.Equal("0.8.0", UpdateLayout.VersionIn(plugins));
                 Assert.Equal("0.7.0", UpdateLayout.VersionIn(layout.VersionDir("0.7.0")));   // the old link's target is untouched
-                Assert.True(File.Exists(Path.Combine(layout.Current, UpdateLayout.PolicyFileName)), "IT policy carried over");
                 string why;
                 Assert.True(layout.Manages(plugins, out why), why);
+            }
+        }
+
+        [Fact]
+        public void PerUserInstall_RefusesToRepointALinkThatAnotherInstallOwns_ButReplacesADanglingOne()
+        {
+            if (PowerShell51 == null) return;
+            using (var t = new TempDir())
+            {
+                // Issue #137: Plugins\FlareAI is machine-wide. A live link into another HouseStyle root is someone else's install.
+                var flare = FakeFlare(t);
+                var plugins = Path.Combine(flare, @"Flare.app\Plugins\FlareAI");
+                var other = Path.Combine(t["OtherUser"], @"HouseStyle\current");
+                FakePlugin.Write(other, "0.7.0");
+                Directory.CreateDirectory(Path.GetDirectoryName(plugins));
+                Junction.Create(plugins, other);
+                var local = t["Local"];
+                var kit = t["unzipped"];
+                FakePlugin.Write(Path.Combine(kit, "FlareAI"), "0.8.0");
+                File.Copy(Script, Path.Combine(kit, "Install.ps1"));
+
+                var r = Install(kit, flare, local);
+                Assert.NotEqual(0, r.Code);
+                Assert.Contains("belongs to another install", r.Output);
+                Assert.True(UpdateLayout.SamePath(Junction.FinalPath(plugins), Junction.FinalPath(other)), "the link was moved");
+
+                // The other install is gone (the link dangles): this one takes over.
+                Directory.Delete(other, true);
+                r = Install(kit, flare, local);
+                Assert.True(r.Code == 0, r.Output);
+                AssertOneHop(plugins, new UpdateLayout(Path.Combine(local, "HouseStyle")));
             }
         }
 

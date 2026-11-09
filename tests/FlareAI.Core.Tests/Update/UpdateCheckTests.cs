@@ -42,45 +42,8 @@ namespace FlareAI.Core.Tests.Update
     }
 
     [Collection("Core statics")]
-    public class UpdatePolicyTests
+    public class UpdateSettingTests
     {
-        [Fact]
-        public void NoPolicyFile_TheSettingDecides()
-        {
-            using (var t = new TempDir())
-            {
-                Assert.True(UpdatePolicy.Resolve(true, t.Path).Enabled);
-                Assert.False(UpdatePolicy.Resolve(false, t.Path).Enabled);
-                Assert.False(UpdatePolicy.Resolve(true, t.Path).FromPolicyFile);
-            }
-        }
-
-        [Fact]
-        public void PolicyFile_WinsOverTheSettingInBothDirections()
-        {
-            using (var t = new TempDir())
-            {
-                File.WriteAllText(t[UpdateLayout.PolicyFileName], "{\"autoUpdate\": false}");
-                var p = UpdatePolicy.Resolve(true, t.Path);
-                Assert.False(p.Enabled);
-                Assert.True(p.FromPolicyFile);
-                File.WriteAllText(t[UpdateLayout.PolicyFileName], "{\"autoUpdate\": true}");
-                Assert.True(UpdatePolicy.Resolve(false, t.Path).Enabled);
-            }
-        }
-
-        [Fact]
-        public void UnreadablePolicyFile_TurnsUpdatesOff()
-        {
-            using (var t = new TempDir())
-            {
-                File.WriteAllText(t[UpdateLayout.PolicyFileName], "{ autoUpdate: nope");
-                Assert.False(UpdatePolicy.Resolve(true, t.Path).Enabled);
-                File.WriteAllText(t[UpdateLayout.PolicyFileName], "{\"autoUpdate\": \"yes\"}");
-                Assert.False(UpdatePolicy.Resolve(true, t.Path).Enabled);
-            }
-        }
-
         [Fact]
         public void Settings_AutoUpdateIsOnByDefault_AndSurvivesAnOldSettingsFile()
         {

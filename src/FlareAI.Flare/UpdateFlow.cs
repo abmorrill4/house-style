@@ -15,8 +15,8 @@ namespace FlareAI.Flare
     /// on start, the result of the last install ("Updated to 0.4.0" with What's new, or "didn't install, still on 0.3.2");
     /// then, in the background and at most once a day, a check for a newer release, offered as a notice with
     /// "Update now" and "Later". Update now downloads and verifies it, then offers to finish when Flare closes;
-    /// FlareAI.Updater.exe waits for Flare to exit and swaps the files. Only the per-user install (Install.cmd's default)
-    /// can update itself; the Program Files copy (-NoJunction) never checks.
+    /// FlareAI.Updater.exe waits for Flare to exit and swaps the files. Only the per-user install
+    /// can update itself.
     /// </summary>
     internal sealed class UpdateFlow
     {
@@ -64,7 +64,7 @@ namespace FlareAI.Flare
                     Diagnostics.Log("Update to " + result.To + " failed: " + why);
                     Toast.Show(_owner(), "The update to House Style " + result.To + " didn't install, so you're still on " + _version + ".", "Details",
                                () => Notify.Error(_owner(), "The update to House Style " + result.To + " didn't install. You're still on " + _version + ", and it works as before.\n\nReason: " + why,
-                                                  "House Style tries again with the next update. To install it by hand, download it from the releases page and run Install.cmd.", why, "Update"));
+                                                  "House Style tries again with the next update. To install it by hand, download the installer from the releases page and run it.", why, "Update"));
                     return;
                 }
                 ShowWhatsNew(state, "Updated to House Style " + _version + ". Here's what's new.");
@@ -104,11 +104,10 @@ namespace FlareAI.Flare
             if (!_layout.Manages(_pluginDir, out reason))
             {
                 Diagnostics.Log("Updates: install not managed: " + reason);
-                if (_layout.NeedsRepair) return "paused: your install uses an older folder layout. Run Install.cmd from the latest download once to repair it";
-                return "not available: this copy was installed by hand. Run Install.cmd from the download once to turn them on";
+                if (_layout.NeedsRepair) return "paused: your install uses an older folder layout. Download the latest installer and run it once to repair it";
+                return "not available: this copy was installed by hand. Download the installer and run it once to turn them on";
             }
-            var policy = UpdatePolicy.Resolve(PluginSettings.Load().AutoUpdate, _pluginDir);
-            if (!policy.Enabled) return policy.FromPolicyFile ? "turned off by your IT department (update-policy.json)" : "turned off in Settings";
+            if (!PluginSettings.Load().AutoUpdate) return "turned off in Settings";
             return null;
         }
 
@@ -141,7 +140,7 @@ namespace FlareAI.Flare
                 if (e.Error != null) { Diagnostics.Log("update check", e.Error); ErrorReporter.Background(_owner(), "House Style couldn't check for updates.", e.Error); return; }
                 var release = (ReleaseInfo)((object[])e.Result)[0];
                 var state = (UpdateState)((object[])e.Result)[1];
-                // Automatic: download, verify and queue the install for when Flare closes. Settings or update-policy.json turn it off.
+                // Automatic: download, verify and queue the install for when Flare closes. Settings turn it off.
                 if (release != null) Download(release);
                 else if (state.StagedVersion != null && SemVer.Compare(state.StagedVersion, _version) > 0 && UpdateStager.ReadyPayload(_layout, state.StagedVersion) != null)
                     LaunchUpdater(state.StagedVersion);

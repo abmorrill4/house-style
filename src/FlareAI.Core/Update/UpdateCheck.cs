@@ -7,41 +7,6 @@ using Newtonsoft.Json.Linq;
 
 namespace FlareAI.Core.Update
 {
-    /// <summary>
-    /// Whether automatic updates are on. An IT policy file, <c>update-policy.json</c> in the plugin folder
-    /// (<c>{"autoUpdate": false}</c>), wins over the writer's setting in either direction.
-    /// </summary>
-    public sealed class UpdatePolicy
-    {
-        public bool Enabled { get; private set; }
-        /// <summary>True when the policy file decided (the Settings toggle should be read-only and say so).</summary>
-        public bool FromPolicyFile { get; private set; }
-
-        public static UpdatePolicy Resolve(bool settingAutoUpdate, string pluginDir)
-        {
-            var fromFile = ReadPolicyFile(pluginDir);
-            return fromFile.HasValue
-                ? new UpdatePolicy { Enabled = fromFile.Value, FromPolicyFile = true }
-                : new UpdatePolicy { Enabled = settingAutoUpdate };
-        }
-
-        /// <summary>The policy file's <c>autoUpdate</c>, or null when there is no (readable) file. A file that exists but can't be read turns updates off.</summary>
-        public static bool? ReadPolicyFile(string pluginDir)
-        {
-            if (string.IsNullOrEmpty(pluginDir)) return null;
-            var path = Path.Combine(pluginDir, UpdateLayout.PolicyFileName);
-            if (!File.Exists(path)) return null;
-            try
-            {
-                var o = JObject.Parse(File.ReadAllText(path, Encoding.UTF8));
-                var v = o["autoUpdate"];
-                if (v == null || v.Type != JTokenType.Boolean) return false;
-                return (bool)v;
-            }
-            catch (Exception) { return false; }   // IT meant something by putting a file there: fail closed
-        }
-    }
-
     /// <summary>What the last check found, kept in <c>update-state.json</c>.</summary>
     public sealed class UpdateState
     {
