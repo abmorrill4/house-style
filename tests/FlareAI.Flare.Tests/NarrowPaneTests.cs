@@ -401,6 +401,76 @@ namespace FlareAI.Flare.Tests
             });
         }
 
+        private static Rectangle RectOf(object r)
+        {
+            Func<string, int> get = n => (int)r.GetType().GetProperty(n).GetValue(r, null);
+            return new Rectangle(get("x"), get("y"), get("width"), get("height"));
+        }
+
+        [Fact]
+        public void Bounds_FindsTheCountLineAndHeading_TheOpenMenusItems_AndTheHeadings_WithoutChangingAnything()
+        {
+            WithPane((panel, form, list) =>
+            {
+                list.Items[0].Selected = true;
+                Pump(null, 200);
+                Assert.True(RectOf(E2EHook.Bounds(panel, "summary", null)).Width > 0);
+                Assert.True(RectOf(E2EHook.Bounds(panel, "cardHead", null)).Height > 0);
+                Assert.True(RectOf(E2EHook.Bounds(panel, "box", "Level")).Width > 0);
+
+                Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(panel, "menuItem", "Skip")).Message);
+                var ignore = All(panel).OfType<Button>().Single(b => b.Text.StartsWith("Ignore", StringComparison.Ordinal) && b.Visible);
+                ignore.PerformClick();   // opens the reasons menu
+                var menu = (ContextMenuStrip)typeof(FindingsPanel)
+                    .GetField("_rejectMenu", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(panel);
+                var skip = RectOf(E2EHook.Bounds(panel, "menuItem", "Skip"));
+                Assert.True(skip.Width > 0 && skip.Height > 0);
+                Assert.True(menu.Bounds.Contains(skip), "the item " + skip + " isn't inside the menu " + menu.Bounds);
+                var report = RectOf(E2EHook.Bounds(panel, "menuItem", "Report False Positive"));
+                Assert.True(report.Top > skip.Top);
+                var noItem = Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(panel, "menuItem", "Nope")).Message;
+                Assert.StartsWith("No menu item Nope (valid: ", noItem);
+                Assert.Contains("Skip for Now", noItem);
+                Assert.True(menu.Visible, "reading a menu item's bounds closed the menu");
+                menu.Close();
+
+                var noHeading = Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(panel, "group", "Nope")).Message;
+                Assert.StartsWith("No heading Nope", noHeading);
+                Assert.Contains("Transfers", noHeading);   // the topic's section is the list's one heading
+                try
+                {
+                    var group = RectOf(E2EHook.Bounds(panel, "group", "Transfers"));
+                    Assert.True(group.Height > 0 && group.Bottom <= list.RectangleToScreen(list.Items[0].Bounds).Top + 1, "the heading " + group + " isn't above the first row");
+                }
+                catch (InvalidOperationException ex) when (ex.Message.StartsWith("The list didn't report", StringComparison.Ordinal)) { }   // no visual styles in this test host
+                Assert.True(list.Items[0].Selected, "reading bounds changed the selection");
+
+                var kind = Assert.Throws<ArgumentException>(() => E2EHook.Bounds(panel, "nope", "x")).Message;
+                Assert.Equal("Unknown bounds kind nope (valid: button, row, box, summary, cardHead, menuItem, group, toast)", kind);
+                Assert.Equal("No notice is showing", Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(null, "toast", null)).Message);
+                Assert.StartsWith("Unknown toast part link", Assert.Throws<ArgumentException>(() => E2EHook.Bounds(null, "toast", "link")).Message);
+            });
+        }
+
+        [Fact]
+        public void DialogBounds_FindsAControlByName_OrAButtonByLabel_AndListsTheChoices()
+        {
+            Sta(() =>
+            {
+                using (var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000), ShowInTaskbar = false, ClientSize = new Size(300, 200) })
+                {
+                    var box = new TextBox { Left = 10, Top = 10, Width = 200, AccessibleName = "Reason" };
+                    var ok = new Button { Text = "&Send…", Left = 10, Top = 60, Width = 90 };
+                    form.Controls.AddRange(new Control[] { box, ok });
+                    form.Show();
+                    Assert.Equal(box.RectangleToScreen(box.ClientRectangle), RectOf(E2EHook.DialogBounds(form, "Reason")));
+                    Assert.Equal(ok.RectangleToScreen(ok.ClientRectangle), RectOf(E2EHook.DialogBounds(form, "Sen")));
+                    var none = Assert.Throws<InvalidOperationException>(() => E2EHook.DialogBounds(form, "Nope")).Message;
+                    Assert.Equal("No control or button Nope (valid: Reason, Send)", none);
+                }
+            });
+        }
+
         [Fact]
         public void TakeSavePath_IsNull_WhenTheHookIsOff_AndOneShotWhenSet()
         {

@@ -27,7 +27,7 @@ namespace FlareAI.Flare
         /// <summary>Every verb Run accepts, in the switch's order. A test checks it against the switch.</summary>
         internal static readonly string[] Verbs =
         {
-            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertVariable", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab",
+            "state", "command", "open", "click", "caret", "bodyXml", "acceptedText", "insertVariable", "insertBlocks", "insertRaw", "rowMenu", "dialogClick", "dialogSelect", "dialogType", "dialogTab", "dialogBounds",
             "paneFocus", "paneFocusTab", "paneRow", "paneType", "paneMenu", "paneSize", "paneFloat", "paneDrawer", "bounds", "replace", "select", "save", "saveAs", "toast", "toastClick", "toastClose"
         };
 
@@ -143,6 +143,7 @@ namespace FlareAI.Flare
                     return null;
                 case "dialogType": Type(Dialog((string)c["title"]), (string)c["name"], arg); return null;   // a text box or list by its accessible name
                 case "dialogTab": Tab(Dialog((string)c["title"]), arg); return null;
+                case "dialogBounds": return DialogBounds(Dialog((string)c["title"]), arg);   // read only: a dialog control's rectangle on the screen
                 // The test sends keys itself (SendKeys) after this, so they pass through Flare's WPF dock as a writer's do.
                 case "paneFocus": return new { focused = Pane().E2EFocusList() };
                 case "paneFocusTab": return new { focused = Pane().E2EFocusTab() };
@@ -152,7 +153,7 @@ namespace FlareAI.Flare
                 case "paneSize": return SizePane(Pane(), (int)c["width"], (int)c["height"]);
                 case "paneDrawer": Pane().E2ESetDrawerHeight((int)c["height"]); return null;                 // the details drawer's height, as if the writer dragged the divider
                 case "paneFloat": return FloatPane(Pane(), (int?)c["width"] ?? 0, (int?)c["height"] ?? 0);   // as Flare's own Float
-                case "bounds": return Bounds(Pane(), (string)c["kind"], arg);           // read only: a pane control's rectangle on the screen, for the demo runner's real mouse
+                case "bounds": return Bounds((string)c["kind"] == "toast" ? null : Pane(), (string)c["kind"], arg);           // read only: a pane control's rectangle on the screen, for the demo runner's real mouse
                 case "caret": return Active().E2ECaret();                                      // what Flare reports for the caret: selected text, position and nodes
                 case "acceptedText": return new { text = AcceptedText(Active(), arg) };   // the text of the body block containing "arg", as the writer reads it with every tracked change accepted
                 case "insertVariable": { string err; var ok = Active().TryInsertVariable(arg, out err); return new { ok, error = err }; }
@@ -170,9 +171,14 @@ namespace FlareAI.Flare
             }
         }
 
+        /// <summary>The kinds <see cref="Bounds"/> accepts.</summary>
+        internal static readonly string[] BoundsKinds = { "button", "row", "box", "summary", "cardHead", "menuItem", "group", "toast" };
+
         /// <summary>
         /// Where a pane control is on the screen, in pixels: kind "button" (a visible, enabled button whose text starts with
-        /// <paramref name="text"/>), "row" (the issue row whose text contains it) or "box" (a control by accessible name). Changes nothing.
+        /// <paramref name="text"/>), "row" (the issue row whose text contains it), "box" (a control by accessible name),
+        /// "menuItem" (the open drop-down menu's item whose text starts with it), "group" (the section heading whose text
+        /// contains it) or "toast" (the showing notice, or its action link when the text is "action"). Changes nothing.
         /// </summary>
         internal static object Bounds(FindingsPanel pane, string kind, string text)
         {
@@ -194,9 +200,42 @@ namespace FlareAI.Flare
                         Valid(All(pane).Where(x => x.Visible && !string.IsNullOrEmpty(x.AccessibleName)).Select(x => x.AccessibleName)));
                     r = c.RectangleToScreen(c.ClientRectangle);
                     break;
-                default: throw new ArgumentException("Unknown bounds kind " + kind + " (valid: button, row, box)");
+                case "summary":
+                    r = pane.E2ESummaryRect();
+                    break;
+                case "cardHead":
+                    r = pane.E2ECardHeadRect();
+                    break;
+                case "menuItem":
+                    r = pane.E2EMenuItemRect(text);
+                    break;
+                case "group":
+                    r = pane.E2EGroupRect(text);
+                    break;
+                case "toast":
+                    if (!string.IsNullOrEmpty(text) && text != "action") throw new ArgumentException("Unknown toast part " + text + " (valid: action, or none for the whole notice)");
+                    r = Toast.E2EBounds(text == "action");
+                    break;
+                default: throw new ArgumentException("Unknown bounds kind " + kind + Valid(BoundsKinds));
             }
-            return new { x = r.Left, y = r.Top, width = r.Width, height = r.Height };
+            return Rect(r);
+        }
+
+        private static object Rect(System.Drawing.Rectangle r) { return new { x = r.Left, y = r.Top, width = r.Width, height = r.Height }; }
+
+        /// <summary>
+        /// Where a dialog control is on the screen: the visible control whose accessible name is <paramref name="name"/>, or
+        /// else the visible button whose text (without "&amp;" or "…") starts with it. Changes nothing.
+        /// </summary>
+        internal static object DialogBounds(Control dialog, string name)
+        {
+            if (string.IsNullOrEmpty(name)) throw new ArgumentException("dialogBounds needs a control name or button label");
+            var c = All(dialog).FirstOrDefault(x => x.Visible && x.Width > 0 && x.AccessibleName == name)
+                    ?? All(dialog).OfType<ButtonBase>().FirstOrDefault(x => x.Visible && x.Width > 0 && Label(x).StartsWith(name ?? "", StringComparison.Ordinal));
+            if (c == null) throw new InvalidOperationException("No control or button " + name + Valid(
+                All(dialog).Where(x => x.Visible && !string.IsNullOrEmpty(x.AccessibleName)).Select(x => x.AccessibleName)
+                    .Concat(All(dialog).OfType<ButtonBase>().Where(x => x.Visible).Select(Label)).Distinct()));
+            return Rect(c.RectangleToScreen(c.ClientRectangle));
         }
 
         private static string AcceptedText(FlareDocumentAdapter a, string contains)

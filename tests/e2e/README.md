@@ -94,9 +94,23 @@ once. The rest run on Flare's UI thread and answer when they return.
   `Send-E2E paneFloat -Extra @{ width = 300; height = 800 }`
 - **paneDrawer** (height, px) sets the height of the details drawer under the list, as if the writer dragged the divider.
   The drawer opens small so the list keeps its rows, so pull it up before reading a long card. Send-E2E paneDrawer -Extra @{ height = 480 }`r
-- **`bounds`** (`kind` button, row or box; `arg` the button text prefix, row text or accessible name) returns a pane
-  control's rectangle on the screen as `x`, `y`, `width`, `height`. Read only. The tutorial-video runner uses it to move
-  the real mouse. `Send-E2E bounds Change -Extra @{ kind = "button" }`
+- **`bounds`** (`kind`, `arg`) returns a rectangle on the screen as `x`, `y`, `width`, `height`. Read only: it never
+  clicks or changes anything. The tutorial-video runner uses it to move the real mouse. The kinds:
+  - `button`: the visible, enabled pane button whose text starts with `arg`. `Send-E2E bounds Change -Extra @{ kind = "button" }`
+  - `row`: the issue row whose text contains `arg`, scrolled into view.
+  - `summary` and `cardHead`: the count line at the top of the pane and the selected issue's card heading. No `arg`.
+  - `box`: the pane control whose accessible name is `arg`, such as `Level`, `Source` or `Issues`. Fails "No control named {arg}" and lists the names.
+  - `menuItem`: the item of the pane's open menu (Ignore's reasons or the row menu) whose text starts with `arg`. Fails
+    "No open menu" or "No menu item {arg}" (which lists the items). `Send-E2E bounds "Skip" -Extra @{ kind = "menuItem" }`
+  - `group`: the section heading in the issue list whose text contains `arg`, scrolled into view. By file it is the file
+    heading row. Otherwise it is the list group's header, measured with `LVM_GETGROUPRECT`, which needs visual styles.
+    Fails "No heading {arg}" and lists the headings.
+  - `toast`: the showing notice, or with `arg` = `action` its action link ("Show Issues"). Fails "No notice is showing".
+    No issues pane is needed. `Send-E2E bounds action -Extra @{ kind = "toast" }`
+  Unknown kinds fail and list the valid ones.
+- **`dialogBounds`** (`title`, `arg`) returns the rectangle of the control in an open dialog whose accessible name is
+  `arg`, or else of the button whose text starts with `arg`, the same way. Read only. Fails "No control or button {arg}"
+  and lists the names and buttons. `Send-E2E dialogBounds "Send" -Extra @{ title = "Report False Positive" }`
 - **`replace`** (`arg` old text, `text` new text) replaces the first match in the active topic as one tracked change,
   as typing does. **`select`** (`arg`) selects the first match. The text must sit in one text run (no markup inside
   it). Both fail "No text {arg} in one text run" or "No topic is open."
