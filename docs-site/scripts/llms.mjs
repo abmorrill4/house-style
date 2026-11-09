@@ -8,6 +8,18 @@ import { fileURLToPath } from 'node:url';
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = path.join(SITE, 'src', 'content', 'docs');
 const ORIGIN = 'https://gethousestyle.com/docs';
+const VIDEOS = JSON.parse(fs.readFileSync(path.join(SITE, 'src', 'data', 'videos.json'), 'utf8'));
+
+/** MDX to plain Markdown: drops import lines and turns each <Video slug="..." /> into a link to the video. */
+function plain(body) {
+  return body
+    .replace(/^import .*;\n/gm, '')
+    .replace(/<Video slug="([^"]+)" \/>/g, (tag, slug) => {
+      const v = VIDEOS.find((x) => x.slug === slug);
+      return v ? `Video: [${v.title}](https://www.youtube.com/watch?v=${v.youtubeId}) (${v.duration})` : '';
+    })
+    .replace(/\n{3,}/g, '\n\n');
+}
 
 const walk = (dir) =>
   fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
@@ -17,7 +29,7 @@ function page(file) {
   const raw = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
   const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
   const fm = m ? m[1] : '';
-  const body = m ? m[2] : raw;
+  const body = plain(m ? m[2] : raw);
   const get = (k) => {
     const x = new RegExp(`^${k}:\\s*(.*)$`, 'm').exec(fm);
     if (!x) return '';

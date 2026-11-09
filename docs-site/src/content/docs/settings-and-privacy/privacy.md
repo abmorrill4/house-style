@@ -21,4 +21,8 @@ House Style sends a report only when you choose **Send**, or by itself when **Se
 
 Once a day House Style asks GitHub for the latest release. The request carries no text, key or identifier.
 
+## Videos
+
+Videos in this guide load nothing from YouTube until you select play. After you select play, the video plays in YouTube's privacy-enhanced mode, and [YouTube's privacy policy](https://policies.google.com/privacy) covers what YouTube collects.
+
 For the full privacy statement, see the [Privacy page](/privacy.html).

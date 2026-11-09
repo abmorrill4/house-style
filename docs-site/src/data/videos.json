@@ -1,0 +1,87 @@
+[
+  {
+    "slug": "lint-topic-1",
+    "youtubeId": "maWwU3Sw7Rs",
+    "title": "Lint a topic and read the issues",
+    "duration": "2:52",
+    "summary": "Lint a topic with the style rules, then read the count line, each issue and its card.",
+    "version": "0.3.21",
+    "flare": "2026",
+    "poster": "lint-topic-1.webp",
+    "transcript": [
+      "Lint a topic against Google's style guide and your team's own, and fix each issue in place. Open a topic, then select the House Style tab. Select the arrow on Lint Topic, then Rules Only, to lint with the style rules. Part 4 adds the AI review.",
+      "The House Style Issues pane opens beside your topic. Its five parts are the count line, the filters, the issues, the card and the actions. The first line names your team's style guide and how many rules it adds.",
+      "House Style checks Google's style guide, more than two thousand rules. Your team's guide sits on top, and its rules win where the two disagree. Your project's own variables come last.",
+      "The next line counts the issues. Auto-fix issues have an exact fix. Needs you issues need your judgment.",
+      "Issues are listed in reading order, under the topic's headings. Each row starts with its level. A filled circle is an Error, a triangle is a Warning, and an open circle is a Suggestion. The bar in the margin marks the same paragraph.",
+      "Select the question mark to see what each symbol means.",
+      "The second column says where each rule comes from. Our rules means your team's style guide.",
+      "Select an issue to see its card. The heading gives the level, the guide the rule comes from, and whether it's Auto-fix. What changes shows the words around the issue, with removed words struck through and new words underlined. Why gives the reason, the rule, and an example.",
+      "Google's guide would change Click on to Click. Your team's guide turns that rule off and asks for Select instead.",
+      "Open Guide opens the rule in your team's style guide, right in Flare.",
+      "Select your topic's tab to go back.",
+      "You linted a topic against both guides and read its issues. Next, change an issue and undo it."
+    ]
+  },
+  {
+    "slug": "lint-topic-2",
+    "youtubeId": "crdktmnS6oQ",
+    "title": "Change an issue and undo it",
+    "duration": "2:09",
+    "summary": "Change an issue as a tracked change, undo it, and use Change All, Edit, Go To and Fix All.",
+    "version": "0.3.21",
+    "flare": "2026",
+    "poster": "lint-topic-2.webp",
+    "transcript": [
+      "Change an issue in one click, as a tracked change you can undo. To narrow the list, choose a level, such as Errors.",
+      "The source list shows rule issues or AI issues. Clear Filters shows them all again.",
+      "Select an issue, then Change. House Style makes the change as a tracked change, and moves to the next issue.",
+      "Enter does the same.",
+      "When an issue repeats, Change All changes every one in the topic.",
+      "Press Control Z to undo it, and the issue comes back in the pane.",
+      "When a project variable holds the text you typed, Change puts the variable in its place.",
+      "To use your own words, select Edit and type the replacement.",
+      "Some issues need you to fix them in the topic. Go To selects the text, so you can type your fix. When you type, House Style lints again a moment after you stop.",
+      "Fix All makes every Auto-fix change in the topic, and one Control Z undoes them all.",
+      "Every change is a tracked change on Flare's Review tab, where you accept or reject it.",
+      "When you save, a notice counts the topic's issues. The topic is saved either way.",
+      "You changed issues and undid one. Next, ignore an issue or disable a rule."
+    ]
+  },
+  {
+    "slug": "lint-topic-3",
+    "youtubeId": "L_Fb4M49Kw0",
+    "title": "Ignore an issue or disable a rule",
+    "duration": "1:25",
+    "summary": "Ignore an issue with a reason, restore it, and disable a rule for one project.",
+    "version": "0.3.21",
+    "flare": "2026",
+    "poster": "lint-topic-3.webp",
+    "transcript": [
+      "When an issue is wrong for your topic, ignore it or disable its rule. Break-glass is the right term in security docs, so this issue doesn't fit. Select the issue, then Ignore. Choose why. The suggestion is wrong, it's correct in this context, or the rule doesn't apply here. Your reason helps your style guide owners. Skip for Now hides it without a reason. Report False Positive tells the House Style team.",
+      "Ignored issues stay hidden each time you lint. Ignored Issues lists them, and Restore brings one back.",
+      "To stop a rule for this project, select Disable Rule.",
+      "Choose For this project only, add a reason, and select OK. Its issues leave the list.",
+      "If you can't change your team's guide, the button says Request Rule Change instead.",
+      "You ignored an issue and disabled a rule. Next, lint with the AI review."
+    ]
+  },
+  {
+    "slug": "lint-topic-4",
+    "youtubeId": "_sX8uI9X38g",
+    "title": "Lint a topic with the AI review",
+    "duration": "1:42",
+    "summary": "Add the AI review, then check, change or steer its suggestions.",
+    "version": "0.3.21",
+    "flare": "2026",
+    "poster": "lint-topic-4.webp",
+    "transcript": [
+      "Add the AI review, and House Style also checks the wording of each paragraph. Select the arrow on Lint Topic, then Rules and AI Review. Rule issues appear at once, and the AI review takes a few seconds more. Stop AI Review ends it early and keeps what it found.",
+      "AI issues say AI where the rule's source goes. To see only them, choose AI Only in the source list.",
+      "When the AI finds text that breaks a rule in your guide, the source names both. Here it's your team's rule about naming the role. When the AI gives exact wording, Change makes it as a tracked change.",
+      "Some AI issues need a rewrite. Change opens it for you to check, and Change in the window makes it.",
+      "To steer the AI, select Rewrite and say what to keep or change. The AI rewrites the suggestion, and you decide again.",
+      "The pane shows what the AI cost this session. AI On, on the House Style tab, turns AI off for all linting. You linted with the AI review and acted on its suggestions. Next, lint a whole project."
+    ]
+  }
+]
