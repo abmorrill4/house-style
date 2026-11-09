@@ -98,8 +98,8 @@ once. The rest run on Flare's UI thread and answer when they return.
   clicks or changes anything. The tutorial-video runner uses it to move the real mouse. The kinds:
   - `button`: the visible, enabled pane button whose text starts with `arg`. `Send-E2E bounds Change -Extra @{ kind = "button" }`
   - `row`: the issue row whose text contains `arg`, scrolled into view.
-  - `box`: the pane control whose accessible name is `arg`, such as `Issue count` (the count line), `Issue heading` (the
-    card's heading), `Level`, `Source` or `Issues`. Fails "No control named {arg}" and lists the names.
+  - `summary` and `cardHead`: the count line at the top of the pane and the selected issue's card heading. No `arg`.
+  - `box`: the pane control whose accessible name is `arg`, such as `Level`, `Source` or `Issues`. Fails "No control named {arg}" and lists the names.
   - `menuItem`: the item of the pane's open menu (Ignore's reasons or the row menu) whose text starts with `arg`. Fails
     "No open menu" or "No menu item {arg}" (which lists the items). `Send-E2E bounds "Skip" -Extra @{ kind = "menuItem" }`
   - `group`: the section heading in the issue list whose text contains `arg`, scrolled into view. By file it is the file

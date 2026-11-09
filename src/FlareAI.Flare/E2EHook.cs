@@ -172,7 +172,7 @@ namespace FlareAI.Flare
         }
 
         /// <summary>The kinds <see cref="Bounds"/> accepts.</summary>
-        internal static readonly string[] BoundsKinds = { "button", "row", "box", "menuItem", "group", "toast" };
+        internal static readonly string[] BoundsKinds = { "button", "row", "box", "summary", "cardHead", "menuItem", "group", "toast" };
 
         /// <summary>
         /// Where a pane control is on the screen, in pixels: kind "button" (a visible, enabled button whose text starts with
@@ -200,6 +200,12 @@ namespace FlareAI.Flare
                         Valid(All(pane).Where(x => x.Visible && !string.IsNullOrEmpty(x.AccessibleName)).Select(x => x.AccessibleName)));
                     r = c.RectangleToScreen(c.ClientRectangle);
                     break;
+                case "summary":
+                    r = pane.E2ESummaryRect();
+                    break;
+                case "cardHead":
+                    r = pane.E2ECardHeadRect();
+                    break;
                 case "menuItem":
                     r = pane.E2EMenuItemRect(text);
                     break;
@@ -223,6 +229,7 @@ namespace FlareAI.Flare
         /// </summary>
         internal static object DialogBounds(Control dialog, string name)
         {
+            if (string.IsNullOrEmpty(name)) throw new ArgumentException("dialogBounds needs a control name or button label");
             var c = All(dialog).FirstOrDefault(x => x.Visible && x.Width > 0 && x.AccessibleName == name)
                     ?? All(dialog).OfType<ButtonBase>().FirstOrDefault(x => x.Visible && x.Width > 0 && Label(x).StartsWith(name ?? "", StringComparison.Ordinal));
             if (c == null) throw new InvalidOperationException("No control or button " + name + Valid(

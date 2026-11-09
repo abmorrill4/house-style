@@ -6,24 +6,8 @@ using System.Windows.Forms;
 
 namespace FlareAI.Flare.UI
 {
-    /// <summary>
-    /// A label whose accessible value is its text, so it can carry a fixed accessible name ("Issue count") and a screen
-    /// reader still reads what it says.
-    /// </summary>
-    internal class ValueLabel : Label
-    {
-        protected override AccessibleObject CreateAccessibilityInstance() { return new ValueObject(this); }
-
-        private sealed class ValueObject : ControlAccessibleObject
-        {
-            private readonly Label _owner;
-            public ValueObject(Label owner) : base(owner) { _owner = owner; }
-            public override string Value { get { return string.IsNullOrEmpty(_owner.AccessibleName) ? base.Value : _owner.Text; } set { } }   // unnamed, the text is already the name
-        }
-    }
-
     /// <summary>A status label that tells assistive technology when its text changes (WinForms has no aria-live).</summary>
-    internal sealed class LiveLabel : ValueLabel
+    internal sealed class LiveLabel : Label
     {
         public LiveLabel() { AccessibleRole = AccessibleRole.StaticText; }
 

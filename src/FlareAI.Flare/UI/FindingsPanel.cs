@@ -360,7 +360,7 @@ namespace FlareAI.Flare.UI
             card.HorizontalScroll.Enabled = false;
             card.HorizontalScroll.Visible = false;
             card.AutoScroll = true;
-            _cardHead = new ValueLabel { AutoSize = false, Height = 34, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
+            _cardHead = new Label { AutoSize = false, Height = 34, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
             _cardDiff = DiffView.Create();
             _cardDiff.Height = 64; _cardDiff.BackColor = SystemColors.Window;
             _cardWhy = DiffView.CreateFull();
@@ -724,8 +724,6 @@ namespace FlareAI.Flare.UI
         {
             A11y.Name(this, PaneTitle, "Issues in the open topic, with a card for the selected one.");
             A11y.Name(_progress, "Progress");
-            A11y.Name(_status, "Issue count", "How many issues the list shows, and what happened last.");
-            A11y.Name(_cardHead, "Issue heading", "The selected issue's level, source and kind.");
             A11y.Name(_list, "Issues", IssuesHelp);
             A11y.Name(_result, "Result of the last batch");
             A11y.Name(_cardDiff, "What changes", "The text around the change, with removed words struck through and added words underlined.");
@@ -1473,6 +1471,10 @@ namespace FlareAI.Flare.UI
             }
             throw new InvalidOperationException("No heading " + text + E2EHook.Valid(texts));
         }
+
+        /// <summary>For the demo runner: the count line's and the card heading's screen rectangles. Changes nothing.</summary>
+        internal Rectangle E2ESummaryRect() { return _status.RectangleToScreen(_status.ClientRectangle); }
+        internal Rectangle E2ECardHeadRect() { return _cardHead.RectangleToScreen(_cardHead.ClientRectangle); }
 
         /// <summary>The pane's open drop-down menu (Ignore's reasons, or the row menu), or null.</summary>
         private ContextMenuStrip OpenMenu()

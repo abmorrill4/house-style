@@ -408,19 +408,14 @@ namespace FlareAI.Flare.Tests
         }
 
         [Fact]
-        public void Bounds_FindsTheNamedLines_TheOpenMenusItems_AndTheHeadings_WithoutChangingAnything()
+        public void Bounds_FindsTheCountLineAndHeading_TheOpenMenusItems_AndTheHeadings_WithoutChangingAnything()
         {
             WithPane((panel, form, list) =>
             {
                 list.Items[0].Selected = true;
                 Pump(null, 200);
-                // The count line and the card heading have fixed names; a screen reader still reads their text as the value.
-                var status = All(panel).OfType<Label>().Single(l => l.AccessibleName == "Issue count");
-                Assert.Equal(status.Text, status.AccessibilityObject.Value);
-                Assert.True(RectOf(E2EHook.Bounds(panel, "box", "Issue count")).Width > 0);
-                var head = All(panel).OfType<Label>().Single(l => l.AccessibleName == "Issue heading");
-                Assert.False(string.IsNullOrEmpty(head.AccessibilityObject.Value));
-                Assert.True(RectOf(E2EHook.Bounds(panel, "box", "Issue heading")).Height > 0);
+                Assert.True(RectOf(E2EHook.Bounds(panel, "summary", null)).Width > 0);
+                Assert.True(RectOf(E2EHook.Bounds(panel, "cardHead", null)).Height > 0);
                 Assert.True(RectOf(E2EHook.Bounds(panel, "box", "Level")).Width > 0);
 
                 Assert.Equal("No open menu", Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(panel, "menuItem", "Skip")).Message);
@@ -451,7 +446,7 @@ namespace FlareAI.Flare.Tests
                 Assert.True(list.Items[0].Selected, "reading bounds changed the selection");
 
                 var kind = Assert.Throws<ArgumentException>(() => E2EHook.Bounds(panel, "nope", "x")).Message;
-                Assert.Equal("Unknown bounds kind nope (valid: button, row, box, menuItem, group, toast)", kind);
+                Assert.Equal("Unknown bounds kind nope (valid: button, row, box, summary, cardHead, menuItem, group, toast)", kind);
                 Assert.Equal("No notice is showing", Assert.Throws<InvalidOperationException>(() => E2EHook.Bounds(null, "toast", null)).Message);
                 Assert.StartsWith("Unknown toast part link", Assert.Throws<ArgumentException>(() => E2EHook.Bounds(null, "toast", "link")).Message);
             });
