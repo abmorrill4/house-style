@@ -60,13 +60,15 @@ jobs:
       - name: Only release.yml may release
         shell: pwsh
         run: |
-          # The release environment holds the signing keys. No other workflow may use it, and none may run with
-          # elevated triggers that hand a fork's code a token.
+          # The release environment holds the signing keys. No other workflow may use it, and none may use the triggers that
+          # hand a fork's code a token. The names are split so this step doesn't match itself.
+          $triggers = ('pull_request_' + 'target'), ('workflow_' + 'run')
           foreach ($f in Get-ChildItem .github/workflows -Filter *.yml) {
             if ($f.Name -eq 'release.yml') { continue }
-            $hits = @(Select-String -Path $f.FullName -Pattern '^\s*environment:\s*release\b', '^\s*pull_request_target\b', '^\s*workflow_run\b' |
-              Where-Object { $_.Line -notmatch 'Only release.yml may release' })
-            if ($hits) { throw "$($f.Name) must not use the release environment, pull_request_target or workflow_run: $($hits[0].Line.Trim())" }
+            $t = (Get-Content $f.FullName | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+            $bad = ($t -match ('(?i)\b(' + ($triggers -join '|') + ')\b')) -or
+                   ($t -match '(?i)environment["'']?\s*:\s*(["'']?release\b|\r?\n\s+name:\s*["'']?release\b)')
+            if ($bad) { throw "$($f.Name) must not use the release environment or the elevated workflow triggers." }
           }
 
       - name: Test

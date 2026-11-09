@@ -12,5 +12,5 @@ rules:
   cache-poisoning:
     ignore:
       # setup-node 4.x turns caching on only with the cache input, which the feedback-worker job no longer sets.
-      # The audit flags the action anyway because build.yml also runs on release tags.
+      # The audit flags the action anyway because build.yml runs setup-node.
       - build.yml
