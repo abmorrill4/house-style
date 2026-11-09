@@ -28,6 +28,6 @@ House Style updates itself. Updates work only for a copy installed with **Instal
 
 The next time you start Flare, **What's New** lists the changes. If a download fails, House Style tries again the next day. To open it again, select **House Style > Help > What's New**. If an update can't install, you stay on your version, and a notice says why.
 
-To turn updates off, select **House Style > Settings**, and on the **Advanced** tab clear **Keep House Style up to date**. If the box says "Set by your IT department", your IT department controls updates.
+To turn updates off, select **House Style > Settings**, and on the **Advanced** tab clear **Keep House Style up to date**.
 
 **Diagnostics…** in **House Style > Settings > Advanced** shows your version and when House Style last checked for updates.

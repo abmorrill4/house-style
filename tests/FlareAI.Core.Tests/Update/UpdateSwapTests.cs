@@ -316,7 +316,7 @@ namespace FlareAI.Core.Tests.Update
                 Assert.True(layout.Manages(layout.Current, out why), why);
                 Assert.False(layout.NeedsRepair);
 
-                FakePlugin.Write(t["ProgramFiles\\Plugins\\FlareAI"], "0.8.0");   // -NoJunction copy
+                FakePlugin.Write(t["ProgramFiles\\Plugins\\FlareAI"], "0.8.0");   // an old all-users copy
                 Assert.False(layout.Manages(t["ProgramFiles\\Plugins\\FlareAI"], out why));
                 Assert.False(new UpdateLayout(t["Nobody"]).Manages(Plugins(t), out why));
 

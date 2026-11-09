@@ -2,7 +2,7 @@
 #
 # Per-user, self-updating (issue #101):
 #   copies the FlareAI folder next to this script to %LOCALAPPDATA%\HouseStyle\current (a REAL folder; the version
-#   it replaces is kept in ...\HouseStyleersions\<version> for rollback), and links MadCap Flare's Plugins\FlareAI
+#   it replaces is kept in ...\HouseStyle\versions\<version> for rollback), and links MadCap Flare's Plugins\FlareAI
 #   to ...\HouseStyle\current (a junction; the only step that needs administrator rights, and only the first time).
 #   Later updates swap "current" by renaming folders, without admin rights. Re-running the installer is safe: your
 #   settings, style guide and decisions live in %APPDATA%\FlareAI and are never touched.
@@ -123,19 +123,30 @@ function Get-PluginVersion([string]$dir) {
     if (-not $v) { return $null }
     return ($v -split '\+')[0].Trim()
 }
+# Issue #137: Plugins\FlareAI is machine-wide, so a live link into another HouseStyle root belongs to another install
+# (often another Windows user). Returns that folder, or $null when the link is missing, dangling, or points into this
+# install's own root (earlier layouts). A target that exists but can't be read counts as live, not dangling.
+function Get-ForeignLinkOwner([string]$dest, [string]$target) {
+    $item = Get-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+    if (-not $item -or -not $item.Target) { return $null }
+    $old = [IO.Path]::GetFullPath(([string](@($item.Target)[0]))).TrimEnd('\')
+    $root = [IO.Path]::GetFullPath((Split-Path $target -Parent)).TrimEnd('\') + '\'
+    if ($old.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+    $exists = $false
+    try { $exists = [IO.Directory]::Exists($old) } catch { $exists = $true }
+    if (-not $exists) { try { [void][IO.Directory]::GetDirectories((Split-Path $old -Parent)) } catch [UnauthorizedAccessException] { $exists = $true } catch { } }
+    if ($exists) { return $old }
+    return $null
+}
+function Get-ForeignLinkMessage([string]$owner, [string]$dest) {
+    return "Flare already loads House Style from $owner, which belongs to another install. House Style supports one Windows user per computer. To use this install instead, remove the folder $dest first."
+}
 # Plugins\FlareAI -> $target. Replaces an old link, or an old copy install (migration), never user data.
 function Set-PluginsLink([string]$dest, [string]$target) {
     New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
     if (Test-Link $dest) {
-        # Issue #137: a live link into another HouseStyle root belongs to another install (often another Windows user).
-        # Dangling links, and links into this same root (earlier layouts), are replaced.
-        $old = $null
-        $item = Get-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
-        if ($item -and $item.Target) { $old = ([string](@($item.Target)[0])).TrimEnd('\') }
-        $root = (Split-Path $target -Parent).TrimEnd('\') + '\'
-        if ($old -and (Test-Path -LiteralPath (Join-Path $old "FlareAI.Flare.dll")) -and -not $old.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Flare already loads House Style from $old, which belongs to another install. House Style supports one Windows user per computer. To use this install instead, remove the folder $dest first."
-        }
+        $owner = Get-ForeignLinkOwner $dest $target
+        if ($owner) { throw (Get-ForeignLinkMessage $owner $dest) }
         Remove-Link $dest
     }
     elseif (Test-Path -LiteralPath $dest) {
@@ -148,7 +159,7 @@ function Set-PluginsLink([string]$dest, [string]$target) {
 # The text of the one command the elevated process runs: the link helpers, the two checks, then the link.
 function New-LinkCommand([string]$dest, [string]$target) {
     $text = "`$ErrorActionPreference = 'Stop'`n"
-    foreach ($name in @("Test-Link", "Remove-Link", "New-Junction", "Remove-RealFolder", "Set-PluginsLink", "Test-AllowedLinkTarget", "Test-AllowedLinkDest")) {
+    foreach ($name in @("Test-Link", "Remove-Link", "New-Junction", "Remove-RealFolder", "Get-ForeignLinkOwner", "Get-ForeignLinkMessage", "Set-PluginsLink", "Test-AllowedLinkTarget", "Test-AllowedLinkDest")) {
         $text += "function $name {`n" + (Get-Command $name -CommandType Function).Definition + "`n}`n"
     }
     $text += "`$dest = '" + ($dest -replace "'", "''") + "'`n`$target = '" + ($target -replace "'", "''") + "'`n"

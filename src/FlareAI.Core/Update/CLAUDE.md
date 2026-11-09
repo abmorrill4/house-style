@@ -28,5 +28,5 @@
 - **Fake update server for manual tests:** `scripts\fake-update-server.ps1`. It signs with the owner's DPAPI key
   backup, so it only works on the owner's account. Use `-Unsigned` or `-Corrupt` to check that the update is
   refused.
-- **The installer** (`scripts/release/Install.ps1`) elevates once, for the Program Files junction. Open hardening
-  items are in issues #136 and #137.
+- **The installer** (`scripts/release/Install.ps1`) elevates once, with a fixed encoded command, to link Flare's Plugins
+  folder. It refuses to re-point a link another install owns (#137).
