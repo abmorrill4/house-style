@@ -9,7 +9,7 @@ Open a topic and select **House Style > Lint Topic**. With text selected, House 
 
 The issues pane opens. Issues from the style rules appear at once. If you use AI, a wording review follows, paragraph by paragraph. With **No AI** chosen in Settings, the pane says that the AI review is off and shows only the style rules. To stop the AI review, select **Stop AI Review**.
 
-To lint without AI, select the arrow on **Lint Topic** and then **Rules Only**. **Rules and AI Review** adds the AI review. Lint Topic uses the one you chose last until you choose again. If **No AI** is on in Settings, the AI review stays off either way.
+To lint without AI, select the arrow on **Lint Topic** and then **Rules Only**. **Rules and AI Review** adds the AI review. Lint Topic uses the one you chose last until you choose again. Until you first choose, it adds the AI review. If **No AI** is on in Settings, the AI review stays off either way.
 
 ## Read an issue
 
@@ -26,6 +26,10 @@ Each issue has one of two types:
 - **Auto-fix**: the rule has an exact fix. **Change** makes it.
 - **Needs you**: an AI rewording to check, a variable to insert, or something to fix in the editor, such as a missing alt text.
 
+When the AI finds text that breaks a rule in your guide, the source names both, such as *AI · Our rules*.
+
+To see what each symbol, source and button means, select **?** beside **Fix All**.
+
 For text in a snippet, the pane also says how many files use the snippet.
 
 ## Decide
@@ -33,14 +37,15 @@ For text in a snippet, the pane also says how many files use the snippet.
 | Button | What happens |
 |---|---|
 | **Change** (Enter) | Makes the change as a tracked change and goes to the next issue. For an issue that needs a rewrite, the button says **Change…**. For a Needs you issue that you fix in the editor, it says **Go To**. |
-| **Change All** | Makes the same Auto-fix change for every issue of this rule in the topic. |
+| **Change All (n)** | Makes the same Auto-fix change for every issue of this rule in the topic. It shows when the issue appears more than once. |
 | **Ignore ▾** (Delete) | Hides the issue for that text. Choose why: the suggestion is wrong, it's correct in this context, or the rule doesn't apply here. Your reason helps your style guide owners. **Skip for Now** hides it without a reason. **Report False Positive…** tells the House Style team that the rule got it wrong. **Mark as Fixed**, in this menu or when you right-click an issue, marks an issue you've fixed yourself. If the issue is wrong, choose why instead. |
 | **Edit…** | Type the replacement yourself. |
 | **Rewrite…** | Tell the AI how to change this one issue, such as "keep the term SSO". |
 | **Go To** (Ctrl+Enter) | Selects the text in the editor, so you can fix it yourself. |
+| **Open File** | Opens the file that contains the issue. |
 | **Lint Paragraph** | Lints the paragraph again after you change it in the editor. |
 | **Open Guide** | Opens the rule's page in the style guide. |
-| **Disable Rule…** | Turns the rule off or changes its level, for the team or for this project. If you can't change your team's guide, the button says **Request Rule Change…**. See [Ask for a rule change](/docs/team-style-guide/ask-for-a-rule-change/). |
+| **Disable Rule…** | At the bottom of the pane. Turns the rule off or changes its level, for the team or for this project. If you can't change your team's guide, the button says **Request Rule Change…**. See [Ask for a rule change](/docs/team-style-guide/ask-for-a-rule-change/). |
 
 When you fix an issue by typing in the editor, it shows as fixed a moment after you stop typing.
 
@@ -55,8 +60,8 @@ For a missing alt text, **Add Alt Text…** asks the AI to draft it. The AI does
 
 ## Ignore, exempt and restore
 
-- **Ignore** hides an issue for you. **Ignored Issues (n)** at the top of the pane lists them, and **Restore** brings one back. If the text changed since you ignored it, it shows as *text changed*.
-- **Exempt This Text…**, in the **Ignore ▾** menu and the right-click menu, leaves one piece of text out of one rule for everyone on the project. The rule stays on everywhere else. **Exemptions (n)** at the top of the pane lists each one, and **Remove Exemption** shows the issue again. Exemptions are saved in the project, in `Project\HouseStyle\Exemptions.txt`. If your project is under source control, add or check out that file.
+- **Ignore** hides an issue for you. **Ignored Issues (n)**, at the bottom of the pane, lists them, and **Restore** brings one back. After Lint Project, the button is at the top of the pane. If the text changed since you ignored it, it shows as *text changed*.
+- **Exempt This Text…**, in the **Ignore ▾** menu and the right-click menu, leaves one piece of text out of one rule for everyone on the project. The rule stays on everywhere else. **Exemptions (n)**, at the bottom of the pane, lists each one, and **Remove Exemption** shows the issue again. Exemptions are saved in the project, in `Project\HouseStyle\Exemptions.txt`. If your project is under source control, add or check out that file.
 
 ## Filter the list
 
