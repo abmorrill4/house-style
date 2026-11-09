@@ -59,7 +59,7 @@ What the protection does and doesn't cover, so nobody promises more:
   Wrong: `File.Delete(Path.Combine(teamFolder, request.File));`
 - **Git in a guide folder** always passes `Git.Untrusted`. A shared `.git/config` can run programs.
 - **Model output is data.** It reaches the document only through the validators in `Editing/`.
-- **Updates are signed, and only the nightly release makes them.** Don't weaken `UpdateStager`'s signature check, the
+- **Updates are signed, and only `release.yml` makes them.** Don't weaken `UpdateStager`'s signature check, the
   `contents: read` default in `build.yml`, or the tag rules. Never add another way to tag.
 - **The repo is public.** Vulnerabilities go to a private advisory, never a public issue. Report text, tester names
   and private paths never go in code, tests or commits.

@@ -5,7 +5,7 @@ Shown in the What's new window after an update, on the first run of a new versio
 One "## <version>" section per release (optionally "## 0.2.0 — October 2026"), newest first. Inside a section:
 "### " headings, "- " bullets (indent wrapped lines by two spaces), plain paragraphs, and [text](https://...) links.
 Write each entry from the writer's side, in short plain sentences. No arrows, colon joins or taglines.
-New entries go in changes/<name>.md, not here: the nightly release adds them to the shipped copy (changes/README.md).
+New entries go in changes/<name>.md, not here: the release adds them to the shipped copy (changes/README.md).
 -->
 
 ## 0.3.4

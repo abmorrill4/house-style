@@ -3,7 +3,7 @@
 # Repo Settings > Pages > Source must be "GitHub Actions".
 # Two jobs: the build runs repo code with read-only access and no stored credentials; only the deploy job, which runs
 # no repo code, holds the Pages and OIDC permissions.
-# It also runs every morning, after the nightly release, so the release notes page lists the newest version.
+# It also runs every morning, and release.yml starts it after publishing, so the release notes page lists the newest version.
 name: pages
 
 on:

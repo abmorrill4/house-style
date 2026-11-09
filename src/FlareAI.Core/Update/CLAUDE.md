@@ -18,11 +18,15 @@
   key exists only as the `release` environment secret and the owner's DPAPI backup.
 - **Rotating the key** means shipping the new public key in a release signed with the old key. If both the key and
   its backup are lost, installs can't update automatically again.
-- **Protect the release path in `build.yml`:**
-  - Keep `contents: read` at workflow level. Only the `release` job writes.
-  - Keep `environment: release` (it holds the signing key and deploys only `v*` tags), the check that the run was
-    started by `nightly.yml`, and the "tag is on main" check. Releases are nightly with no approval click (2026-10-24).
-  - Keep `persist-credentials: false`, and keep the tag name validated before it's used.
+- **Protect the release path in `release.yml`:**
+  - Keep `permissions: {}` at workflow level and each job's own minimal permissions. Only `publish` writes, and it holds
+    no secrets. `rsa` has no `id-token` and no third-party actions.
+  - Keep `environment: release` on `sign`, `sign-exe` and `rsa` only (it deploys only from `main`), and `persist-credentials: false`.
+  - Keep the signing order: sign the `FlareAI.*` PE files and `Install.ps1`, then zip and build the exe from them, then sign
+    the exe, then write and RSA-sign `checksums.txt`. A signature failure stops the run; never fall back to unsigned.
+  - Keep the version check (plain x.y.z, newer than the latest release, tag not existing) and the verify step in `publish`,
+    which checks the signatures and the RSA signature with the key built into `FlareAI.Core.dll`.
+  - `UpdateStager` checks every `FlareAI.*` DLL and EXE; the release signs the same set (`scripts/release/Get-SignFiles.ps1`).
 - **Never delete a junction recursively.** The layout uses junctions (`Junction.Remove`). Remember the Flare 2026
   "junction to a junction" startup crash (#119).
 - **Fake update server for manual tests:** `scripts\fake-update-server.ps1`. It signs with the owner's DPAPI key
