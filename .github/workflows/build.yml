@@ -1,31 +1,21 @@
-# Builds and tests on every push and PR. A release tag (v0.2.0) also packages the plugin, and the release job signs
-# checksums.txt and publishes HouseStyle-0.2.0.zip, checksums.txt and checksums.txt.sig. Release tags come only from
-# nightly.yml, which creates the tag and starts this workflow on it. The release job refuses any run not started by a
-# running nightly.yml on main and any tag not on main, and the tag ruleset blocks moving or deleting v* tags.
-# Installed copies only take an update whose signature matches the key built into them.
+# Builds and tests on every push and PR. It never releases: only release.yml does (started by hand, see CLAUDE.md).
 # Builds against ref\ (stubs of the Flare API), so no MadCap files are needed here.
 name: build
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]   # labeled: the no-notes label takes effect at once
-  workflow_dispatch:
-    inputs:
-      nightly_run:
-        description: 'Set by nightly.yml: the run that started this release'
-        required: false
 
-# A newer push to a pull request makes the older run pointless, so the older one is cancelled. A push to main and a release
-# tag are never cancelled, because each run id is its own group.
+# A newer push to a pull request makes the older run pointless, so the older one is cancelled. A push to main is
+# never cancelled, because each run id is its own group.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read   # only the release job writes
+  contents: read
 
 jobs:
   changes:
@@ -66,6 +56,18 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '8.0.x'
+
+      - name: Only release.yml may release
+        shell: pwsh
+        run: |
+          # The release environment holds the signing keys. No other workflow may use it, and none may run with
+          # elevated triggers that hand a fork's code a token.
+          foreach ($f in Get-ChildItem .github/workflows -Filter *.yml) {
+            if ($f.Name -eq 'release.yml') { continue }
+            $hits = @(Select-String -Path $f.FullName -Pattern '^\s*environment:\s*release\b', '^\s*pull_request_target\b', '^\s*workflow_run\b' |
+              Where-Object { $_.Line -notmatch 'Only release.yml may release' })
+            if ($hits) { throw "$($f.Name) must not use the release environment, pull_request_target or workflow_run: $($hits[0].Line.Trim())" }
+          }
 
       - name: Test
         run: dotnet test FlareAI.sln -c Release   # Core, integration, rule fixtures (ratchet), scoring, corpus kit
@@ -116,11 +118,7 @@ jobs:
       - name: Version
         id: v
         shell: pwsh
-        run: |
-          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0-ci' }
-          # The tag name ends up in scripts and file names: only a plain version gets through.
-          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Not a version tag: $env:GITHUB_REF_NAME" }
-          "version=$v" >> $env:GITHUB_OUTPUT
+        run: '"version=0.0.0-ci" >> $env:GITHUB_OUTPUT'
 
       - name: Package
         shell: pwsh
@@ -133,92 +131,6 @@ jobs:
         with:
           name: HouseStyle-${{ steps.v.outputs.version }}
           path: dist/stage/
-
-      - name: Upload release files
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release
-          path: |
-            dist/HouseStyle-${{ steps.v.outputs.version }}.zip
-            dist/checksums.txt
-          if-no-files-found: error
-
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-
-  release:
-    # Only this job can write to the repo. The "release" environment holds the signing key and deploys only v* tags.
-    # The run must come from nightly.yml (a workflow_dispatch by the GitHub Actions app), and the tag must be on main.
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: windows-latest
-    environment: release
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Started by the nightly release, tag on main
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          ACTOR: ${{ github.triggering_actor }}
-          NIGHTLY_RUN: ${{ inputs.nightly_run }}
-        run: |
-          if ($env:EVENT -ne 'workflow_dispatch' -or $env:ACTOR -ne 'github-actions[bot]') { throw "Releases come only from nightly.yml (got $env:EVENT by $env:ACTOR)." }
-          # The run id it passed must be a nightly.yml run on main in this repo, and still running.
-          if ($env:NIGHTLY_RUN -notmatch '^\d+$') { throw "No nightly run id." }
-          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:NIGHTLY_RUN" | ConvertFrom-Json
-          if ($run.path -ne '.github/workflows/nightly.yml' -or $run.head_branch -ne 'main' -or $run.status -eq 'completed') {
-            throw "Run $env:NIGHTLY_RUN is not a running nightly.yml on main."
-          }
-          git fetch --quiet origin main
-          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
-          if ($LASTEXITCODE -ne 0) { throw "The tagged commit is not on main." }
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release
-          path: dist
-
-      - name: Release notes
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          # In its own step, so the notes script never runs where the signing key is.
-          # The notes end with the Install or update section, which already says to unblock the zip.
-          $notes = (& ./scripts/release/Build-WhatsNew.ps1 -Version $env:VERSION -NotesOnly) -join "`n"
-          $notes | Set-Content release-body.md -Encoding utf8
-
-      - name: Sign and publish
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build.outputs.version }}
-          SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: |
-          $zip = "dist/HouseStyle-$env:VERSION.zip"
-          # checksums.txt (sha256sum format) is made by package.ps1; the update refuses a zip whose SHA-256 doesn't match it (#101).
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ((Get-Content dist/checksums.txt -Raw) -notmatch "^$hash  ") { throw "checksums.txt doesn't match the zip." }
-          # The signature installed copies check: RSA-SHA256 (PKCS#1 v1.5) over the exact bytes of checksums.txt.
-          if (-not $env:SIGNING_KEY) { throw "UPDATE_SIGNING_KEY is not set in the release environment." }
-          $rsa = [System.Security.Cryptography.RSA]::Create()
-          try {
-            $rsa.FromXmlString($env:SIGNING_KEY)
-            $sig = $rsa.SignData([IO.File]::ReadAllBytes("dist/checksums.txt"), [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-          } finally { $rsa.Dispose() }
-          [IO.File]::WriteAllText("dist/checksums.txt.sig", [Convert]::ToBase64String($sig))
-          $env:SIGNING_KEY = $null
-          # Draft first, then publish: releases are immutable once published, so every file goes up before that.
-          gh release create $env:GITHUB_REF_NAME $zip dist/checksums.txt dist/checksums.txt.sig --title "House Style $env:VERSION" --notes-file release-body.md --verify-tag --draft
-          gh release edit $env:GITHUB_REF_NAME --draft=false --latest
 
   feedback-worker:
     # The Cloudflare Worker that receives in-app reports (#124). Tests only; the owner deploys it by hand (see its README).

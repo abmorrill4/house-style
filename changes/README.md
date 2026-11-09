@@ -19,6 +19,6 @@ Kind: Fixed
 Start each bullet with a capital letter and end it with a full stop. Leave out colons, arrows, semicolons and
 taglines. Two notes in one release that open with the same five words fail the notes test.
 
-The nightly release collects the files added since the last release into that version's What's new section and its
+A release collects the files added since the last release into that version's What's new section and its
 release notes (`scripts/release/Build-WhatsNew.ps1`). Nobody edits a shared section, so PRs never conflict over notes.
 A PR that changes `src/` or `styleguide/` without a note fails CI unless it has the `no-notes` label.

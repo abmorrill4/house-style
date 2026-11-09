@@ -70,12 +70,12 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
   - Never touch a UNC path that came from shared data.
 - **Never run git in a guide folder with its own config.** Always pass `Git.Untrusted`. A shared `.git/config` can
   run programs.
-- **Updates must be signed, and only the nightly release makes them.** Don't weaken `UpdateStager`'s signature check
-  or the `contents: read` default in `build.yml` (see `src/FlareAI.Core/Update/CLAUDE.md`). Releases ship nightly with
-  no approval click (owner decision 2026-10-24). What protects them instead: the `release` environment deploys only
-  `v*` tags and holds the signing key, the release job refuses any run not started by a running `nightly.yml` on
-  `main` (checked through the API) and any tag not on `main`, and the tag ruleset blocks moving or deleting `v*` tags.
-  No agent ever holds a token. Don't add another way to tag.
+- **Updates must be signed, and only `release.yml` makes them.** Don't weaken `UpdateStager`'s signature check or the
+  `contents: read` default in `build.yml` (see `src/FlareAI.Core/Update/CLAUDE.md`). Releases run only when asked,
+  from `main`. What protects them: the `release` environment deploys only from `main` and holds the signing keys, the
+  Azure login and the RSA key sit in separate jobs (`sign`, `sign-exe`, `rsa`), `publish` holds no secrets, and the
+  tag ruleset blocks moving or deleting `v*` tags. CI fails if another workflow uses `environment: release`,
+  `pull_request_target` or `workflow_run`. No agent ever holds a token. Don't add another way to tag.
 - **The repo is public, so vulnerabilities go to private advisories, never public issues.** Use
   `gh api repos/abmorrill4/house-style/security-advisories`. Publish the advisory with the release that fixes it.
   Hardening items with no exploit path can be public issues labeled `security`.
@@ -132,14 +132,18 @@ powershell.exe -File tests\e2e\Run-FlareE2E.ps1 -Install   # build, install and 
   puts it in a product area.
 - **The build factory** is one local script (`scripts/factory.ps1`) in the private repo abmorrill4/house-style-factory,
   not here. This repo holds only the plugin, its tests, its CI and its releases.
-- **Releases are nightly** (`nightly.yml`, 08:07 UTC). If anything under `src/` or `styleguide/` changed since the
-  last tag, it tags the next patch version on `main` and starts `build.yml` on it, which signs and publishes.
-  - **To stop releases,** disable the workflow (`gh workflow disable nightly`).
+- **Releases are signed and run only on request** (`release.yml`). To release, run `gh workflow run release.yml`
+  (`-f version=x.y.z` to pick the version, `-f dry_run=true` to run everything up to a draft release and delete it). With no
+  version it takes the next patch. The run signs the `FlareAI.*` DLLs and EXEs and `Install.ps1` with Azure Artifact
+  Signing, builds `HouseStyle-<ver>.zip` and `HouseStyle-Setup.exe` (signed), signs `checksums.txt` with the RSA key,
+  verifies it all, and publishes. Publishing creates the tag, so a failed run burns no version. Never push a tag yourself.
+  - **Watch it** with `gh run watch <id> --exit-status`; retry a failed run with `gh run rerun <id> --failed`.
   - **Notes:** every PR writers would notice adds `changes/<name>.md` (see `changes/README.md`); CI fails one that
     doesn't, unless it has the `no-notes` label. A hand-written `docs/release-notes/x.y.z.md` goes first when present.
-  - **To release now:** run the `nightly` workflow by hand (`gh workflow run nightly`). Never push a tag yourself.
-  - **A failed night** is reported on the "Nightly release" issue; a tag with no published release is rebuilt the next
-    night.
+  - **Signing needs** the `release` environment's secrets (`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CLIENT_ID`,
+    `SIGNING_ACCOUNT`, `UPDATE_SIGNING_KEY`) and variables (`SIGNING_ENDPOINT`, `SIGNING_PROFILE`). The signing identity
+    expires 2027-11-06: renew it before then, or releases stop. The Azure federated credential trusts only
+    `environment:release` of this repo.
   - Then publish any advisories the release fixes.
 - **The signing key backup is on the owner's machine,** DPAPI-encrypted at
   `%APPDATA%\HouseStyle-release\update-signing-key.dpapi`. Never print it, copy it or commit it.
