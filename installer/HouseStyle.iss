@@ -39,6 +39,9 @@ WelcomeLabel1=House Style {#Version}
 WelcomeLabel2=This installs House Style for MadCap Flare for your Windows account.%n%nClose Flare first. Windows asks for administrator approval once, the first time.
 
 [Code]
+// Inno has no way to set an exit code from Pascal Script (Abort exits 0), so a failed install ends the process itself.
+procedure ExitProcess(ExitCode: Cardinal); external 'ExitProcess@kernel32.dll stdcall';
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Ps, Args: String;
@@ -54,6 +57,7 @@ begin
   else
   begin
     SuppressibleMsgBox('House Style was not installed. The message in the console window says why. Close Flare and run Setup again.', mbError, MB_OK, IDOK);
-    Abort;   // a silent run must not report success
+    DelTree(ExpandConstant('{tmp}\HouseStyleSetup'), True, True, True);
+    ExitProcess(4);   // 4 = a fatal error during installation, so a silent run does not report success
   end;
 end;
