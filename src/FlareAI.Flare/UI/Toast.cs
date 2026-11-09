@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace FlareAI.Flare.UI
@@ -43,6 +44,19 @@ namespace FlareAI.Flare.UI
             if (_open != null && !_open.IsDisposed) _open.Close();
             n.Action();
             return true;
+        }
+
+        /// <summary>
+        /// For the demo runner: the showing notice's rectangle on the screen, or with <paramref name="action"/> its action
+        /// link's ("Show Issues"). Changes nothing.
+        /// </summary>
+        internal static System.Drawing.Rectangle E2EBounds(bool action)
+        {
+            if (_open == null || _open.IsDisposed || !_open.Visible) throw new InvalidOperationException("No notice is showing");
+            if (!action) return _open.RectangleToScreen(_open.ClientRectangle);
+            var link = _open.Controls.OfType<LinkLabel>().FirstOrDefault(l => l.Visible);
+            if (link == null) throw new InvalidOperationException("The notice has no action");
+            return link.RectangleToScreen(link.ClientRectangle);
         }
 
         internal static void E2EClose() { if (_open != null && !_open.IsDisposed) _open.Close(); }

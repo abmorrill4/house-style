@@ -360,7 +360,7 @@ namespace FlareAI.Flare.UI
             card.HorizontalScroll.Enabled = false;
             card.HorizontalScroll.Visible = false;
             card.AutoScroll = true;
-            _cardHead = new Label { AutoSize = false, Height = 34, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
+            _cardHead = new ValueLabel { AutoSize = false, Height = 34, Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
             _cardDiff = DiffView.Create();
             _cardDiff.Height = 64; _cardDiff.BackColor = SystemColors.Window;
             _cardWhy = DiffView.CreateFull();
@@ -724,6 +724,8 @@ namespace FlareAI.Flare.UI
         {
             A11y.Name(this, PaneTitle, "Issues in the open topic, with a card for the selected one.");
             A11y.Name(_progress, "Progress");
+            A11y.Name(_status, "Issue count", "How many issues the list shows, and what happened last.");
+            A11y.Name(_cardHead, "Issue heading", "The selected issue's level, source and kind.");
             A11y.Name(_list, "Issues", IssuesHelp);
             A11y.Name(_result, "Result of the last batch");
             A11y.Name(_cardDiff, "What changes", "The text around the change, with removed words struck through and added words underlined.");
@@ -1431,6 +1433,73 @@ namespace FlareAI.Flare.UI
             return _list.RectangleToScreen(hit.Bounds);
         }
 
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct Rect { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref Rect lParam);
+
+        private const int LVM_GETGROUPRECT = 0x1000 + 98, LVGGR_HEADER = 1;
+
+        /// <summary>
+        /// For the demo runner: the screen rectangle of the first section heading whose text contains <paramref name="text"/>,
+        /// scrolled into view. By file, a heading is a row of the list; otherwise it is a list view group's header, measured
+        /// with LVM_GETGROUPRECT. Changes nothing else.
+        /// </summary>
+        internal Rectangle E2EGroupRect(string text)
+        {
+            var texts = new List<string>();
+            foreach (ListViewItem i in _list.Items)
+            {
+                if (!(i.Tag is FileHeading)) continue;
+                texts.Add(i.Text);
+                if (i.Text.IndexOf(text ?? "", StringComparison.OrdinalIgnoreCase) >= 0) { i.EnsureVisible(); return _list.RectangleToScreen(i.Bounds); }
+            }
+            if (_list.ShowGroups)
+            {
+                foreach (ListViewGroup g in _list.Groups)
+                {
+                    if (g.Items.Count == 0) continue;   // an empty group draws no header
+                    texts.Add(g.Header);
+                    if (g.Header.IndexOf(text ?? "", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    g.Items[0].EnsureVisible();
+                    var id = typeof(ListViewGroup).GetProperty("ID", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    var r = new Rect { Top = LVGGR_HEADER };
+                    if (id == null || SendMessage(_list.Handle, LVM_GETGROUPRECT, (IntPtr)(int)id.GetValue(g, null), ref r) == IntPtr.Zero)
+                        throw new InvalidOperationException("The list didn't report where the heading " + g.Header + " is" +
+                                                            (Application.RenderWithVisualStyles ? "" : " (without visual styles the list draws no headings)"));
+                    return _list.RectangleToScreen(Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom));
+                }
+            }
+            throw new InvalidOperationException("No heading " + text + E2EHook.Valid(texts));
+        }
+
+        /// <summary>The pane's open drop-down menu (Ignore's reasons, or the row menu), or null.</summary>
+        private ContextMenuStrip OpenMenu()
+        {
+            return _rejectMenu.Visible ? _rejectMenu : _list.ContextMenuStrip != null && _list.ContextMenuStrip.Visible ? _list.ContextMenuStrip : null;
+        }
+
+        private static string MenuLabel(ToolStripItem m) { return m.Text.Replace("&", "").TrimEnd('…'); }
+
+        private static IEnumerable<ToolStripItem> MenuItems(ToolStrip menu)
+        {
+            return menu.Items.Cast<ToolStripItem>().Where(m => !(m is ToolStripSeparator) && m.Available);
+        }
+
+        /// <summary>
+        /// For the demo runner: the screen rectangle of the first available item of the pane's open drop-down menu whose
+        /// text, without "&amp;" or "…", starts with <paramref name="prefix"/>. Changes nothing.
+        /// </summary>
+        internal Rectangle E2EMenuItemRect(string prefix)
+        {
+            var menu = OpenMenu();
+            if (menu == null) throw new InvalidOperationException("No open menu");
+            var hit = MenuItems(menu).FirstOrDefault(m => MenuLabel(m).StartsWith(prefix ?? "", StringComparison.Ordinal));
+            if (hit == null) throw new InvalidOperationException("No menu item " + prefix + E2EHook.Valid(MenuItems(menu).Select(MenuLabel)));
+            return menu.RectangleToScreen(hit.Bounds);
+        }
+
         /// <summary>For tests and the real-Flare check: the drawer's toggle button.</summary>
         internal void E2EToggleDrawer() { ToggleDrawer(); }
 
@@ -1535,12 +1604,10 @@ namespace FlareAI.Flare.UI
         /// </summary>
         internal void E2EMenuPick(string prefix)
         {
-            var menu = _rejectMenu.Visible ? _rejectMenu : _list.ContextMenuStrip != null && _list.ContextMenuStrip.Visible ? _list.ContextMenuStrip : null;
+            var menu = OpenMenu();
             if (menu == null) throw new InvalidOperationException("No open menu");
-            var hit = menu.Items.Cast<ToolStripItem>().FirstOrDefault(m => !(m is ToolStripSeparator) && m.Available && m.Enabled &&
-                                                                         m.Text.Replace("&", "").TrimEnd('…').StartsWith(prefix ?? "", StringComparison.Ordinal));
-            if (hit == null) throw new InvalidOperationException("No menu item " + prefix + E2EHook.Valid(
-                menu.Items.Cast<ToolStripItem>().Where(m => !(m is ToolStripSeparator) && m.Available).Select(m => m.Text.Replace("&", "").TrimEnd('…'))));
+            var hit = MenuItems(menu).FirstOrDefault(m => m.Enabled && MenuLabel(m).StartsWith(prefix ?? "", StringComparison.Ordinal));
+            if (hit == null) throw new InvalidOperationException("No menu item " + prefix + E2EHook.Valid(MenuItems(menu).Select(MenuLabel)));
             menu.Close();
             hit.PerformClick();
         }
