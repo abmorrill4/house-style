@@ -17,6 +17,7 @@ VersionInfoVersion={#Version}
 CreateAppDir=no
 Uninstallable=no
 DisableProgramGroupPage=yes
+DisableWelcomePage=no
 DisableReadyPage=yes
 DisableFinishedPage=yes
 ; Per user. Install.ps1 asks Windows for administrator rights itself, once, for the Flare Plugins link.
@@ -49,7 +50,7 @@ begin
   Args := '/c ""' + ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe') + '" -NoProfile -ExecutionPolicy Bypass -File "' +
           ExpandConstant('{tmp}\HouseStyleSetup\Install.ps1') + '" -Silent || (pause & exit /b 1)"';
   if Exec(Ps, Args, ExpandConstant('{tmp}\HouseStyleSetup'), SW_SHOW, ewWaitUntilTerminated, Code) and (Code = 0) then
-    MsgBox('House Style is installed. Start Flare and look for the House Style tab.', mbInformation, MB_OK)
+    SuppressibleMsgBox('House Style is installed. Start Flare and look for the House Style tab.', mbInformation, MB_OK, IDOK)
   else
   begin
     SuppressibleMsgBox('House Style was not installed. The message in the console window says why. Close Flare and run Setup again.', mbError, MB_OK, IDOK);
