@@ -22,9 +22,9 @@ Copy-Item "tools\FlareAI.Updater\bin\Release\net48\FlareAI.Updater.exe", "tools\
 if (Test-Path "src\FlareAI.Flare\Icons") { Copy-Item "src\FlareAI.Flare\Icons" -Destination $stage -Recurse }
 # The practice project for the guided first lint (copied to Documents\House Style Practice on first use).
 Copy-Item "src\FlareAI.Flare\Samples" -Destination $stage -Recurse
-# Zip root = Install.cmd, Install.ps1, README-INSTALL.md, FlareAI\ (no wrapper folder)
+# Zip root = Install.ps1, README-INSTALL.md, FlareAI\ (no wrapper folder)
 Copy-Item "docs\README-INSTALL.md" -Destination "$repo\dist\stage\README-INSTALL.md"
-Copy-Item "scripts\release\Install.ps1", "scripts\release\Install.cmd" -Destination "$repo\dist\stage"
+Copy-Item "scripts\release\Install.ps1" -Destination "$repo\dist\stage"
 Copy-Item "LICENSE", "NOTICE.md" -Destination $stage
 
 if ($StageOnly) { Write-Host "Staged: $repo\dist\stage"; return }

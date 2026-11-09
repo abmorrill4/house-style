@@ -17,9 +17,9 @@ Website: <https://gethousestyle.com/>
 
 ## Install
 
-1. Download `HouseStyle-<version>.zip` from [Releases](../../releases) and extract all of it.
+1. Download [HouseStyle-Setup.exe](https://github.com/abmorrill4/house-style/releases/latest/download/HouseStyle-Setup.exe).
 2. Close Flare.
-3. Double-click `Install.cmd` and approve the administrator prompt. You see the prompt only the first time.
+3. Run it and approve the administrator prompt. You see the prompt only the first time.
 4. Start Flare. The installer turns House Style on, so the House Style tab is on the ribbon.
 5. A four-step setup asks how you use House Style, how you use AI and where your style rules are. Then a short
    practice shows you a first lint. To practice again, select **Help > Start the Tour Again**.

@@ -6,14 +6,14 @@ Thank you for testing House Style. This page gets you started. The full user gui
 
 ## Install or upgrade
 
-1. Extract the whole download.
+1. Download HouseStyle-Setup.exe from the releases page.
 2. Close Flare.
-3. Double-click `Install.cmd` and approve the administrator prompt. It replaces a copy you installed by hand and keeps
+3. Run it and approve the administrator prompt. It replaces a copy you installed by hand and keeps
    your settings.
 4. Start Flare. The installer turns House Style on for you. If the tab is missing, select
    **File > Options > Plugins > House Style > Enable**.
 
-If you had an earlier test build that updated itself, run `Install.cmd` from this download once too.
+If you had an earlier test build that updated itself, run HouseStyle-Setup.exe once too.
 
 From now on, House Style updates itself. When a new version is out, it downloads and checks it in the background, and
 a notice says it installs when you close Flare. Your next start shows what's new.

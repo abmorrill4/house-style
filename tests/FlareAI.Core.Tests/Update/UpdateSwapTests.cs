@@ -14,7 +14,7 @@ namespace FlareAI.Core.Tests.Update
     {
         private static string Plugins(TempDir t) { return t["Flare.app\\Plugins\\FlareAI"]; }
 
-        /// <summary>HouseStyle\current (a real folder of <paramref name="version"/>) and Plugins\FlareAI -> current, as Install.cmd makes.</summary>
+        /// <summary>HouseStyle\current (a real folder of <paramref name="version"/>) and Plugins\FlareAI -> current, as the installer makes.</summary>
         private static UpdateLayout Installed(TempDir t, string version = "0.8.0")
         {
             var layout = new UpdateLayout(t["HouseStyle"]);

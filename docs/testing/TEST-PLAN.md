@@ -6,7 +6,7 @@ For testers. Each case says what to do and what you should see. Mark it pass or 
 
 ## Setup (once)
 
-1. Install House Style with `Install.cmd` (user guide: *Install and update*).
+1. Install House Style with HouseStyle-Setup.exe (user guide: *Install and update*).
 2. Select **House Style > Settings > Run setup again**, answer the four steps, and select **Test connection**.
 3. The test corpus is in the repository: `corpus/DigitalBanking` (a Flare project: 25 feature areas × 10 topics,
    snippets, variables, conditions, images, a TOC and an HTML5 target) and `corpus/ground-truth.json`, which lists

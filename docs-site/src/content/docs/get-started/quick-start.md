@@ -9,7 +9,7 @@ This takes you from a fresh install to your first fixed issue. You need Windows 
 
 ## 1. Install House Style
 
-Download the zip from the [releases page](https://github.com/abmorrill4/house-style/releases/latest), extract all of it, close Flare, and double-click **Install.cmd**. Approve the administrator prompt. See [Install and update](/docs/get-started/install/) for the details.
+Download [HouseStyle-Setup.exe](https://github.com/abmorrill4/house-style/releases/latest/download/HouseStyle-Setup.exe), close Flare, and run it. Approve the administrator prompt. See [Install and update](/docs/get-started/install/) for the details.
 
 ## 2. Go through setup
 

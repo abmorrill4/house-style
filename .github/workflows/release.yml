@@ -1,6 +1,6 @@
 # The signed release, started by hand: gh workflow run release.yml [-f version=x.y.z] [-f dry_run=true]
-# build (tests, unsigned stage) -> sign (Azure Artifact Signing of the FlareAI.* PE files) -> package (zip)
-# -> rsa (signs checksums.txt with the update key) -> publish (verifies everything, then draft, publish, tag).
+# build (tests, unsigned stage) -> sign (Azure Artifact Signing of the FlareAI.* PE files and Install.ps1) -> package (zip, installer exe)
+# -> sign-exe -> rsa (signs checksums.txt with the update key) -> publish (verifies everything, then draft, publish, tag).
 # Only sign and rsa run in the "release" environment (main only). Publishing creates the tag, so a failed run burns no
 # version. dry_run goes through the draft release, then deletes it: no tag, no published release.
 name: release
@@ -109,6 +109,8 @@ jobs:
           $dist = (Resolve-Path dist).Path
           $files = @(./scripts/release/Get-SignFiles.ps1 -Dir "$dist\stage\FlareAI")
           if ($files.Count -lt 4) { throw "Expected at least 4 files to sign, found $($files.Count)." }
+          # Install.ps1 is signed too: the installer exe runs it, and a Group Policy AllSigned setting would block an unsigned script.
+          $files += "$dist\stage\Install.ps1"
           $files | ForEach-Object { $_.Substring($dist.Length + 1) } | Set-Content "$dist\signlist.txt" -Encoding ascii
           Get-Content "$dist\signlist.txt"
 
@@ -131,7 +133,7 @@ jobs:
 
       - name: Verify signatures
         shell: pwsh
-        run: ./scripts/release/Test-Signed.ps1 -Dir dist/stage/FlareAI
+        run: ./scripts/release/Test-Signed.ps1 -Dir dist/stage/FlareAI -Extra dist/stage/Install.ps1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -163,15 +165,84 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
         run: ./scripts/zip.ps1 -Version $env:VERSION
 
+      - name: Installer exe
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          # Inno Setup is preinstalled on the runner image; a different version fails the run rather than build with an unknown compiler.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup is not on this runner." }
+          $v = (Get-Item $iscc).VersionInfo.ProductVersion
+          if ($v -ne '6.7.1') { throw "Expected Inno Setup 6.7.1, found $v." }
+          & $iscc /Qp "/DVersion=$env:VERSION" installer/HouseStyle.iss
+          if ($LASTEXITCODE) { throw "ISCC failed." }
+          if (-not (Test-Path dist/HouseStyle-Setup.exe)) { throw "dist/HouseStyle-Setup.exe was not built." }
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: zip
-          path: dist/HouseStyle-${{ needs.build.outputs.version }}.zip
+          name: package
+          path: |
+            dist/HouseStyle-${{ needs.build.outputs.version }}.zip
+            dist/HouseStyle-Setup.exe
+          if-no-files-found: error
+
+  sign-exe:
+    needs: [build, package]
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: read
+      id-token: write   # the OIDC login to Azure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: dist
+
+      - name: Sign list
+        shell: pwsh
+        run: Set-Content dist/exelist.txt "HouseStyle-Setup.exe" -Encoding ascii
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-catalog: ${{ github.workspace }}\dist\exelist.txt
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          cache-dependencies: false
+
+      - name: Verify signature
+        shell: pwsh
+        run: ./scripts/release/Test-Signed.ps1 -Extra dist/HouseStyle-Setup.exe
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-package
+          path: |
+            dist/HouseStyle-${{ needs.build.outputs.version }}.zip
+            dist/HouseStyle-Setup.exe
           if-no-files-found: error
 
   rsa:
     # Holds the update key. No id-token and no third-party actions (actions/download-artifact is GitHub's own).
-    needs: [build, package]
+    needs: [build, sign-exe]
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 10
@@ -181,7 +252,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: zip
+          name: signed-package
           path: dist
 
       - name: Checksums and signature
@@ -192,9 +263,10 @@ jobs:
         run: |
           if (-not $env:SIGNING_KEY) { throw "UPDATE_SIGNING_KEY is not set in the release environment." }
           $name = "HouseStyle-$env:VERSION.zip"
-          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
           # sha256sum format, no BOM: the signature covers these exact bytes.
-          [IO.File]::WriteAllBytes("dist/checksums.txt", [Text.Encoding]::ASCII.GetBytes("$hash  $name`n"))
+          $text = ""
+          foreach ($n in $name, "HouseStyle-Setup.exe") { $text += (Get-FileHash "dist/$n" -Algorithm SHA256).Hash.ToLowerInvariant() + "  $n`n" }
+          [IO.File]::WriteAllBytes("dist/checksums.txt", [Text.Encoding]::ASCII.GetBytes($text))
           $rsa = [System.Security.Cryptography.RSA]::Create()
           try {
             $rsa.FromXmlString($env:SIGNING_KEY)
@@ -230,7 +302,7 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: zip
+          name: signed-package
           path: dist
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -260,11 +332,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           $zip = (Resolve-Path "dist\HouseStyle-$env:VERSION.zip").Path
           $sums = [IO.File]::ReadAllBytes((Resolve-Path dist\checksums.txt).Path)
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ([Text.Encoding]::ASCII.GetString($sums) -ne "$hash  HouseStyle-$env:VERSION.zip`n") { throw "checksums.txt doesn't match the zip." }
+          $expected = ""
+          foreach ($n in "HouseStyle-$env:VERSION.zip", "HouseStyle-Setup.exe") { $expected += (Get-FileHash "dist\$n" -Algorithm SHA256).Hash.ToLowerInvariant() + "  $n`n" }
+          if ([Text.Encoding]::ASCII.GetString($sums) -ne $expected) { throw "checksums.txt doesn't match the zip and the installer." }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [IO.Compression.ZipFile]::ExtractToDirectory($zip, "$PWD\dist\verify")
-          .\scripts\release\Test-Signed.ps1 -Dir dist\verify\FlareAI
+          .\scripts\release\Test-Signed.ps1 -Dir dist\verify\FlareAI -Extra dist\verify\Install.ps1, dist\HouseStyle-Setup.exe
           # The RSA signature must verify with the public key compiled into the shipped FlareAI.Core.dll.
           $core = [Reflection.Assembly]::LoadFrom((Resolve-Path dist\verify\FlareAI\FlareAI.Core.dll).Path)
           $t = $core.GetType("FlareAI.Core.Update.UpdateSigning")
@@ -279,7 +352,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:VERSION"
-          $files = "dist/HouseStyle-$env:VERSION.zip", "dist/checksums.txt", "dist/checksums.txt.sig"
+          $files = "dist/HouseStyle-$env:VERSION.zip", "dist/HouseStyle-Setup.exe", "dist/checksums.txt", "dist/checksums.txt.sig"
           gh release create $tag @files --title "House Style $env:VERSION" --notes-file release-body.md --draft --target $env:GITHUB_SHA
           if ($LASTEXITCODE) { throw "Couldn't create the draft." }
           if ($env:DRY_RUN -eq 'true') { Write-Host "Dry run: draft created, not published."; exit 0 }
