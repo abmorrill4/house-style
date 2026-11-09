@@ -49,9 +49,11 @@ var
 begin
   if CurStep <> ssPostInstall then Exit;
   Ps := ExpandConstant('{sys}\cmd.exe');
-  // The console stays open while Install.ps1 runs and pauses only if it fails, so its message can be read.
+  // The console stays open while Install.ps1 runs and pauses only if it fails, so its message can be read. A silent run never pauses.
   Args := '/c ""' + ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe') + '" -NoProfile -ExecutionPolicy Bypass -File "' +
-          ExpandConstant('{tmp}\HouseStyleSetup\Install.ps1') + '" -Silent || (pause & exit /b 1)"';
+          ExpandConstant('{tmp}\HouseStyleSetup\Install.ps1') + '" -Silent';
+  if not WizardSilent then Args := Args + ' || (pause & exit /b 1)';
+  Args := Args + '"';
   if Exec(Ps, Args, ExpandConstant('{tmp}\HouseStyleSetup'), SW_SHOW, ewWaitUntilTerminated, Code) and (Code = 0) then
     SuppressibleMsgBox('House Style is installed. Start Flare and look for the House Style tab.', mbInformation, MB_OK, IDOK)
   else
