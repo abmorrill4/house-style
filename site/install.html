@@ -46,20 +46,16 @@
       <ol class="install-steps" data-reveal>
         <li>
           <h2>Download</h2>
-          <p>Get the zip from the latest release.</p>
-          <a class="btn btn-primary" href="https://github.com/abmorrill4/house-style/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg>Download for Flare 2026</a>
+          <p>Get HouseStyle-Setup.exe from the latest release.</p>
+          <a class="btn btn-primary" href="https://github.com/abmorrill4/house-style/releases/latest/download/HouseStyle-Setup.exe"><svg aria-hidden="true"><use href="#i-down"/></svg>Download for Flare 2026</a>
         </li>
         <li>
           <h2>Check the download (optional)</h2>
-          <p>Open PowerShell in the folder with the zip and run <code>Get-FileHash .\HouseStyle-*.zip</code>. The result should match the line for that file in <b>checksums.txt</b> on the release page.</p>
+          <p>Open PowerShell in the folder with the file and run <code>Get-AuthenticodeSignature .\HouseStyle-Setup.exe</code>. The status should be <b>Valid</b> and the signer Arthur Morrill.</p>
         </li>
         <li>
-          <h2>Unblock and extract</h2>
-          <p>Right-click the zip, select <b>Properties</b>, select <b>Unblock</b> and then <b>OK</b>. Then select <b>Extract All</b>.</p>
-        </li>
-        <li>
-          <h2>Run Install.cmd</h2>
-          <p>Close Flare, then double-click <b>Install.cmd</b> in the extracted folder.</p>
+          <h2>Run the installer</h2>
+          <p>Close Flare, then run <b>HouseStyle-Setup.exe</b>.</p>
           <p class="note">Windows asks for administrator approval the first time only.</p>
           <p class="note">House Style installs for your own Windows account. Shared computers aren't supported.</p>
         </li>
@@ -125,7 +121,7 @@
       <div class="body">
         <ul>
           <li>Select <b>File &gt; Options &gt; Plugins</b>, select <b>House Style</b> and then <b>Enable</b>.</li>
-          <li>Close Flare, run <b>Install.cmd</b> again and restart Flare.</li>
+          <li>Close Flare, run <b>HouseStyle-Setup.exe</b> again and restart Flare.</li>
         </ul>
         <p>Still stuck? Choose <b>Help &gt; Report a Problem</b>, or open an <a href="https://github.com/abmorrill4/house-style/issues">issue on GitHub</a>.</p>
       </div>

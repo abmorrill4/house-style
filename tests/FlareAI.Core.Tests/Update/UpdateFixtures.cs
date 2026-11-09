@@ -77,14 +77,13 @@ namespace FlareAI.Core.Tests.Update
             File.WriteAllText(System.IO.Path.Combine(dir, "StyleGuide", "rules.txt"), "rules " + version);
         }
 
-        /// <summary>A release zip shaped like the real one: Install.cmd, Install.ps1, FlareAI\... at the root.</summary>
+        /// <summary>A release zip shaped like the real one: Install.ps1, FlareAI\... at the root.</summary>
         public static byte[] Zip(string version, Action<string> tamper = null)
         {
             using (var t = new TempDir())
             {
                 var stage = t["stage"];
                 Write(System.IO.Path.Combine(stage, "FlareAI"), version);
-                File.WriteAllText(System.IO.Path.Combine(stage, "Install.cmd"), "@echo off");
                 if (tamper != null) tamper(stage);
                 var zip = t["r.zip"];
                 ZipFile.CreateFromDirectory(stage, zip);

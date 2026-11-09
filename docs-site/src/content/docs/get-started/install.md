@@ -9,18 +9,18 @@ You need Windows and MadCap Flare 2026. The first install asks for administrator
 
 ## Install
 
-1. Download `HouseStyle-<version>.zip` from the project's GitHub releases page, and extract all of it.
+1. Download [HouseStyle-Setup.exe](https://github.com/abmorrill4/house-style/releases/latest/download/HouseStyle-Setup.exe) from the project's GitHub releases page.
 2. Close Flare.
-3. Double-click **Install.cmd**, and approve the administrator prompt.
+3. Run it, and approve the administrator prompt.
 4. Start Flare. The installer turns House Style on for you, so the **House Style** tab is on the ribbon and setup opens. If the tab is missing, select **File > Options > Plugins**, select House Style, and then select **Enable**.
 
 If you have more than one version of Flare, the installer uses the newest. House Style needs Flare's Ribbon interface (**View > Interface**).
 
-To upgrade a copy you installed by hand, run **Install.cmd** from the new download. Your settings and rule changes are kept.
+To upgrade a copy you installed by hand, run **HouseStyle-Setup.exe** from the new download. Your settings and rule changes are kept.
 
 ## Updates
 
-House Style updates itself. Updates work only for a copy installed with **Install.cmd**.
+House Style updates itself. Updates work only for a copy installed with **HouseStyle-Setup.exe**.
 
 1. Once a day, House Style checks GitHub for a new version.
 2. When there is one, House Style downloads it and checks it. A notice says it installs when you close Flare.

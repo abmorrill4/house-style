@@ -99,13 +99,6 @@ $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bad))
         }
 
         [Fact]
-        public void LauncherCallsWindowsPowerShellByItsFullPath()
-        {
-            var cmd = File.ReadAllText(Path.Combine(WhatsNewTests.RepoRoot(), "scripts", "release", "Install.cmd"));
-            Assert.Contains(@"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe", cmd);
-        }
-
-        [Fact]
         public void PerUserInstall_LinksFlare_ReinstallKeepsData_AndMigratesACopyInstall()
         {
             if (PowerShell51 == null) return;

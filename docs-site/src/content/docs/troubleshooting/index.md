@@ -23,7 +23,7 @@ Right-click the issue in the pane and select **Report False Positive…**, then 
 
 - Select **File > Options > Plugins**, and check that House Style is enabled. If the tab still doesn't appear, restart Flare.
 - Switch to the Ribbon interface: **View > Interface**.
-- Run **Install.cmd** again from the download, with Flare closed.
+- Run **HouseStyle-Setup.exe** again, with Flare closed.
 
 ## The AI doesn't work
 
@@ -41,7 +41,7 @@ The folder you chose in **Settings > Style guide** is a Flare project with nothi
 
 ## An update didn't install
 
-You stay on your version, and it works as before. The notice says why. House Style tries again later. To install it yourself, download it and run **Install.cmd**.
+You stay on your version, and it works as before. The notice says why. House Style tries again later. To install it yourself, download **HouseStyle-Setup.exe** and run it.
 
 ## House Style refused a change
 
