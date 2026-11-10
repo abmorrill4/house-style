@@ -23,5 +23,10 @@ if ($notes.Count) {
         $lines += "  - $($n.FullName) :: $title" + $(if ($status) { " [$status]" } else { "" })
     }
 }
+$state = "G:\Obsidian\Log Pose\_System\state.ps1"   # digest of planning cards and what changed since last session
+if (Test-Path $state) {
+    $digest = @(& $state 2>$null) -join "`n"
+    if ($digest) { $lines += $digest }
+}
 $lines -join "`n"
 exit 0
