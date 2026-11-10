@@ -13,7 +13,7 @@ $lines = @("House Style session: $top on '$branch'" + $(if ($behind -and $behind
 if ((Resolve-Path $top).Path -eq (Resolve-Path $main).Path) {
     $lines += "This is the shared main checkout: start task work in a worktree from origin/main (see CLAUDE.md)."
 }
-$handoff = Join-Path $main "..\..\planning\handoff"   # the project folder, outside the repo
+$handoff = "G:\Obsidian\Log Pose\Handoffs"   # the Log Pose vault, outside the repo
 $notes = @(Get-ChildItem $handoff -Filter *.md -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5)
 if ($notes.Count) {
     $lines += "Handoff notes (newest first; read the matching one when the user says 'continue <topic>'):"
