@@ -9,12 +9,13 @@ gethousestyle.com. This file is for development sessions. Area notes load on the
 1. **Work in the main checkout `E:\HouseStyle\repos\house-style`, on a short branch from `origin/main`.** Sessions
    start in `E:\HouseStyle`. Add a worktree (`git worktree add ..\worktrees\<topic> -b <topic> origin/main`) only
    when another session is working in parallel, and remove it once its PR merges. Planning and design work go in
-   `E:\HouseStyle\planning`, never in a worktree.
-2. **Continuing earlier work?** The SessionStart hook lists the newest handoff notes. When the user says
-   "continue", "pick up" or names a topic, read the matching note before anything else. Notes describe the past, so
-   check them against `git log` and `gh pr view` before acting on them.
-3. **Ending or switching chats**, or when context is getting long, run `/handoff` to write a note. The next chat
-   then starts from that note and doesn't re-read the repo.
+   the Log Pose vault, never in a worktree.
+2. **Continuing earlier work?** Each piece of work has a card in the Log Pose vault, and the SessionStart hook lists
+   the cards in Building and the ones updated most recently. When the user says "continue", "pick up" or names a
+   topic, read the matching card's `Now` section before anything else. Check it against `git log` and `gh pr view`
+   before acting on it.
+3. **Ending or switching chats**, or when context is getting long, run `/handoff`. It brings the cards you touched
+   up to date, so the next chat starts from the card and doesn't re-read the repo.
 
 ## Flare questions: look them up
 Before you write or change anything that touches Flare itself (the plugin API, ribbon, menus, panes, the editor, topic
@@ -37,7 +38,7 @@ order, then to a real-Flare test. Don't answer from memory or a fresh web search
 | `site/` | gethousestyle.com: static GitHub Pages, deployed by `pages.yml` on pushes to `main`. |
 | `docs-site/` | The documentation site (Astro Starlight), published at gethousestyle.com/docs/ by `pages.yml`. See "Docs site" below. |
 | `docs/` | `PLAN.md` (architecture), `flare-api-notes.md` (verified Flare behavior), `api-dump.txt` (the real API, authoritative), `testing/`, `release-notes/`. The writers' user guide is in `docs-site/`. |
-| `../../planning/` | Outside the repo and not git tracked: the roadmap, plans, research and handoff notes. The main checkout lives at `<project>/repos/house-style`. |
+| `../../planning/` | Outside the repo and not git tracked: bulk research data (the Flare docs copy, videos, screenshots, scripts). Planning notes live in the Log Pose vault. The main checkout lives at `<project>/repos/house-style`. |
 
 ## Hard constraints
 - **Runtimes and idioms.**
